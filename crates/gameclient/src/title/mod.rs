@@ -54,7 +54,7 @@ fn setup_font(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(GameFont(font));
 }
 
-fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
+fn spawn_title(mut commands: Commands, font: Res<GameFont>, asset_server: Res<AssetServer>) {
     let f = font.0.clone();
 
     // Default values for quick testing
@@ -65,6 +65,28 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
     });
 
     commands.insert_resource(GameSession::default());
+
+    // Background image
+    commands.spawn((
+        Sprite {
+            image: asset_server.load("background.png"),
+            custom_size: Some(Vec2::new(960.0, 540.0)),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, -1.0),
+        TitleScreen,
+    ));
+
+    // Semi-transparent dark overlay so text is readable
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(0.0, 0.0, 0.0, 0.6),
+            custom_size: Some(Vec2::new(960.0, 540.0)),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 0.0),
+        TitleScreen,
+    ));
 
     // Title
     commands.spawn((

@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use wasm_bindgen::prelude::*;
 
 mod states;
+mod terrain;
 mod title;
 
 use states::AppState;
@@ -37,6 +38,7 @@ pub fn start() {
         )))
         .init_state::<AppState>()
         .add_plugins(title::TitlePlugin)
+        .add_plugins(terrain::tilemap::TilemapPlugin)
         .run();
 }
 
