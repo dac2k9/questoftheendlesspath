@@ -1,0 +1,21 @@
+# Rust
+target/
+
+# Node
+game/node_modules/
+game/dist/
+
+# Environment (contains secrets)
+.env
+crates/**/.env
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Python (legacy scripts)
+__pycache__/
+*.pyc

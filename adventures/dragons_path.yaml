@@ -1,0 +1,355 @@
+adventure:
+  name: "The Dragon's Path"
+  description: "Two heroes journey across the realm to stop the Elder Dragon before it awakens and consumes the world in fire."
+  total_distance_km: 75
+  gold_per_km: 100
+  speed_bonus_gold: 50
+
+zones:
+  - name: "The Meadowlands"
+    start_km: 0
+    end_km: 9
+    tileset: meadow
+    music: peaceful_fields
+    description: "Rolling green hills dotted with wildflowers. The air smells of fresh grass and adventure."
+    events:
+      - at_km: 1.5
+        type: npc
+        name: "Old Sage Merin"
+        description: "A weathered old man sits by the roadside, staff in hand."
+        dialogue:
+          - "Ah, travelers! The road ahead is long and fraught with danger."
+          - "Take this map fragment. You'll need it to navigate the Whispering Woods."
+          - "Remember — the strongest journeys are walked together."
+        reward: { gold: 50, item: "map_fragment" }
+        requires_browser: false
+
+      - at_km: 4.0
+        type: treasure
+        name: "Roadside Chest"
+        description: "A forgotten chest half-buried in wildflowers."
+        reward: { gold: 150 }
+        requires_browser: false
+
+      - at_km: 6.5
+        type: npc
+        name: "Traveling Merchant Yara"
+        description: "A cheerful merchant with a cart full of wares."
+        dialogue:
+          - "Fine day for a walk! Care to see my wares?"
+          - "I've got potions, boots, and a shield that once belonged to a knight!"
+        requires_browser: false
+        reward: { gold: 25 }
+
+      - at_km: 8.5
+        type: boss
+        name: "Forest Troll"
+        description: "A massive troll blocks the bridge to the Whispering Woods. Its eyes glow with malice."
+        hp: 800
+        requires_all_players: true
+        requires_browser: true
+        reward: { gold: 300, item: "troll_hide_shield" }
+        dialogue_intro:
+          - "NONE SHALL PASS THIS BRIDGE!"
+          - "I've crushed bigger heroes than you!"
+        dialogue_defeat:
+          - "Urrgh... you... are strong..."
+          - "The woods... will finish you..."
+
+  - name: "Whispering Woods"
+    start_km: 9
+    end_km: 18
+    tileset: dark_forest
+    music: mysterious_woods
+    description: "Ancient trees whisper secrets in a language long forgotten. Shafts of light pierce the canopy."
+    events:
+      - at_km: 10.0
+        type: story
+        name: "Entering the Woods"
+        dialogue:
+          - "The trees close in around you. Their whispers grow louder."
+          - "Strange symbols are carved into the bark — warnings from travelers past."
+        requires_browser: false
+
+      - at_km: 11.5
+        type: hazard
+        name: "Tangled Undergrowth"
+        description: "Thick vines and roots slow your progress through the dark forest."
+        effect: speed_multiplier
+        value: 0.7
+        duration_km: 1.5
+        requires_browser: false
+
+      - at_km: 14.0
+        type: shop
+        name: "Woodland Merchant"
+        description: "A hooded figure tends a small stall lit by glowing mushrooms."
+        requires_browser: true
+        items:
+          - { name: "Health Potion", cost: 100, effect: "heal_boss_50hp" }
+          - { name: "Swift Boots", cost: 250, effect: "speed_boost_10min" }
+          - { name: "Lantern of Revealing", cost: 200, effect: "reveal_treasure" }
+
+      - at_km: 15.5
+        type: treasure
+        name: "Hidden Grove Cache"
+        description: "Behind a waterfall, you find a chest covered in moss."
+        reward: { gold: 200, item: "elven_cloak" }
+        requires_browser: false
+
+      - at_km: 17.5
+        type: boss
+        name: "Spider Queen Arachne"
+        description: "Webs span between the trees, and at their center sits the Spider Queen."
+        hp: 1200
+        requires_all_players: true
+        requires_browser: true
+        reward: { gold: 500, item: "silk_armor" }
+        dialogue_intro:
+          - "Ssso... more flies for my web..."
+          - "You'll make a fine meal for my children!"
+        dialogue_defeat:
+          - "My... beautiful... web..."
+
+  - name: "The Highlands"
+    start_km: 18
+    end_km: 28
+    tileset: highland
+    music: highland_winds
+    description: "Rocky hills and sweeping vistas. The wind carries the scent of heather and stone."
+    events:
+      - at_km: 20.0
+        type: npc
+        name: "Dwarven Scout Thorin"
+        description: "A stout dwarf peers at you through a spyglass."
+        dialogue:
+          - "Ye made it through the woods? Impressive."
+          - "The pass ahead is guarded by something... unnatural."
+          - "Here, take this. Dwarven steel. It'll serve ye well."
+        reward: { gold: 100, item: "dwarven_axe" }
+        requires_browser: false
+
+      - at_km: 24.0
+        type: treasure
+        name: "Highland Cairn"
+        description: "An ancient stone cairn. Something glints between the rocks."
+        reward: { gold: 300 }
+        requires_browser: false
+
+      - at_km: 27.0
+        type: boss
+        name: "Storm Giant"
+        description: "A towering figure wreathed in lightning blocks the mountain pass."
+        hp: 1600
+        requires_all_players: true
+        requires_browser: true
+        reward: { gold: 700, item: "lightning_gauntlets" }
+        dialogue_intro:
+          - "TINY MORTALS DARE ENTER MY DOMAIN?"
+          - "I AM THE STORM ITSELF!"
+        dialogue_defeat:
+          - "The storm... subsides..."
+          - "Perhaps... you are worthy..."
+
+  - name: "Stormcrag Pass"
+    start_km: 28
+    end_km: 37
+    tileset: mountain
+    music: perilous_ascent
+    description: "A narrow pass through jagged peaks. Thunder rumbles in the distance."
+    events:
+      - at_km: 30.0
+        type: hazard
+        name: "Rockslide Zone"
+        description: "Loose rocks tumble from above. Tread carefully."
+        effect: speed_multiplier
+        value: 0.6
+        duration_km: 2.0
+        requires_browser: false
+
+      - at_km: 33.0
+        type: shop
+        name: "Mountain Hermit"
+        description: "A hermit offers rare mountain herbs and forged weapons."
+        requires_browser: true
+        items:
+          - { name: "Mountain Herb Tea", cost: 150, effect: "heal_boss_100hp" }
+          - { name: "Ironclad Boots", cost: 400, effect: "ignore_hazards_5km" }
+
+      - at_km: 35.0
+        type: treasure
+        name: "Eagle's Nest"
+        description: "High on a ledge, an abandoned eagle's nest holds unexpected treasure."
+        reward: { gold: 250, item: "eagle_feather" }
+        requires_browser: false
+
+  - name: "The Darkmarsh"
+    start_km: 37
+    end_km: 47
+    tileset: swamp
+    music: murky_depths
+    description: "A fetid swamp stretches before you. Bubbles rise from the murky water."
+    events:
+      - at_km: 38.0
+        type: hazard
+        name: "Bog of Despair"
+        description: "The marsh pulls at your feet. Every step is an effort."
+        effect: speed_multiplier
+        value: 0.5
+        duration_km: 3.0
+        requires_browser: false
+
+      - at_km: 42.0
+        type: npc
+        name: "Swamp Witch Morgana"
+        description: "A cloaked figure stirs a bubbling cauldron."
+        dialogue:
+          - "Hehehehe... lost in my swamp, are we?"
+          - "I can see your future... fire and shadow..."
+          - "Take this charm. You'll need protection where you're going."
+        reward: { gold: 75, item: "shadow_ward" }
+        requires_browser: false
+
+      - at_km: 46.0
+        type: boss
+        name: "Hydra of the Deep"
+        description: "From the murky depths, a three-headed serpent rises."
+        hp: 2200
+        requires_all_players: true
+        requires_browser: true
+        reward: { gold: 900, item: "hydra_scale_mail" }
+        dialogue_intro:
+          - "THREE HEADS... THREE DEATHS..."
+          - "*HISSSSSSSS*"
+        dialogue_defeat:
+          - "The waters... grow still..."
+
+  - name: "Kingdom of Ember"
+    start_km: 47
+    end_km: 56
+    tileset: ruined_city
+    music: fallen_kingdom
+    description: "The ruins of a once-great kingdom. Ash drifts like snow through empty streets."
+    events:
+      - at_km: 49.0
+        type: story
+        name: "The Fallen Throne"
+        dialogue:
+          - "You enter the throne room of the last king."
+          - "His crown lies shattered on the floor."
+          - "A mural on the wall shows the Dragon — and a way to defeat it."
+        requires_browser: false
+
+      - at_km: 52.0
+        type: shop
+        name: "Royal Armorer's Ghost"
+        description: "The ghost of the royal armorer offers one final service."
+        requires_browser: true
+        items:
+          - { name: "Dragon Ward Potion", cost: 500, effect: "fire_resistance" }
+          - { name: "Royal Blade", cost: 800, effect: "boss_damage_x2" }
+          - { name: "Phoenix Feather", cost: 600, effect: "auto_revive" }
+
+      - at_km: 54.0
+        type: treasure
+        name: "Royal Treasury"
+        description: "The treasury was looted long ago... but one hidden vault remains."
+        reward: { gold: 500, item: "kings_signet" }
+        requires_browser: false
+
+  - name: "The Ashlands"
+    start_km: 56
+    end_km: 66
+    tileset: volcanic_waste
+    music: desolation
+    description: "Cracked earth and rivers of lava. The air shimmers with heat."
+    events:
+      - at_km: 58.0
+        type: hazard
+        name: "Lava Fields"
+        description: "Streams of molten rock cut across the path. Find your way through."
+        effect: speed_multiplier
+        value: 0.6
+        duration_km: 2.0
+        requires_browser: false
+
+      - at_km: 61.0
+        type: npc
+        name: "Fire Spirit Kaela"
+        description: "A being of living flame hovers before you."
+        dialogue:
+          - "You seek the Dragon? Bold... or foolish."
+          - "The Elder Dragon has slept for a thousand years."
+          - "Its awakening will end everything. Take my blessing."
+        reward: { gold: 200, item: "fire_blessing" }
+        requires_browser: false
+
+      - at_km: 65.0
+        type: boss
+        name: "Volcanic Wyrm"
+        description: "A serpent of stone and fire erupts from the ground."
+        hp: 2500
+        requires_all_players: true
+        requires_browser: true
+        reward: { gold: 1200, item: "wyrm_heart" }
+        dialogue_intro:
+          - "THE MOUNTAIN BURNS!"
+          - "YOU WILL BE ASH!"
+        dialogue_defeat:
+          - "The fire... returns to the earth..."
+
+  - name: "Dragon's Peak"
+    start_km: 66
+    end_km: 75
+    tileset: volcanic
+    music: final_battle
+    description: "The sky burns red. Smoke billows from the peak. The Elder Dragon awaits."
+    events:
+      - at_km: 68.0
+        type: story
+        name: "The Final Ascent"
+        dialogue:
+          - "The ground trembles with each step closer to the peak."
+          - "You can hear it breathing. The world holds its breath."
+        requires_browser: false
+
+      - at_km: 70.0
+        type: shop
+        name: "Last Camp"
+        description: "A small camp of brave souls who came before. Most didn't return."
+        requires_browser: true
+        items:
+          - { name: "Greater Health Potion", cost: 300, effect: "heal_boss_200hp" }
+          - { name: "Hero's Resolve", cost: 500, effect: "speed_boost_30min" }
+
+      - at_km: 72.0
+        type: treasure
+        name: "Hero's Cache"
+        description: "Equipment left behind by the last heroes who attempted the peak."
+        reward: { gold: 400, item: "heroes_pendant" }
+        requires_browser: false
+
+      - at_km: 74.0
+        type: boss
+        name: "Elder Dragon Ignaroth"
+        description: "The final challenge. A mountain of scale and flame. Walk together or fall."
+        hp: 3000
+        requires_all_players: true
+        requires_browser: true
+        reward: { gold: 2000, item: "dragon_crown" }
+        dialogue_intro:
+          - "YOU DARE APPROACH MY MOUNTAIN?"
+          - "A THOUSAND HEROES HAVE FALLEN BEFORE ME."
+          - "YOUR JOURNEY ENDS HERE, MORTALS!"
+        dialogue_defeat:
+          - "Impossible... the fire... fades..."
+          - "Perhaps... you were worthy after all..."
+
+      - at_km: 75.0
+        type: story
+        name: "Victory"
+        dialogue:
+          - "The Elder Dragon falls. The sky clears."
+          - "The realm is saved. Songs will be sung of your journey."
+          - "75 kilometers walked. A true quest completed."
+          - "But legends say... another path awaits."
