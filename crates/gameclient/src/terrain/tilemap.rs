@@ -2,7 +2,6 @@ use bevy::prelude::*;
 
 use super::world::{WorldGrid, WORLD_W, WORLD_H, TILE_PX};
 use super::path::{PlannedRoute, find_path};
-use super::autotile_index;
 use crate::states::AppState;
 use crate::GameFont;
 
@@ -23,9 +22,6 @@ impl Plugin for TilemapPlugin {
 struct WorldTile;
 
 #[derive(Component)]
-struct OverlayTile;
-
-#[derive(Component)]
 struct PathMarker;
 
 #[derive(Component)]
@@ -38,32 +34,27 @@ fn spawn_world(
     mut commands: Commands,
     font: Res<GameFont>,
     asset_server: Res<AssetServer>,
-    mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
+    mut atlases: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     let world = WorldGrid::generate();
 
-    // Load tileset
-    let tileset: Handle<Image> = asset_server.load("tilesets/overworld.png");
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 27, 65, None, None);
-    let layout_handle = texture_atlases.add(layout);
+    // MiniWorld atlas: 16 cols, 6 rows, 16x16 tiles
+    let tileset: Handle<Image> = asset_server.load("tilesets/miniworld.png");
+    let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 16, 7, None, None);
+    let layout_handle = atlases.add(layout);
 
-    // Layer 0: Ground tiles with autotiling
+    // Layer 0: Ground
     for y in 0..WORLD_H {
         for x in 0..WORLD_W {
             let ground = world.get_ground(x, y);
             let pos = WorldGrid::tile_to_world(x, y);
-
-            // Compute autotile index based on neighbors
-            let tile_idx = autotile_index(ground, x, y, |nx, ny| {
-                world.get_ground(nx, ny) == ground
-            });
 
             commands.spawn((
                 Sprite {
                     image: tileset.clone(),
                     texture_atlas: Some(TextureAtlas {
                         layout: layout_handle.clone(),
-                        index: tile_idx as usize,
+                        index: ground.tile_index_varied(x, y),
                     }),
                     ..default()
                 },
@@ -73,25 +64,23 @@ fn spawn_world(
         }
     }
 
-    // Layer 1: Overlay tiles (trees, buildings, bridges)
+    // Layer 1: Overlays (trees, rocks, buildings)
     for y in 0..WORLD_H {
         for x in 0..WORLD_W {
-            let cell = &world.cells[y][x];
-            if let Some(overlay) = cell.overlay {
+            if let Some(overlay) = world.cells[y][x].overlay {
                 let pos = WorldGrid::tile_to_world(x, y);
-                let tile_idx = overlay.tile_index();
 
                 commands.spawn((
                     Sprite {
                         image: tileset.clone(),
                         texture_atlas: Some(TextureAtlas {
                             layout: layout_handle.clone(),
-                            index: tile_idx as usize,
+                            index: overlay.tile_index_varied(x, y),
                         }),
                         ..default()
                     },
-                    Transform::from_xyz(pos.x, pos.y, 1.0), // z=1 above ground
-                    OverlayTile,
+                    Transform::from_xyz(pos.x, pos.y, 1.0),
+                    WorldTile,
                 ));
             }
         }
@@ -109,14 +98,9 @@ fn spawn_world(
         PlayerSprite,
     ));
 
-    // Player name label
     commands.spawn((
         Text2d::new("Dac"),
-        TextFont {
-            font: font.0.clone(),
-            font_size: 8.0,
-            ..default()
-        },
+        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
         TextColor(Color::srgb(0.77, 0.64, 0.35)),
         Transform::from_xyz(start_pos.x, start_pos.y + 12.0, 6.0),
         PlayerSprite,
@@ -125,17 +109,12 @@ fn spawn_world(
     // Tile info text
     commands.spawn((
         Text2d::new(""),
-        TextFont {
-            font: font.0.clone(),
-            font_size: 8.0,
-            ..default()
-        },
+        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
         TextColor(Color::srgb(1.0, 1.0, 1.0)),
         Transform::from_xyz(0.0, 0.0, 10.0),
         TileInfoText,
     ));
 
-    // Initialize route
     commands.insert_resource(PlannedRoute {
         waypoints: vec![(50, 40)],
         meters_walked: 0.0,
@@ -164,7 +143,6 @@ fn handle_map_click(
     let (tx, ty) = WorldGrid::world_to_tile(world_pos);
     let terrain = world.get(tx, ty);
 
-    // Show terrain info on hover
     if let Ok((mut text, mut transform)) = info_q.get_single_mut() {
         let cost_str = if terrain.is_passable() {
             format!("{}m", terrain.movement_cost())
@@ -176,7 +154,6 @@ fn handle_map_click(
         transform.translation = Vec3::new(tile_pos.x, tile_pos.y + 16.0, 10.0);
     }
 
-    // Left click — extend route to this tile
     if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() {
         let start = if route.waypoints.is_empty() {
             (50, 40)
@@ -184,15 +161,12 @@ fn handle_map_click(
             *route.waypoints.last().unwrap()
         };
 
-        if start == (tx, ty) {
-            return;
-        }
+        if start == (tx, ty) { return; }
 
         if let Some(mut new_segment) = find_path(&world, start, (tx, ty)) {
             if !new_segment.is_empty() && !route.waypoints.is_empty() {
                 new_segment.remove(0);
             }
-
             route.waypoints.extend(new_segment);
             route.recalculate_total(&world);
             redraw_path_markers(&mut commands, &path_markers, &route);
@@ -213,7 +187,6 @@ fn handle_right_click(
         route.meters_walked = 0.0;
         route.current_index = 0;
         route.recalculate_total(&world);
-
         for entity in &path_markers {
             commands.entity(entity).despawn();
         }
@@ -225,14 +198,10 @@ fn redraw_path_markers(
     path_markers: &Query<Entity, With<PathMarker>>,
     route: &PlannedRoute,
 ) {
-    for entity in path_markers {
-        commands.entity(entity).despawn();
-    }
+    for entity in path_markers { commands.entity(entity).despawn(); }
 
     for (i, &(px, py)) in route.waypoints.iter().enumerate() {
-        if i <= route.current_index {
-            continue;
-        }
+        if i <= route.current_index { continue; }
         let pos = WorldGrid::tile_to_world(px, py);
         commands.spawn((
             Sprite {
@@ -251,7 +220,6 @@ fn handle_zoom(
     mut camera_q: Query<&mut OrthographicProjection, With<Camera2d>>,
 ) {
     let Ok(mut projection) = camera_q.get_single_mut() else { return };
-
     for ev in scroll_evr.read() {
         let zoom_delta = -ev.y * 0.1;
         projection.scale = (projection.scale + zoom_delta).clamp(0.2, 3.0);
@@ -281,7 +249,7 @@ fn update_camera(
     let Ok((mut cam, mut proj)) = camera_q.get_single_mut() else { return };
 
     if !*initialized {
-        proj.scale = 0.5; // 2x zoom default
+        proj.scale = 0.4; // 2.5x zoom
         *initialized = true;
     }
 
