@@ -12,7 +12,7 @@ impl Plugin for TilemapPlugin {
         app.add_systems(OnEnter(AppState::InGame), spawn_world)
             .add_systems(
                 Update,
-                (handle_map_click, handle_zoom, handle_right_click, update_path_visuals, update_camera)
+                (handle_map_click, handle_zoom, handle_right_click, toggle_poi_labels, update_path_visuals, update_camera)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -30,17 +30,25 @@ struct PlayerSprite;
 #[derive(Component)]
 struct TileInfoText;
 
+#[derive(Component)]
+struct PoiLabel;
+
 fn spawn_world(
     mut commands: Commands,
     font: Res<GameFont>,
     asset_server: Res<AssetServer>,
     mut atlases: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    let world = WorldGrid::generate();
+    let world = WorldGrid::from_seed(42); // TODO: get seed from game session
 
-    // MiniWorld atlas: 16 cols, 6 rows, 16x16 tiles
+    // MiniWorld atlas: 16 cols, 7 rows, 16x16 tiles with 2px padding (20px slots)
     let tileset: Handle<Image> = asset_server.load("tilesets/miniworld.png");
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 16, 7, None, None);
+    let layout = TextureAtlasLayout::from_grid(
+        UVec2::new(16, 16),  // tile size
+        16, 7,                // columns, rows
+        Some(UVec2::new(4, 4)),  // padding between tiles (2px on each side = 4px gap)
+        Some(UVec2::new(2, 2)),  // offset to first tile (2px padding)
+    );
     let layout_handle = atlases.add(layout);
 
     // Layer 0: Ground
@@ -56,6 +64,7 @@ fn spawn_world(
                         layout: layout_handle.clone(),
                         index: ground.tile_index_varied(x, y),
                     }),
+                    custom_size: Some(Vec2::splat(TILE_PX)),
                     ..default()
                 },
                 Transform::from_xyz(pos.x, pos.y, 0.0),
@@ -87,7 +96,12 @@ fn spawn_world(
     }
 
     // Player sprite
-    let start_pos = WorldGrid::tile_to_world(50, 40);
+    // Start at the first town/village
+    let start_tile = world.map.pois.iter()
+        .find(|p| matches!(p.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village))
+        .map(|p| (p.x, p.y))
+        .unwrap_or((50, 40));
+    let start_pos = WorldGrid::tile_to_world(start_tile.0, start_tile.1);
     commands.spawn((
         Sprite {
             color: Color::srgb(0.77, 0.64, 0.35),
@@ -115,8 +129,23 @@ fn spawn_world(
         TileInfoText,
     ));
 
+    // POI labels on the map — hidden by default, shown on TAB
+    for poi in &world.map.pois {
+        let pos = WorldGrid::tile_to_world(poi.x, poi.y);
+        let label = format!("{:?}", poi.poi_type);
+        commands.spawn((
+            Text2d::new(label),
+            TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+            TextColor(Color::srgb(0.1, 0.1, 0.1)),
+            Transform::from_xyz(pos.x, pos.y - 12.0, 8.0),
+            Visibility::Hidden,
+            PoiLabel,
+            WorldTile,
+        ));
+    }
+
     commands.insert_resource(PlannedRoute {
-        waypoints: vec![(50, 40)],
+        waypoints: vec![start_tile],
         meters_walked: 0.0,
         total_meters: 0.0,
         current_index: 0,
@@ -215,6 +244,16 @@ fn redraw_path_markers(
     }
 }
 
+fn toggle_poi_labels(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut labels: Query<&mut Visibility, With<PoiLabel>>,
+) {
+    let show = keys.pressed(KeyCode::Tab);
+    for mut vis in &mut labels {
+        *vis = if show { Visibility::Visible } else { Visibility::Hidden };
+    }
+}
+
 fn handle_zoom(
     mut scroll_evr: EventReader<bevy::input::mouse::MouseWheel>,
     mut camera_q: Query<&mut OrthographicProjection, With<Camera2d>>,
@@ -256,4 +295,9 @@ fn update_camera(
     let target = player_transform.translation;
     cam.translation.x += (target.x - cam.translation.x) * 0.05;
     cam.translation.y += (target.y - cam.translation.y) * 0.05;
+
+    // Snap camera to pixel grid to avoid sub-pixel gaps between tiles
+    let pixel_scale = 1.0 / proj.scale;
+    cam.translation.x = (cam.translation.x * pixel_scale).round() / pixel_scale;
+    cam.translation.y = (cam.translation.y * pixel_scale).round() / pixel_scale;
 }

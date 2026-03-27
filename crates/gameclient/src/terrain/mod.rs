@@ -116,7 +116,7 @@ impl Ground {
         match self {
             Ground::Grass => [5, 6, 7, 8, 9, 10][h % 6],  // textured grass variants
             Ground::Road => [3, 4][h % 2],                    // light sandy road variants
-            Ground::Water => [17, 18, 19, 20, 21][h % 5],  // water variants
+            Ground::Water => 20,                             // solid blue water (no variation)
             Ground::Sand => [11, 12][h % 2],
             Ground::Snow => [22, 23, 24, 25][h % 4],       // snow variants
             Ground::Swamp => [14, 15, 16][h % 3],
