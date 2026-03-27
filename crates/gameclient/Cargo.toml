@@ -18,6 +18,7 @@ bevy = { version = "0.15", default-features = false, features = [
     "png",
     "default_font",
     "multi_threaded",
+    "webgl2",
 ] }
 bevy_ecs_tilemap = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }

@@ -7,8 +7,6 @@ use states::AppState;
 
 #[wasm_bindgen(start)]
 pub fn start() {
-    // Initialize browser console logging
-    #[cfg(target_arch = "wasm32")]
     console_error_panic_hook::set_once();
 
     App::new()
@@ -25,7 +23,11 @@ pub fn start() {
                     }),
                     ..default()
                 })
-                .set(ImagePlugin::default_nearest()),
+                .set(ImagePlugin::default_nearest())
+                .set(AssetPlugin {
+                    meta_check: bevy::asset::AssetMetaCheck::Never,
+                    ..default()
+                }),
         )
         .insert_resource(ClearColor(Color::srgb(
             0x1a as f32 / 255.0,
@@ -34,41 +36,54 @@ pub fn start() {
         )))
         .init_state::<AppState>()
         .add_systems(Startup, setup)
-        .add_systems(Update, title_system.run_if(in_state(AppState::Title)))
         .run();
 }
 
-fn setup(mut commands: Commands) {
+#[derive(Resource)]
+struct GameFont(Handle<Font>);
+
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Spawn 2D camera
     commands.spawn(Camera2d);
 
-    // Placeholder title text
+    // Load pixel font
+    let font: Handle<Font> = asset_server.load("fonts/PressStart2P.ttf");
+    commands.insert_resource(GameFont(font.clone()));
+
+    // Title
     commands.spawn((
         Text2d::new("Quest of the\nEndless Path"),
         TextFont {
-            font_size: 48.0,
+            font: font.clone(),
+            font_size: 32.0,
             ..default()
         },
         TextColor(Color::srgb(0.77, 0.64, 0.35)),
-        Transform::from_xyz(0.0, 80.0, 0.0),
-        TitleText,
+        TextLayout::new_with_justify(JustifyText::Center),
+        Transform::from_xyz(0.0, 60.0, 1.0),
     ));
 
+    // Subtitle
     commands.spawn((
-        Text2d::new("Loading..."),
+        Text2d::new("A cooperative treadmill adventure"),
         TextFont {
-            font_size: 16.0,
+            font: font.clone(),
+            font_size: 10.0,
             ..default()
         },
         TextColor(Color::srgb(0.5, 0.5, 0.5)),
-        Transform::from_xyz(0.0, -40.0, 0.0),
-        TitleText,
+        Transform::from_xyz(0.0, -10.0, 1.0),
     ));
-}
 
-#[derive(Component)]
-struct TitleText;
-
-fn title_system() {
-    // Placeholder — will be replaced with actual title screen logic
+    // Loading text
+    commands.spawn((
+        Text2d::new("Bevy + WASM running!"),
+        TextFont {
+            font,
+            font_size: 12.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.3, 0.8, 0.3)),
+        Transform::from_xyz(0.0, -60.0, 1.0),
+    ));
 }
