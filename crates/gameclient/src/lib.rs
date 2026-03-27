@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use wasm_bindgen::prelude::*;
 
 mod states;
+mod title;
 
 use states::AppState;
 
@@ -35,55 +36,19 @@ pub fn start() {
             0x2e as f32 / 255.0,
         )))
         .init_state::<AppState>()
-        .add_systems(Startup, setup)
+        .add_plugins(title::TitlePlugin)
         .run();
 }
 
-#[derive(Resource)]
-struct GameFont(Handle<Font>);
+/// Shared font resource.
+#[derive(Resource, Clone)]
+pub struct GameFont(pub Handle<Font>);
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    // Spawn 2D camera
-    commands.spawn(Camera2d);
-
-    // Load pixel font
-    let font: Handle<Font> = asset_server.load("fonts/PressStart2P.ttf");
-    commands.insert_resource(GameFont(font.clone()));
-
-    // Title
-    commands.spawn((
-        Text2d::new("Quest of the\nEndless Path"),
-        TextFont {
-            font: font.clone(),
-            font_size: 32.0,
-            ..default()
-        },
-        TextColor(Color::srgb(0.77, 0.64, 0.35)),
-        TextLayout::new_with_justify(JustifyText::Center),
-        Transform::from_xyz(0.0, 60.0, 1.0),
-    ));
-
-    // Subtitle
-    commands.spawn((
-        Text2d::new("A cooperative treadmill adventure"),
-        TextFont {
-            font: font.clone(),
-            font_size: 10.0,
-            ..default()
-        },
-        TextColor(Color::srgb(0.5, 0.5, 0.5)),
-        Transform::from_xyz(0.0, -10.0, 1.0),
-    ));
-
-    // Loading text
-    commands.spawn((
-        Text2d::new("Bevy + WASM running!"),
-        TextFont {
-            font,
-            font_size: 12.0,
-            ..default()
-        },
-        TextColor(Color::srgb(0.3, 0.8, 0.3)),
-        Transform::from_xyz(0.0, -60.0, 1.0),
-    ));
+/// Game session info set during title screen.
+#[derive(Resource, Default)]
+pub struct GameSession {
+    pub game_id: String,
+    pub player_id: String,
+    pub player_name: String,
+    pub join_code: String,
 }
