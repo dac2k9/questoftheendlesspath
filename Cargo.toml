@@ -1,6 +1,8 @@
 [workspace]
 members = ["crates/*"]
 resolver = "2"
+# gameclient is WASM-only — exclude from default workspace builds
+exclude = ["crates/gameclient"]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -14,3 +16,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 btleplug = "0.11"
 anyhow = "1"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
+lto = true

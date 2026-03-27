@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Serialize;

@@ -1,6 +1,10 @@
 # Rust
 target/
 
+# WASM build output
+crates/gameclient/web/
+crates/gameclient/Cargo.lock
+
 # Node
 game/node_modules/
 game/dist/

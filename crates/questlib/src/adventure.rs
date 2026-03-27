@@ -96,6 +96,7 @@ pub struct ShopItem {
 
 impl AdventureFile {
     /// Load an adventure from a YAML file.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load(path: &std::path::Path) -> anyhow::Result<Self> {
         let contents = std::fs::read_to_string(path)?;
         let adventure: Self = serde_yaml::from_str(&contents)?;

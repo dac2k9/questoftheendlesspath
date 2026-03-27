@@ -3,12 +3,16 @@ name = "questlib"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["native"]
+native = ["dep:tokio", "dep:reqwest"]
+
 [dependencies]
 anyhow.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, optional = true }
 tracing.workspace = true
 uuid.workspace = true
