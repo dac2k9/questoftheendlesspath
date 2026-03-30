@@ -44,6 +44,9 @@ struct PlayerNameTag;
 #[derive(Component)]
 struct DebugMenuUi;
 
+#[derive(Component)]
+struct LoadingText;
+
 #[derive(Clone, Copy, PartialEq)]
 enum Direction { Down, Up, Right, Left }
 
@@ -264,6 +267,7 @@ fn spawn_world(
             ..default()
         },
         Transform::from_xyz(map_center_x, map_center_y, 0.0),
+        Visibility::Hidden,
         MapSprite,
     ));
 
@@ -285,6 +289,7 @@ fn spawn_world(
             ..default()
         },
         Transform::from_xyz(map_center_x, map_center_y, 2.0),
+        Visibility::Hidden,
         FogSprite,
     ));
 
@@ -312,6 +317,15 @@ fn spawn_world(
         Transform::from_xyz(0.0, 12.0, 6.0),
         Visibility::Hidden,
         PlayerNameTag,
+    ));
+
+    // Loading text — shown until server position arrives
+    commands.spawn((
+        Text::new("Loading world..."),
+        TextFont { font: font.0.clone(), font_size: 16.0, ..default() },
+        TextColor(Color::srgb(0.77, 0.64, 0.35)),
+        Node { position_type: PositionType::Absolute, top: Val::Percent(45.0), left: Val::Percent(38.0), ..default() },
+        LoadingText,
     ));
 
     // Tile info text
@@ -540,6 +554,7 @@ struct ServerTilePos {
     x: usize,
     y: usize,
     initialized: bool,
+    camera_snapped: bool, // true after first camera snap to player
 }
 
 fn sync_from_supabase(
@@ -549,7 +564,13 @@ fn sync_from_supabase(
     mut fog: ResMut<FogOfWar>,
     mut server_pos: ResMut<ServerTilePos>,
     mut player_vis: Query<&mut Visibility, With<PlayerSprite>>,
-    mut nametag_vis: Query<&mut Visibility, (With<PlayerNameTag>, Without<PlayerSprite>)>,
+    mut nametag_vis: Query<&mut Visibility, (With<PlayerNameTag>, Without<PlayerSprite>, Without<LoadingText>, Without<MapSprite>, Without<FogSprite>)>,
+    mut map_vis: Query<&mut Visibility, (With<MapSprite>, Without<PlayerSprite>, Without<PlayerNameTag>, Without<FogSprite>, Without<LoadingText>)>,
+    mut fog_vis: Query<&mut Visibility, (With<FogSprite>, Without<PlayerSprite>, Without<PlayerNameTag>, Without<MapSprite>, Without<LoadingText>)>,
+    mut player_tf: Query<&mut Transform, (With<PlayerSprite>, Without<Camera2d>)>,
+    mut camera_tf: Query<&mut Transform, (With<Camera2d>, Without<PlayerSprite>)>,
+    mut commands: Commands,
+    loading_q: Query<Entity, With<LoadingText>>,
 ) {
     let Ok(players) = polled.players.lock() else { return };
     if players.is_empty() || session.player_name.is_empty() { return; }
@@ -563,11 +584,34 @@ fn sync_from_supabase(
         server_pos.x = tile.0;
         server_pos.y = tile.1;
 
-        // Show player on first server sync
+        // First server sync — show player, snap camera, remove loading
         if !server_pos.initialized {
             server_pos.initialized = true;
+
+            // Show everything
             for mut vis in &mut player_vis { *vis = Visibility::Visible; }
             for mut vis in &mut nametag_vis { *vis = Visibility::Visible; }
+            for mut vis in &mut map_vis { *vis = Visibility::Visible; }
+            for mut vis in &mut fog_vis { *vis = Visibility::Visible; }
+
+            // Snap player to position instantly (no lerp)
+            let world_pos = WorldGrid::tile_to_world(tile.0, tile.1);
+            for mut tf in &mut player_tf {
+                tf.translation.x = world_pos.x;
+                tf.translation.y = world_pos.y;
+            }
+
+            // Snap camera to player instantly
+            for mut cam in &mut camera_tf {
+                cam.translation.x = world_pos.x;
+                cam.translation.y = world_pos.y;
+            }
+            server_pos.camera_snapped = true;
+
+            // Remove loading text
+            for entity in &loading_q {
+                commands.entity(entity).despawn_recursive();
+            }
         }
 
         // Restore route from server if browser has no route
