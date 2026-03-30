@@ -363,7 +363,7 @@ fn spawn_world(
     commands.insert_resource(fog);
     commands.insert_resource(debug);
     // Route starts empty — sync_from_supabase will set position from server on first poll
-    commands.insert_resource(PlannedRoute { waypoints: vec![], meters_walked: 0.0, total_meters: 0.0, current_index: 0, needs_redraw: false });
+    commands.insert_resource(PlannedRoute { waypoints: vec![], meters_walked: 0.0, total_meters: 0.0, current_index: 0, needs_redraw: false, interp_reset: false });
     commands.insert_resource(CameraPan::default());
     commands.insert_resource(ServerTilePos::default());
     commands.insert_resource(world);
@@ -662,6 +662,7 @@ fn sync_from_supabase(
                 if idx != route.current_index {
                     route.current_index = idx;
                     route.needs_redraw = true;
+                    route.interp_reset = true; // reset sub-tile progress
                 }
             }
         }
@@ -760,11 +761,17 @@ fn handle_zoom(
     projection.scale += diff * (1.0 - (-6.0 * dt).exp());
 }
 
+/// Local state for sub-tile interpolation progress (0.0 to 1.0).
+#[derive(Default)]
+struct InterpProgress(f32);
+
 fn update_path_visuals(
-    route: Res<PlannedRoute>,
+    mut route: ResMut<PlannedRoute>,
     polled: Res<PolledPlayerState>,
     session: Res<GameSession>,
     time: Res<Time>,
+    world: Option<Res<WorldGrid>>,
+    mut interp_progress: Local<InterpProgress>,
     mut player_q: Query<(&mut Transform, &mut WalkAnimation, &mut Sprite), With<PlayerSprite>>,
     mut nametag_q: Query<(&mut Transform, &mut Visibility), (With<PlayerNameTag>, Without<PlayerSprite>)>,
     keys_for_name: Res<ButtonInput<KeyCode>>,
@@ -778,19 +785,75 @@ fn update_path_visuals(
             .unwrap_or((false, 0.0))
     };
 
-    if let Some((x, y)) = route.current_tile() {
-        let target = WorldGrid::tile_to_world(x, y);
+    // Reset interp when server advanced to new tile
+    if route.interp_reset {
+        interp_progress.0 = 0.0;
+        route.interp_reset = false;
+    }
+
+    // Compute interpolated target position:
+    // - Server gives us the current tile and route_meters_walked
+    // - If walking, we predict forward based on speed + time since last poll
+    // - Character smoothly slides between current tile and next tile
+    let interp_target = {
+        let idx = route.current_index;
+        let current_tile = route.current_tile();
+        let next_tile = if idx + 1 < route.waypoints.len() {
+            Some(route.waypoints[idx + 1])
+        } else {
+            None
+        };
+
+        match (current_tile, next_tile) {
+            (Some((cx, cy)), Some((nx, ny))) if belt_moving => {
+                // Interpolate between current and next tile based on local prediction
+                // Speed in m/s = km/h / 3.6
+                let speed_ms = walking_speed / 3.6;
+                let tile_cost = world.as_ref()
+                    .map(|w| w.get(cx, cy).movement_cost())
+                    .unwrap_or(40) as f32;
+
+                // Accumulate predicted progress using frame delta
+                let progress_per_sec = if tile_cost > 0.0 { speed_ms / tile_cost } else { 0.0 };
+
+                let current_pos = WorldGrid::tile_to_world(cx, cy);
+                let next_pos = WorldGrid::tile_to_world(nx, ny);
+
+                // Use a local accumulator for sub-tile progress
+                // We lerp based on time since the character arrived at this tile
+                let frac = (interp_progress.0).clamp(0.0, 1.0);
+                let x = current_pos.x + (next_pos.x - current_pos.x) * frac;
+                let y = current_pos.y + (next_pos.y - current_pos.y) * frac;
+
+                // Advance local progress
+                interp_progress.0 += progress_per_sec * time.delta_secs();
+                // Clamp at 1.0 — the server poll will snap to next tile when ready
+                interp_progress.0 = interp_progress.0.clamp(0.0, 1.0);
+
+                Vec2::new(x, y)
+            }
+            (Some((cx, cy)), _) => {
+                // At the last tile or no route — just sit here
+                let pos = WorldGrid::tile_to_world(cx, cy);
+                interp_progress.0 = 0.0;
+                Vec2::new(pos.x, pos.y)
+            }
+            _ => Vec2::ZERO,
+        }
+    };
+
+    if interp_target != Vec2::ZERO {
+        let target = Vec3::new(interp_target.x, interp_target.y, 5.0);
         for (mut transform, mut anim, mut sprite) in &mut player_q {
             let current = transform.translation;
             let dx = target.x - current.x;
             let dy = target.y - current.y;
             let dist = dx.abs() + dy.abs();
 
-            // Move toward target tile
-            if dist > 1.0 {
-                transform.translation.x += dx * 0.1;
-                transform.translation.y += dy * 0.1;
-                // Update direction from movement
+            // Smooth move toward interpolated target
+            if dist > 0.5 {
+                transform.translation.x += dx * 0.15;
+                transform.translation.y += dy * 0.15;
                 if dx.abs() > dy.abs() { anim.direction = if dx > 0.0 { Direction::Right } else { Direction::Left }; }
                 else { anim.direction = if dy > 0.0 { Direction::Up } else { Direction::Down }; }
             } else {
@@ -798,26 +861,22 @@ fn update_path_visuals(
                 transform.translation.y = target.y;
             }
 
-            // Animate if belt is running OR physically moving between tiles
-            let should_animate = belt_moving || dist > 1.0;
+            // Animate based on belt + speed
+            let should_animate = belt_moving || dist > 0.5;
 
             if should_animate {
-                // Adjust animation speed based on walking speed
-                // At 1 km/h → slow (0.25s per frame), at 6 km/h → fast (0.08s per frame)
                 let speed_factor = walking_speed.clamp(0.5, 6.0);
                 let frame_duration = 0.3 / speed_factor;
                 anim.timer.set_duration(std::time::Duration::from_secs_f32(frame_duration));
-
                 anim.timer.tick(time.delta());
                 if anim.timer.just_finished() { anim.frame = (anim.frame + 1) % 5; }
-                let row = anim.direction.base_row() + 1; // walk row
+                let row = anim.direction.base_row() + 1;
                 if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6 + anim.frame; }
                 anim.moving = true;
             } else if anim.moving {
-                // Just stopped — reset to idle
                 anim.moving = false;
                 anim.frame = 0;
-                let row = anim.direction.base_row(); // idle row
+                let row = anim.direction.base_row();
                 if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6; }
             }
         }

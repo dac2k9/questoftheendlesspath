@@ -14,6 +14,8 @@ pub struct PlannedRoute {
     pub current_index: usize,
     /// Set to true when path markers need to be redrawn.
     pub needs_redraw: bool,
+    /// Set to true when sub-tile interpolation should reset (tile changed).
+    pub interp_reset: bool,
 }
 
 impl PlannedRoute {
