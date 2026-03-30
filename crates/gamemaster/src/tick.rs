@@ -104,13 +104,29 @@ pub fn run_tick_dev(
         let (tile_x, tile_y, _idx, route_complete) =
             position_along_route(&route_tiles, new_meters, world);
 
-        let moved = tile_x as i32 != p.map_tile_x || tile_y as i32 != p.map_tile_y;
+        // NEVER move player backwards — only accept forward movement along route
+        let current_pos = (p.map_tile_x as usize, p.map_tile_y as usize);
+        let new_pos = (tile_x, tile_y);
+
+        // Check if new position is further along the route than current
+        let current_route_idx = route_tiles.iter().position(|&w| w == current_pos);
+        let new_route_idx = route_tiles.iter().position(|&w| w == new_pos);
+
+        let should_move = match (current_route_idx, new_route_idx) {
+            (Some(cur), Some(new)) => new > cur,  // only move forward
+            (None, Some(_)) => true,               // current pos not on route, move to route
+            _ => false,
+        };
+
         p.route_meters_walked = new_meters;
 
-        if moved {
+        if should_move {
             p.map_tile_x = tile_x as i32;
             p.map_tile_y = tile_y as i32;
-            debug!("{} moved to ({},{}) [{:.0}m walked]", p.name, tile_x, tile_y, new_meters);
+            info!("[{}] moved to ({},{}) [{:.0}m walked]", p.name, tile_x, tile_y, new_meters);
+        } else if new_pos != current_pos {
+            info!("[{}] skipped backward move to ({},{}) — staying at ({},{})",
+                p.name, tile_x, tile_y, p.map_tile_x, p.map_tile_y);
         }
 
         // Fog
