@@ -30,7 +30,7 @@ struct FogSprite;
 struct PathMarker;
 
 #[derive(Component)]
-struct PlayerSprite;
+pub struct PlayerSprite;
 
 #[derive(Component)]
 struct TileInfoText;
