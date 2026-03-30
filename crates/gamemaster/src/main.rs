@@ -1,13 +1,10 @@
-mod boss;
-mod events;
 mod tick;
 
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use questlib::adventure::AdventureFile;
+use questlib::mapgen::WorldMap;
 use questlib::supabase::SupabaseClient;
-use questlib::types::EventInsert;
 use tracing::{error, info};
 
 #[tokio::main]
@@ -23,61 +20,39 @@ async fn main() -> Result<()> {
 
     let supabase = SupabaseClient::from_env()?;
     let game_id = std::env::var("GAME_ID").context("GAME_ID not set")?;
-    let adventure_path =
-        std::env::var("ADVENTURE_PATH").unwrap_or_else(|_| "adventures/dragons_path.yaml".into());
+    let seed: u64 = std::env::var("MAP_SEED")
+        .unwrap_or_else(|_| "42".to_string())
+        .parse()
+        .unwrap_or(42);
 
-    info!("Loading adventure from {adventure_path}");
-    let adventure = AdventureFile::load(std::path::Path::new(&adventure_path))?;
+    info!("Generating world map from seed {seed}");
+    let world = WorldMap::generate(seed);
     info!(
-        "Adventure: {} ({} km, {} zones, {} events)",
-        adventure.adventure.name,
-        adventure.adventure.total_distance_km,
-        adventure.zones.len(),
-        adventure.all_events().len(),
+        "World: {}x{} tiles, {} POIs, {} roads",
+        world.width, world.height, world.pois.len(), world.roads.len()
     );
-
-    // Seed events into database
-    seed_events(&supabase, &game_id, &adventure).await?;
 
     info!("Game Master running. Tick interval: 1s");
     let mut interval = tokio::time::interval(Duration::from_secs(1));
 
+    // Track per-player state that persists between ticks
+    let mut player_fogs: std::collections::HashMap<String, questlib::fog::FogBitfield> =
+        std::collections::HashMap::new();
+    let mut player_last_distance: std::collections::HashMap<String, i32> =
+        std::collections::HashMap::new();
+
     loop {
         interval.tick().await;
-        if let Err(e) = tick::run_tick(&supabase, &game_id, &adventure).await {
+        if let Err(e) = tick::run_tick(
+            &supabase,
+            &game_id,
+            &world,
+            &mut player_fogs,
+            &mut player_last_distance,
+        )
+        .await
+        {
             error!("Tick error: {e:#}");
         }
     }
-}
-
-async fn seed_events(
-    supabase: &SupabaseClient,
-    game_id: &str,
-    adventure: &AdventureFile,
-) -> Result<()> {
-    // Check if events already exist
-    let existing = supabase.read_events(game_id).await?;
-    if !existing.is_empty() {
-        info!("Events already seeded ({} events), skipping", existing.len());
-        return Ok(());
-    }
-
-    let inserts: Vec<EventInsert> = adventure
-        .all_events()
-        .into_iter()
-        .map(|e| EventInsert {
-            game_id: game_id.to_string(),
-            at_km: e.at_km,
-            event_type: e.event_type.clone(),
-            name: e.name.clone(),
-            data: serde_json::to_value(e).unwrap_or_default(),
-            requires_all_players: e.requires_all_players,
-            requires_browser: e.requires_browser,
-        })
-        .collect();
-
-    info!("Seeding {} events", inserts.len());
-    supabase.insert_events(&inserts).await?;
-    info!("Events seeded successfully");
-    Ok(())
 }
