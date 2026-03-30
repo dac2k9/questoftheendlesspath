@@ -481,7 +481,9 @@ fn redraw_path_markers(commands: &mut Commands, path_markers: &Query<Entity, Wit
     let gap_len = 3.0_f32;
     let line_width = 1.5_f32;
 
-    for i in (start + 1)..len {
+    // Start dashes from the tile AFTER current (skip current tile)
+    let dash_start = if start + 2 < len { start + 2 } else { len };
+    for i in dash_start..len {
         let (x1, y1) = route.waypoints[i - 1];
         let (x2, y2) = route.waypoints[i];
         let p1 = WorldGrid::tile_to_world(x1, y1);

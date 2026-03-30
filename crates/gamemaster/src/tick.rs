@@ -56,11 +56,15 @@ pub fn run_tick_dev(
             continue;
         }
 
-        // Distance delta
-        let last_dist = *player_last_distance.get(player_id).unwrap_or(&0);
-        let delta_m = (player.total_distance_m - last_dist).max(0);
+        // Distance delta — capped to prevent jumps on reconnect/restart
+        let last_dist = *player_last_distance.get(player_id).unwrap_or(&player.total_distance_m);
+        let raw_delta = (player.total_distance_m - last_dist).max(0);
+        let delta_m = raw_delta.min(50); // max 50m per tick (~15s at 3km/h)
         player_last_distance.insert(player_id.clone(), player.total_distance_m);
 
+        if raw_delta != delta_m {
+            info!("[{}] delta capped: {}m → {}m", player.name, raw_delta, delta_m);
+        }
         info!("[{}] delta_m={} (total={} last={})", player.name, delta_m, player.total_distance_m, last_dist);
 
         if delta_m == 0 {
