@@ -190,7 +190,7 @@ fn create_fog_texture(fog: &FogOfWar, debug: &DebugOptions) -> Image {
     for ty in 0..WORLD_H {
         for tx in 0..WORLD_W {
             let revealed = debug.fog_disabled || fog.is_revealed(tx, ty);
-            let (r, g, b, a) = if revealed { (0, 0, 0, 0) } else { (15, 15, 25, 240) };
+            let (r, g, b, a) = if revealed { (0, 0, 0, 0) } else { (15, 15, 25, 255) };
 
             for py in 0..16 {
                 for px in 0..16 {
@@ -335,6 +335,8 @@ fn handle_map_click(
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
     world: Res<WorldGrid>,
+    fog_res: Res<FogOfWar>,
+    debug: Res<DebugOptions>,
     mut route: ResMut<PlannedRoute>,
     mut commands: Commands,
     path_markers: Query<Entity, With<PathMarker>>,
@@ -349,8 +351,13 @@ fn handle_map_click(
     let terrain = world.get(tx, ty);
 
     if let Ok((mut text, mut transform)) = info_q.get_single_mut() {
-        let cost_str = if terrain.is_passable() { format!("{}m", terrain.movement_cost()) } else { "impassable".to_string() };
-        *text = Text2d::new(format!("{} {}", terrain.name(), cost_str));
+        let fog = fog_res.as_ref();
+        if fog.is_revealed(tx, ty) || debug.fog_disabled {
+            let cost_str = if terrain.is_passable() { format!("{}m", terrain.movement_cost()) } else { "impassable".to_string() };
+            *text = Text2d::new(format!("{} {}", terrain.name(), cost_str));
+        } else {
+            *text = Text2d::new("???");
+        }
         let tile_pos = WorldGrid::tile_to_world(tx, ty);
         transform.translation = Vec3::new(tile_pos.x, tile_pos.y + 16.0, 10.0);
     }
@@ -362,7 +369,7 @@ fn handle_map_click(
             if !new_segment.is_empty() && !route.waypoints.is_empty() { new_segment.remove(0); }
             route.waypoints.extend(new_segment);
             route.recalculate_total(&world);
-            redraw_path_markers(&mut commands, &path_markers, &route);
+            redraw_path_markers(&mut commands, &path_markers, &route, &fog_res);
         }
     }
 }
@@ -408,14 +415,96 @@ fn handle_clear_route(
     }
 }
 
-fn redraw_path_markers(commands: &mut Commands, path_markers: &Query<Entity, With<PathMarker>>, route: &PlannedRoute) {
+fn redraw_path_markers(commands: &mut Commands, path_markers: &Query<Entity, With<PathMarker>>, route: &PlannedRoute, fog: &FogOfWar) {
     for entity in path_markers { commands.entity(entity).despawn(); }
-    for (i, &(px, py)) in route.waypoints.iter().enumerate() {
-        if i <= route.current_index { continue; }
-        let pos = WorldGrid::tile_to_world(px, py);
+
+    let start = route.current_index;
+    let len = route.waypoints.len();
+    if len <= start { return; }
+
+    // Black dashed line between consecutive waypoints
+    let dash_len = 4.0_f32;
+    let gap_len = 3.0_f32;
+    let line_width = 1.5_f32;
+
+    for i in (start + 1)..len {
+        let (x1, y1) = route.waypoints[i - 1];
+        let (x2, y2) = route.waypoints[i];
+        let p1 = WorldGrid::tile_to_world(x1, y1);
+        let p2 = WorldGrid::tile_to_world(x2, y2);
+
+        let dx = p2.x - p1.x;
+        let dy = p2.y - p1.y;
+        let seg_len = (dx * dx + dy * dy).sqrt();
+        if seg_len < 0.1 { continue; }
+
+        let nx = dx / seg_len;
+        let ny = dy / seg_len;
+
+        // Draw dashes along this segment
+        let mut d = 0.0_f32;
+        let mut drawing = true;
+        while d < seg_len {
+            if drawing {
+                let end = (d + dash_len).min(seg_len);
+                let cx = p1.x + nx * (d + end) * 0.5;
+                let cy = p1.y + ny * (d + end) * 0.5;
+                let length = end - d;
+
+                // Determine if horizontal or vertical segment
+                let (w, h) = if nx.abs() > ny.abs() {
+                    (length, line_width)
+                } else {
+                    (line_width, length)
+                };
+
+                // Pick color based on fog — white on fogged, black on revealed
+                let (tile_x, tile_y) = WorldGrid::world_to_tile(Vec2::new(cx, cy));
+                let dash_color = if fog.is_revealed(tile_x, tile_y) {
+                    Color::srgba(0.0, 0.0, 0.0, 0.7)
+                } else {
+                    Color::srgba(1.0, 1.0, 1.0, 0.7)
+                };
+
+                commands.spawn((
+                    Sprite {
+                        color: dash_color,
+                        custom_size: Some(Vec2::new(w, h)),
+                        ..default()
+                    },
+                    Transform::from_xyz(cx, cy, 3.0),
+                    PathMarker,
+                ));
+                d = end + gap_len;
+            } else {
+                d += gap_len;
+            }
+            drawing = !drawing;
+        }
+    }
+
+    // Flag at destination
+    if len > start + 1 {
+        let (fx, fy) = route.waypoints[len - 1];
+        let pos = WorldGrid::tile_to_world(fx, fy);
+        // Pole
         commands.spawn((
-            Sprite { color: Color::srgba(1.0, 0.8, 0.2, 0.4), custom_size: Some(Vec2::splat(TILE_PX)), ..default() },
-            Transform::from_xyz(pos.x, pos.y, 3.0),
+            Sprite {
+                color: Color::srgb(0.3, 0.2, 0.1),
+                custom_size: Some(Vec2::new(1.5, 14.0)),
+                ..default()
+            },
+            Transform::from_xyz(pos.x - 3.0, pos.y + 4.0, 3.5),
+            PathMarker,
+        ));
+        // Pennant
+        commands.spawn((
+            Sprite {
+                color: Color::srgb(0.9, 0.2, 0.1),
+                custom_size: Some(Vec2::new(8.0, 6.0)),
+                ..default()
+            },
+            Transform::from_xyz(pos.x + 1.0, pos.y + 9.0, 3.6),
             PathMarker,
         ));
     }
@@ -451,7 +540,7 @@ fn update_fog_texture(
     for ty in 0..WORLD_H {
         for tx in 0..WORLD_W {
             let revealed = debug.fog_disabled || fog.is_revealed(tx, ty);
-            let (r, g, b, a) = if revealed { (0, 0, 0, 0) } else { (15, 15, 25, 240) };
+            let (r, g, b, a) = if revealed { (0, 0, 0, 0) } else { (15, 15, 25, 255) };
             for py in 0..16 {
                 for px in 0..16 {
                     let idx = ((ty * 16 + py) * w + (tx * 16 + px)) * 4;

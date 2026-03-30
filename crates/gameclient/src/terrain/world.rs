@@ -135,8 +135,9 @@ impl WorldGrid {
     }
 
     pub fn world_to_tile(pos: Vec2) -> (usize, usize) {
-        let x = (pos.x / TILE_PX).floor().max(0.0) as usize;
-        let y = ((-pos.y) / TILE_PX).floor().max(0.0) as usize;
+        // Offset by half tile since tile_to_world puts tile center at the position
+        let x = ((pos.x + TILE_PX * 0.5) / TILE_PX).floor().max(0.0) as usize;
+        let y = ((-pos.y + TILE_PX * 0.5) / TILE_PX).floor().max(0.0) as usize;
         (x.min(WORLD_W - 1), y.min(WORLD_H - 1))
     }
 }
