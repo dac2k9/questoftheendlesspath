@@ -3,26 +3,250 @@
     {
       "id": "welcome",
       "name": "A New Journey",
-      "description": "You stand at the edge of the unknown.",
-      "kind": { "type": "story_beat", "lines": [
-        "The world stretches before you, vast and unexplored.",
-        "Your legs carry you forward. The journey begins."
-      ]},
+      "description": "The world stretches before you.",
+      "kind": { "type": "story_beat", "lines": ["The world stretches before you, vast and unexplored.", "Your legs carry you forward. The journey begins."] },
       "trigger": { "condition": "distance_walked", "meters_min": 10 },
-      "outcomes": [{ "effect": "notification", "text": "Journey begun! Walk to explore the world." }],
+      "outcomes": [{ "effect": "notification", "text": "Journey begun! Walk to explore." }],
       "status": "pending",
       "requires_browser": false
     },
     {
       "id": "first_treasure",
       "name": "Roadside Find",
-      "description": "Something glints in the grass beside the road.",
+      "description": "Something glints in the grass.",
       "kind": { "type": "treasure", "description": "A small pouch of coins half-buried in the dirt." },
       "trigger": { "condition": "distance_walked", "meters_min": 100 },
-      "outcomes": [
-        { "effect": "gold", "amount": 50 },
-        { "effect": "notification", "text": "Found 50 gold!" }
-      ],
+      "outcomes": [{ "effect": "gold", "amount": 50 }, { "effect": "notification", "text": "Found 50 gold!" }],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "town_0",
+      "name": "Forest Town",
+      "description": "A bustling town nestled among the trees.",
+      "kind": { "type": "npc_dialogue", "speaker": "Town Elder", "lines": ["Welcome to our humble town, traveler!", "We've been expecting someone brave enough to explore these lands.", "Rest here as long as you need. The road ahead is long."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 0 },
+      "outcomes": [{ "effect": "gold", "amount": 30 }, { "effect": "notification", "text": "Visited Forest Town! +30 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "town_1",
+      "name": "Grassland Capital",
+      "description": "A grand town on the open plains.",
+      "kind": { "type": "shop", "merchant_name": "Royal Merchant", "items": [{"name": "Explorer's Map", "cost": 200, "effect": "reveal_fog"}, {"name": "Speed Potion", "cost": 100, "effect": "speed_boost"}, {"name": "Health Potion", "cost": 50, "effect": "heal"}] },
+      "trigger": { "condition": "at_poi", "poi_id": 1 },
+      "outcomes": [{ "effect": "notification", "text": "Welcome to the Grassland Capital!" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_2",
+      "name": "Meadow Hamlet",
+      "description": "A peaceful village surrounded by fields.",
+      "kind": { "type": "npc_dialogue", "speaker": "Farmer", "lines": ["Oh, a visitor! We don't get many of those.", "The harvest has been good this year. Here, take some supplies.", "If you're heading north, watch out for the dense forest."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 2 },
+      "outcomes": [{ "effect": "gold", "amount": 25 }, { "effect": "notification", "text": "Visited Meadow Hamlet! +25 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_3",
+      "name": "Crossroads Village",
+      "description": "A village at a major crossroads.",
+      "kind": { "type": "shop", "merchant_name": "Traveling Merchant", "items": [{"name": "Compass", "cost": 75, "effect": "reveal_fog"}, {"name": "Torch", "cost": 25, "effect": "fog_radius"}, {"name": "Rope", "cost": 40, "effect": "dungeon_access"}] },
+      "trigger": { "condition": "at_poi", "poi_id": 3 },
+      "outcomes": [{ "effect": "notification", "text": "Welcome to the Crossroads!" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_4",
+      "name": "Woodland Settlement",
+      "description": "A small settlement deep in the forest.",
+      "kind": { "type": "npc_dialogue", "speaker": "Woodcutter", "lines": ["The forest is thick here, stranger.", "We've heard strange sounds from the caves to the west.", "Be careful out there."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 4 },
+      "outcomes": [{ "effect": "gold", "amount": 20 }, { "effect": "notification", "text": "Visited Woodland Settlement! +20 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_5",
+      "name": "Highland Outpost",
+      "description": "A fortified village on the grassland edge.",
+      "kind": { "type": "npc_dialogue", "speaker": "Guard Captain", "lines": ["Halt! State your business.", "...A traveler? Very well. The ruins to the west are dangerous.", "We've lost good soldiers to whatever lurks there."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 5 },
+      "outcomes": [{ "effect": "gold", "amount": 30 }, { "effect": "reveal_fog", "x": 71, "y": 30, "radius": 8 }, { "effect": "notification", "text": "Highland Outpost: map updated! +30 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_6",
+      "name": "Mountain Refuge",
+      "description": "A hardy village clinging to the mountainside.",
+      "kind": { "type": "npc_dialogue", "speaker": "Mountain Guide", "lines": ["You've come far to reach us up here.", "The dungeon below the mountain... it calls to the brave.", "Take this warm cloak. You'll need it."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 6 },
+      "outcomes": [{ "effect": "gold", "amount": 40 }, { "effect": "item", "name": "warm_cloak" }, { "effect": "notification", "text": "Mountain Refuge: +40 gold, received Warm Cloak" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_7",
+      "name": "Swamp Crossing",
+      "description": "A village built on stilts above the murky water.",
+      "kind": { "type": "npc_dialogue", "speaker": "Swamp Witch", "lines": ["Hehehehe... lost in my swamp, are we?", "I see darkness in your future... and treasure.", "Take this charm. It will protect you from the bog."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 7 },
+      "outcomes": [{ "effect": "gold", "amount": 35 }, { "effect": "item", "name": "bog_charm" }, { "effect": "notification", "text": "Swamp Crossing: +35 gold, received Bog Charm" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "ruins_8",
+      "name": "Overgrown Ruins",
+      "description": "Ancient stone walls peek through dense vegetation.",
+      "kind": { "type": "npc_dialogue", "speaker": "Weathered Inscription", "lines": ["The stones whisper of an ancient civilization.", "They built great things here, before the forest reclaimed it.", "Something valuable still lies buried beneath."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 8 },
+      "outcomes": [{ "effect": "gold", "amount": 75 }, { "effect": "reveal_fog", "x": 65, "y": 24, "radius": 6 }, { "effect": "notification", "text": "Explored the Overgrown Ruins! +75 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "ruins_9",
+      "name": "Crumbling Fortress",
+      "description": "The remains of a once-mighty fortress.",
+      "kind": { "type": "npc_dialogue", "speaker": "Ghost of a Knight", "lines": ["You can see me? Few living souls can.", "This fortress fell to treachery, not battle.", "Find the dungeon to the east. Avenge us."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 9 },
+      "outcomes": [{ "effect": "gold", "amount": 100 }, { "effect": "notification", "text": "The Ghost Knight grants you 100 gold!" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "dungeon_10",
+      "name": "The Dark Descent",
+      "description": "A gaping hole in the earth leads downward.",
+      "kind": { "type": "npc_dialogue", "speaker": "Warning Sign", "lines": ["DANGER: Ancient dungeon ahead.", "Strange sounds echo from below.", "Only the prepared should enter."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 10 },
+      "outcomes": [{ "effect": "gold", "amount": 150 }, { "effect": "reveal_fog", "x": 34, "y": 61, "radius": 10 }, { "effect": "notification", "text": "Dungeon discovered! +150 gold, map revealed!" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "dungeon_11",
+      "name": "The Forgotten Crypt",
+      "description": "A stone entrance sealed with ancient runes.",
+      "kind": { "type": "npc_dialogue", "speaker": "Rune Stone", "lines": ["The runes glow faintly as you approach.", "This crypt has been sealed for centuries.", "Great power — and great danger — lies within."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 11 },
+      "outcomes": [{ "effect": "gold", "amount": 200 }, { "effect": "notification", "text": "The Forgotten Crypt! +200 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "cave_12",
+      "name": "Hidden Grotto",
+      "description": "A small cave hidden behind a waterfall.",
+      "kind": { "type": "treasure", "description": "Inside the grotto, you find a chest filled with ancient coins." },
+      "trigger": { "condition": "at_poi", "poi_id": 12 },
+      "outcomes": [{ "effect": "gold", "amount": 80 }, { "effect": "notification", "text": "Hidden Grotto: Found 80 gold!" }],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "cave_13",
+      "name": "Bear's Den",
+      "description": "A dark cave with scratch marks on the walls.",
+      "kind": { "type": "random_encounter", "enemy_name": "Cave Bear", "description": "A massive bear guards its territory!", "difficulty": 3 },
+      "trigger": { "condition": "at_poi", "poi_id": 13 },
+      "outcomes": [{ "effect": "gold", "amount": 60 }, { "effect": "notification", "text": "Defeated the Cave Bear! +60 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "cabin_14",
+      "name": "Hermit's Hut",
+      "description": "Smoke rises from a lonely cabin.",
+      "kind": { "type": "npc_dialogue", "speaker": "Old Hermit", "lines": ["Ah, a visitor! It's been years since anyone came this way.", "I have knowledge of these lands. Let me share what I know.", "The tower to the south holds a great secret."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 14 },
+      "outcomes": [{ "effect": "gold", "amount": 25 }, { "effect": "reveal_fog", "x": 85, "y": 56, "radius": 8 }, { "effect": "notification", "text": "Hermit reveals the tower location!" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "cabin_15",
+      "name": "Ranger's Lodge",
+      "description": "A well-maintained cabin in the deep woods.",
+      "kind": { "type": "npc_dialogue", "speaker": "Forest Ranger", "lines": ["Welcome, traveler. The forest is treacherous alone.", "I've mapped the paths through the densest parts.", "Here, take this. It will help you navigate."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 15 },
+      "outcomes": [{ "effect": "gold", "amount": 20 }, { "effect": "item", "name": "forest_map" }, { "effect": "notification", "text": "Ranger gives you a Forest Map! +20 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "cabin_16",
+      "name": "Witch's Cottage",
+      "description": "A crooked cottage surrounded by strange plants.",
+      "kind": { "type": "npc_dialogue", "speaker": "Bog Witch", "lines": ["I knew you'd come. The swamp told me.", "You seek something... power? Treasure? Both?", "I can offer you a potion. For a price, of course."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 16 },
+      "outcomes": [{ "effect": "gold", "amount": 15 }, { "effect": "item", "name": "mystery_potion" }, { "effect": "notification", "text": "Received Mystery Potion! +15 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "cabin_17",
+      "name": "Abandoned Farmstead",
+      "description": "A deserted farm with overgrown fields.",
+      "kind": { "type": "treasure", "description": "Among the ruins, you find a stash of supplies left behind." },
+      "trigger": { "condition": "at_poi", "poi_id": 17 },
+      "outcomes": [{ "effect": "gold", "amount": 45 }, { "effect": "notification", "text": "Searched the farmstead: 45 gold found!" }],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "shrine_18",
+      "name": "Shrine of Light",
+      "description": "An ancient shrine radiating warm energy.",
+      "kind": { "type": "story_beat", "lines": ["You kneel before the shrine.", "A warm light envelops you. Your vision expands.", "The shrine reveals the paths ahead."] },
+      "trigger": { "condition": "at_poi", "poi_id": 18 },
+      "outcomes": [{ "effect": "gold", "amount": 50 }, { "effect": "reveal_fog", "x": 52, "y": 55, "radius": 12 }, { "effect": "notification", "text": "Shrine blessing: +50 gold, map revealed!" }],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "shrine_19",
+      "name": "Shrine of Winds",
+      "description": "A weathered shrine on a windy hilltop.",
+      "kind": { "type": "story_beat", "lines": ["The wind howls around the ancient stones.", "As you touch the shrine, the wind carries whispers of distant lands.", "Your journey is blessed by the winds."] },
+      "trigger": { "condition": "at_poi", "poi_id": 19 },
+      "outcomes": [{ "effect": "gold", "amount": 50 }, { "effect": "reveal_fog", "x": 37, "y": 28, "radius": 12 }, { "effect": "notification", "text": "Shrine of Winds: +50 gold, map revealed!" }],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "tower_20",
+      "name": "The Frozen Spire",
+      "description": "A tall tower encased in ice and snow.",
+      "kind": { "type": "npc_dialogue", "speaker": "Frost Wizard", "lines": ["You've made it to my tower. Impressive.", "Few mortals survive the journey through the snow.", "I have a proposal for you, adventurer..."], "choices": [] },
+      "trigger": { "condition": "at_poi", "poi_id": 20 },
+      "outcomes": [{ "effect": "gold", "amount": 300 }, { "effect": "reveal_fog", "x": 85, "y": 56, "radius": 15 }, { "effect": "notification", "text": "The Frost Wizard rewards you! +300 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "camp_21",
+      "name": "Bandit Camp",
+      "description": "A rough camp with smoldering fires.",
+      "kind": { "type": "random_encounter", "enemy_name": "Bandits", "description": "A group of bandits surrounds you!", "difficulty": 2 },
+      "trigger": { "condition": "at_poi", "poi_id": 21 },
+      "outcomes": [{ "effect": "gold", "amount": 70 }, { "effect": "notification", "text": "Defeated the bandits! +70 gold" }],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "camp_22",
+      "name": "Mountain Lookout",
+      "description": "An abandoned watchtower camp.",
+      "kind": { "type": "treasure", "description": "The lookout offers a commanding view. You find supplies and a spyglass." },
+      "trigger": { "condition": "at_poi", "poi_id": 22 },
+      "outcomes": [{ "effect": "gold", "amount": 55 }, { "effect": "reveal_fog", "x": 85, "y": 8, "radius": 15 }, { "effect": "notification", "text": "Mountain Lookout: +55 gold, vast area revealed!" }],
       "status": "pending",
       "requires_browser": false
     },
@@ -30,132 +254,11 @@
       "id": "forest_wolves",
       "name": "Wolf Pack",
       "description": "Yellow eyes gleam between the trees.",
-      "kind": {
-        "type": "random_encounter",
-        "enemy_name": "Forest Wolves",
-        "description": "A pack of three hungry wolves emerges from the undergrowth.",
-        "difficulty": 2
-      },
-      "trigger": { "condition": "random_in_biome", "biome": "Forest", "chance": 0.2 },
-      "outcomes": [
-        { "effect": "gold", "amount": 30 },
-        { "effect": "notification", "text": "The wolves flee! Found 30 gold in their den." }
-      ],
+      "kind": { "type": "random_encounter", "enemy_name": "Forest Wolves", "description": "A pack of hungry wolves emerges from the undergrowth!", "difficulty": 2 },
+      "trigger": { "condition": "random_in_biome", "biome": "Forest", "chance": 0.1 },
+      "outcomes": [{ "effect": "gold", "amount": 30 }, { "effect": "notification", "text": "Wolves defeated! +30 gold" }],
       "status": "pending",
       "requires_browser": true
-    },
-    {
-      "id": "hermit_cabin",
-      "name": "The Hermit's Wisdom",
-      "description": "Smoke rises from a small cabin in the woods.",
-      "kind": {
-        "type": "npc_dialogue",
-        "speaker": "Old Hermit",
-        "lines": [
-          "Ah, a traveler! It's been so long since anyone came this way.",
-          "The ruins to the north hold great treasure, but beware — the forest grows thick around them.",
-          "Take this charm. It may protect you on your journey."
-        ],
-        "choices": []
-      },
-      "trigger": { "condition": "any", "conditions": [
-        { "condition": "at_poi", "poi_id": 14 },
-        { "condition": "at_poi", "poi_id": 15 },
-        { "condition": "at_poi", "poi_id": 16 }
-      ]},
-      "outcomes": [
-        { "effect": "item", "name": "wooden_charm" },
-        { "effect": "gold", "amount": 25 },
-        { "effect": "notification", "text": "Received: Wooden Charm + 25 gold" }
-      ],
-      "status": "pending",
-      "requires_browser": true
-    },
-    {
-      "id": "village_shop",
-      "name": "Traveler's Market",
-      "description": "A cheerful merchant waves from a colorful stall.",
-      "kind": {
-        "type": "shop",
-        "merchant_name": "Merchant Yara",
-        "items": [
-          { "name": "Health Potion", "cost": 50, "effect": "heal" },
-          { "name": "Swift Boots", "cost": 150, "effect": "speed_boost" },
-          { "name": "Explorer's Map", "cost": 200, "effect": "reveal_fog" }
-        ]
-      },
-      "trigger": { "condition": "any", "conditions": [
-        { "condition": "at_poi", "poi_id": 2 },
-        { "condition": "at_poi", "poi_id": 3 },
-        { "condition": "at_poi", "poi_id": 4 },
-        { "condition": "at_poi", "poi_id": 5 }
-      ]},
-      "outcomes": [],
-      "status": "pending",
-      "requires_browser": true
-    },
-    {
-      "id": "dungeon_entrance",
-      "name": "The Dark Passage",
-      "description": "A stone archway leads into darkness.",
-      "kind": {
-        "type": "npc_dialogue",
-        "speaker": "Weathered Sign",
-        "lines": [
-          "DANGER: Ancient dungeon ahead.",
-          "Only the brave (or foolish) enter.",
-          "Reward: Legendary treasure within."
-        ],
-        "choices": []
-      },
-      "trigger": { "condition": "any", "conditions": [
-        { "condition": "at_poi", "poi_id": 10 },
-        { "condition": "at_poi", "poi_id": 11 }
-      ]},
-      "outcomes": [
-        { "effect": "reveal_fog", "x": 50, "y": 40, "radius": 10 },
-        { "effect": "notification", "text": "Dungeon discovered! Fog cleared around entrance." }
-      ],
-      "status": "pending",
-      "requires_browser": true
-    },
-    {
-      "id": "shrine_blessing",
-      "name": "Ancient Shrine",
-      "description": "A weathered shrine hums with faint energy.",
-      "kind": { "type": "story_beat", "lines": [
-        "You kneel before the ancient shrine.",
-        "A warm light envelops you. You feel stronger.",
-        "The shrine's blessing will guide your path."
-      ]},
-      "trigger": { "condition": "any", "conditions": [
-        { "condition": "at_poi", "poi_id": 18 },
-        { "condition": "at_poi", "poi_id": 19 }
-      ]},
-      "outcomes": [
-        { "effect": "gold", "amount": 100 },
-        { "effect": "reveal_fog", "x": 50, "y": 40, "radius": 15 },
-        { "effect": "notification", "text": "Shrine blessing: +100 gold, map revealed!" }
-      ],
-      "status": "pending",
-      "requires_browser": false
-    },
-    {
-      "id": "mountain_danger",
-      "name": "Treacherous Path",
-      "description": "The mountain path is steep and dangerous.",
-      "kind": {
-        "type": "environmental_effect",
-        "effect": "tile_cost_multiplier",
-        "value": 1.5,
-        "duration_tiles": 20
-      },
-      "trigger": { "condition": "in_biome", "biome": "Mountain" },
-      "outcomes": [
-        { "effect": "notification", "text": "Mountain terrain! Movement costs increased." }
-      ],
-      "status": "pending",
-      "requires_browser": false
     }
   ]
 }
