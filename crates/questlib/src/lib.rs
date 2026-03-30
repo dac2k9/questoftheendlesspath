@@ -2,6 +2,7 @@ pub mod adventure;
 pub mod events;
 pub mod fog;
 pub mod ftms;
+pub mod leveling;
 pub mod mapgen;
 pub mod route;
 #[cfg(not(target_arch = "wasm32"))]
