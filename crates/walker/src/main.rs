@@ -82,7 +82,7 @@ async fn run_session(
 
     let mut notification_stream = peripheral.notifications().await?;
     let mut last_write = tokio::time::Instant::now();
-    let mut last_sent_distance: i32 = 0; // track what we last reported
+    let mut last_sent_distance: Option<i32> = None; // None until first reading
 
     use futures::StreamExt;
     while let Some(notification) = notification_stream.next().await {
@@ -107,9 +107,16 @@ async fn run_session(
 
         let raw_distance = data.total_distance_m.map(|d| d as i32).unwrap_or(0);
 
-        // Send delta since last report (not cumulative)
-        let delta = (raw_distance - last_sent_distance).max(0);
-        last_sent_distance = raw_distance;
+        // First reading — set baseline, don't send anything yet
+        if last_sent_distance.is_none() {
+            last_sent_distance = Some(raw_distance);
+            info!("Walker baseline: {}m (only deltas from here)", raw_distance);
+            continue;
+        }
+
+        // Send delta since last report
+        let delta = (raw_distance - last_sent_distance.unwrap_or(0)).max(0);
+        last_sent_distance = Some(raw_distance);
 
         let speed = data.speed_kmh;
         let dist = delta; // server adds this to player's total
