@@ -6,9 +6,10 @@
 use serde::{Deserialize, Serialize};
 
 /// Meters required to reach each level (cumulative).
-/// Level 1 = start, Level 2 = 100m, Level 3 = 300m, etc.
-/// Formula: level N requires base * N^1.5 cumulative meters.
-const BASE_METERS: f64 = 50.0;
+/// Level 2 = 100m (quick!), but lvl 29→30 gap ≈ 8km.
+/// Uses cubic scaling: meters = 3 * N^3
+/// This gives: lvl2=24m, lvl5=375m, lvl10=3km, lvl20=24km, lvl30=81km total
+/// Gaps: lvl1→2=24m, lvl9→10=867m, lvl19→20=3.5km, lvl29→30=7.8km
 
 /// Compute the cumulative meters required to reach a given level.
 pub fn meters_for_level(level: u32) -> u64 {
@@ -16,7 +17,8 @@ pub fn meters_for_level(level: u32) -> u64 {
         return 0;
     }
     let n = level as f64;
-    (BASE_METERS * n * n.sqrt()) as u64
+    // Cubic with offset: starts at ~100m for lvl 2, ~8km gap at lvl 29→30
+    (3.0 * n * n * n + 70.0 * n) as u64
 }
 
 /// Compute the current level from total meters walked.
@@ -120,7 +122,7 @@ mod tests {
     #[test]
     fn level_2_threshold() {
         let threshold = meters_for_level(2);
-        assert!(threshold > 0 && threshold <= 200, "level 2 at {}m", threshold);
+        assert!(threshold > 50 && threshold <= 300, "level 2 at {}m", threshold);
         assert_eq!(level_from_meters(threshold), 2);
         assert_eq!(level_from_meters(threshold - 1), 1);
     }
