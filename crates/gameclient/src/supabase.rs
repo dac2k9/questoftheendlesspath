@@ -72,7 +72,7 @@ fn receive_poll_results(
     }
 
     // Dev mode: poll local dev server
-    let dev_url = "http://127.0.0.1:3001/players".to_string();
+    let dev_url = "http://localhost:3001/players".to_string();
     let players_ref = state.players.clone();
 
     wasm_bindgen_futures::spawn_local(async move {
@@ -99,7 +99,7 @@ pub fn write_planned_route(
         return;
     }
 
-    let url = "http://127.0.0.1:3001/set_route".to_string();
+    let url = "http://localhost:3001/set_route".to_string();
 
     #[derive(Serialize)]
     struct Params {

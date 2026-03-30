@@ -188,7 +188,7 @@ fn handle_dialogue_input(
 
         // POST completion to dev server
         if !event_id.is_empty() {
-            let url = format!("http://127.0.0.1:3001/events/{}/complete", event_id);
+            let url = format!("http://localhost:3001/events/{}/complete", event_id);
             wasm_bindgen_futures::spawn_local(async move {
                 let client = reqwest::Client::new();
                 let _ = client.post(&url).send().await;
@@ -219,13 +219,28 @@ struct NotificationBanner {
     timer: Timer,
 }
 
+#[derive(Component)]
+struct NotificationDismiss;
+
 fn update_notifications(
     mut commands: Commands,
     font: Res<GameFont>,
     time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut queue: ResMut<NotificationQueue>,
     mut banners: Query<(Entity, &mut NotificationBanner)>,
+    dismiss_q: Query<&Interaction, With<NotificationDismiss>>,
 ) {
+    // Dismiss on X key or clicking [X]
+    let dismiss = keys.just_pressed(KeyCode::KeyX);
+    if dismiss {
+        for (entity, _) in &banners {
+            commands.entity(entity).despawn_recursive();
+        }
+        return;
+    }
+
     // Update existing banners
     for (entity, mut banner) in &mut banners {
         banner.timer.tick(time.delta());
@@ -241,22 +256,31 @@ fn update_notifications(
                 Node {
                     position_type: PositionType::Absolute,
                     top: Val::Px(40.0),
-                    left: Val::Percent(20.0),
-                    right: Val::Percent(20.0),
-                    padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
-                    justify_content: JustifyContent::Center,
+                    left: Val::Percent(10.0),
+                    right: Val::Percent(10.0),
+                    padding: UiRect::all(Val::Px(12.0)),
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::Center,
                     ..default()
                 },
-                BackgroundColor(Color::srgba(0.1, 0.1, 0.2, 0.85)),
+                BackgroundColor(Color::srgba(0.05, 0.05, 0.15, 0.9)),
+                BorderColor(Color::srgb(0.4, 0.35, 0.2)),
                 BorderRadius::all(Val::Px(4.0)),
                 NotificationBanner {
-                    timer: Timer::from_seconds(notif.duration, TimerMode::Once),
+                    timer: Timer::from_seconds(999.0, TimerMode::Once), // stays until dismissed
                 },
             )).with_children(|parent| {
                 parent.spawn((
                     Text::new(notif.text),
-                    TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                    TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
                     TextColor(Color::srgb(1.0, 0.95, 0.7)),
+                ));
+                // Dismiss button
+                parent.spawn((
+                    Text::new("[X]"),
+                    TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                    TextColor(Color::srgb(0.6, 0.4, 0.4)),
+                    NotificationDismiss,
                 ));
             });
         }

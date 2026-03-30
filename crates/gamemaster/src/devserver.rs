@@ -33,7 +33,7 @@ use crate::SharedEvents;
 pub type SharedNotifs = Arc<Mutex<Vec<String>>>;
 
 pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs) -> Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:3001").await?;
+    let listener = TcpListener::bind("0.0.0.0:3001").await?;
     tracing::info!("Dev server listening on http://127.0.0.1:3001");
 
     loop {

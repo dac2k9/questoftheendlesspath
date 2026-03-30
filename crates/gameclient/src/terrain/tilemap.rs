@@ -373,6 +373,7 @@ fn spawn_world(
 
 fn handle_map_click(
     mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
     world: Res<WorldGrid>,
@@ -394,15 +395,19 @@ fn handle_map_click(
     let terrain = world.get(tx, ty);
 
     if let Ok((mut text, mut transform)) = info_q.get_single_mut() {
-        let fog = fog_res.as_ref();
-        if fog.is_revealed(tx, ty) || debug.fog_disabled {
-            let cost_str = if terrain.is_passable() { format!("{}m", terrain.movement_cost()) } else { "impassable".to_string() };
-            *text = Text2d::new(format!("{} {}", terrain.name(), cost_str));
+        if keys.pressed(KeyCode::Tab) {
+            let fog = fog_res.as_ref();
+            if fog.is_revealed(tx, ty) || debug.fog_disabled {
+                let cost_str = if terrain.is_passable() { format!("{}m", terrain.movement_cost()) } else { "impassable".to_string() };
+                *text = Text2d::new(format!("{} {}", terrain.name(), cost_str));
+            } else {
+                *text = Text2d::new("???");
+            }
+            let tile_pos = WorldGrid::tile_to_world(tx, ty);
+            transform.translation = Vec3::new(tile_pos.x, tile_pos.y + 16.0, 10.0);
         } else {
-            *text = Text2d::new("???");
+            *text = Text2d::new("");
         }
-        let tile_pos = WorldGrid::tile_to_world(tx, ty);
-        transform.translation = Vec3::new(tile_pos.x, tile_pos.y + 16.0, 10.0);
     }
 
     // Can't click on fogged tiles
@@ -761,7 +766,8 @@ fn update_path_visuals(
     session: Res<GameSession>,
     time: Res<Time>,
     mut player_q: Query<(&mut Transform, &mut WalkAnimation, &mut Sprite), With<PlayerSprite>>,
-    mut nametag_q: Query<&mut Transform, (With<PlayerNameTag>, Without<PlayerSprite>)>,
+    mut nametag_q: Query<(&mut Transform, &mut Visibility), (With<PlayerNameTag>, Without<PlayerSprite>)>,
+    keys_for_name: Res<ButtonInput<KeyCode>>,
 ) {
     // Check if treadmill belt is running + get speed
     let (belt_moving, walking_speed) = {
@@ -816,7 +822,12 @@ fn update_path_visuals(
             }
         }
         if let Ok((player_tf, _, _)) = player_q.get_single() {
-            for mut tf in &mut nametag_q { tf.translation.x = player_tf.translation.x; tf.translation.y = player_tf.translation.y + 12.0; }
+            let show_name = keys_for_name.pressed(KeyCode::Tab);
+            for (mut tf, mut vis) in &mut nametag_q {
+                tf.translation.x = player_tf.translation.x;
+                tf.translation.y = player_tf.translation.y + 12.0;
+                *vis = if show_name { Visibility::Visible } else { Visibility::Hidden };
+            }
         }
     }
 }
