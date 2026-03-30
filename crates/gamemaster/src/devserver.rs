@@ -30,7 +30,9 @@ pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
 use crate::SharedEvents;
 
 /// Start the dev HTTP server on port 3001.
-pub async fn start_dev_server(state: SharedState, events: SharedEvents) -> Result<()> {
+pub type SharedNotifs = Arc<Mutex<Vec<String>>>;
+
+pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs) -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:3001").await?;
     tracing::info!("Dev server listening on http://127.0.0.1:3001");
 
@@ -38,13 +40,14 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents) -> Resul
         let (mut stream, _) = listener.accept().await?;
         let state = state.clone();
         let events = events.clone();
+        let notifs = notifs.clone();
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 16384];
             let n = stream.read(&mut buf).await.unwrap_or(0);
             let request = String::from_utf8_lossy(&buf[..n]);
 
-            let (status, body) = handle_request(&request, &state, &events);
+            let (status, body) = handle_request(&request, &state, &events, &notifs);
 
             let response = format!(
                 "HTTP/1.1 {}\r\n\
@@ -65,7 +68,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents) -> Resul
     }
 }
 
-fn handle_request(request: &str, state: &SharedState, events: &SharedEvents) -> (&'static str, String) {
+fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs) -> (&'static str, String) {
     let first_line = request.lines().next().unwrap_or("");
 
     // CORS preflight
@@ -166,6 +169,14 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents) -> 
             }
         }
         return ("400 Bad Request", r#"{"error":"invalid event"}"#.to_string());
+    }
+
+    // GET /notifications — fetch and clear pending notifications
+    if first_line.starts_with("GET /notifications") {
+        let mut lock = notifs.lock().unwrap();
+        let json = serde_json::to_string(&*lock).unwrap_or_default();
+        lock.clear();
+        return ("200 OK", json);
     }
 
     // POST /heartbeat — mark player browser as open (no-op for dev)

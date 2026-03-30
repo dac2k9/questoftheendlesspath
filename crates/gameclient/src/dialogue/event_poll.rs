@@ -10,6 +10,7 @@ pub struct EventPollState {
     pub timer: Option<Timer>,
     pub known_active_ids: Vec<String>,
     pub fetched: Arc<Mutex<Option<Vec<ActiveEvent>>>>,
+    pub fetched_notifs: Arc<Mutex<Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -175,6 +176,27 @@ pub fn poll_active_events(
         });
     }
 
-    // Also check outcomes from any notifications
-    // (auto-completed events push notifications via their outcomes)
+    // Check for server-side notifications
+    let server_notifs: Vec<String> = {
+        let Ok(mut lock) = poll.fetched_notifs.lock() else { return };
+        std::mem::take(&mut *lock)
+    };
+    for text in server_notifs {
+        notifications.pending.push(NotificationData { text, duration: 4.0 });
+    }
+
+    // Poll server notifications
+    if just_finished {
+        let notif_ref = poll.fetched_notifs.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = reqwest::Client::new();
+            if let Ok(resp) = client.get("http://127.0.0.1:3001/notifications").send().await {
+                if let Ok(notifs) = resp.json::<Vec<String>>().await {
+                    if let Ok(mut lock) = notif_ref.lock() {
+                        lock.extend(notifs);
+                    }
+                }
+            }
+        });
+    }
 }

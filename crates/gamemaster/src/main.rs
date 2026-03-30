@@ -13,6 +13,7 @@ use tracing::{error, info};
 use devserver::{DevPlayerState, SharedState};
 
 pub type SharedEvents = Arc<Mutex<EventCatalog>>;
+pub type SharedNotifs = Arc<Mutex<Vec<String>>>;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SaveData {
@@ -103,11 +104,14 @@ async fn main() -> Result<()> {
         })
     ));
 
+    let shared_notifs: SharedNotifs = Arc::new(Mutex::new(Vec::new()));
+
     // Start dev HTTP server
     let server_state = state.clone();
     let server_events = shared_events.clone();
+    let server_notifs = shared_notifs.clone();
     tokio::spawn(async move {
-        if let Err(e) = devserver::start_dev_server(server_state, server_events).await {
+        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs).await {
             error!("Dev server error: {e}");
         }
     });
@@ -132,6 +136,7 @@ async fn main() -> Result<()> {
             &state,
             &world,
             &shared_events,
+            &shared_notifs,
             &mut player_fogs,
             &mut player_last_distance,
             rng_roll,

@@ -8,13 +8,14 @@ use questlib::route::{self, position_along_route};
 use tracing::{debug, info};
 
 use crate::devserver::SharedState;
-use crate::SharedEvents;
+use crate::{SharedEvents, SharedNotifs};
 
 /// Dev mode tick — works with in-memory shared state.
 pub fn run_tick_dev(
     state: &SharedState,
     world: &WorldMap,
     shared_events: &SharedEvents,
+    shared_notifs: &SharedNotifs,
     player_fogs: &mut HashMap<String, FogBitfield>,
     player_last_distance: &mut HashMap<String, i32>,
     rng_roll: f32,
@@ -43,6 +44,13 @@ pub fn run_tick_dev(
             player_last_distance.insert(player_id.clone(), player.total_distance_m);
         }
 
+        info!(
+            "[{}] tile=({},{}) dist={}m gold={} walking={} route_len={} route_m={:.0}",
+            player.name, player.map_tile_x, player.map_tile_y,
+            player.total_distance_m, player.gold, player.is_walking,
+            player.planned_route.len(), player.route_meters_walked
+        );
+
         if !player.is_walking {
             player_last_distance.insert(player_id.clone(), player.total_distance_m);
             continue;
@@ -53,13 +61,18 @@ pub fn run_tick_dev(
         let delta_m = (player.total_distance_m - last_dist).max(0);
         player_last_distance.insert(player_id.clone(), player.total_distance_m);
 
+        info!("[{}] delta_m={} (total={} last={})", player.name, delta_m, player.total_distance_m, last_dist);
+
         if delta_m == 0 {
             continue;
         }
 
         // Check if a blocking event is active (requires_browser = pauses movement)
-        let has_blocking_event = events_lock.active_events().iter()
-            .any(|e| e.requires_browser);
+        let active = events_lock.active_events();
+        let has_blocking_event = active.iter().any(|e| e.requires_browser);
+        if !active.is_empty() {
+            info!("[{}] active events: {:?}", player.name, active.iter().map(|e| &e.id).collect::<Vec<_>>());
+        }
 
         // Route advancement — paused during blocking events (still earn gold)
         if has_blocking_event {
@@ -81,9 +94,11 @@ pub fn run_tick_dev(
         if route_tiles.is_empty() {
             let gold_earned = (delta_m / 10).max(1);
             p.gold += gold_earned;
-            debug!("{} earned {} gold (no route)", p.name, gold_earned);
+            info!("[{}] no route, earned {} gold (total: {})", p.name, gold_earned, p.gold);
             continue;
         }
+
+        info!("[{}] route has {} waypoints, advancing {} meters", p.name, route_tiles.len(), delta_m);
 
         let new_meters = p.route_meters_walked + delta_m as f64;
         let (tile_x, tile_y, _idx, route_complete) =
@@ -147,9 +162,14 @@ pub fn run_tick_dev(
                     if event.transition(EventStatus::Completed).is_ok() {
                         info!("  Auto-completed: {}", event.name);
 
-                        // Apply outcomes
+                        // Apply outcomes + push notifications
                         for outcome in &event.outcomes {
                             apply_outcome(outcome, p, fog);
+                            if let EventOutcome::Notification { text } = outcome {
+                                if let Ok(mut notifs) = shared_notifs.lock() {
+                                    notifs.push(text.clone());
+                                }
+                            }
                         }
                     }
                 }
