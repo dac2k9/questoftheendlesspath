@@ -660,13 +660,20 @@ fn sync_from_supabase(
                 route.current_index = 0;
             }
         } else {
-            // Already have a route — only advance forward (never backwards)
+            // Sync current_index to server position
             if let Some(idx) = route.waypoints.iter().position(|&w| w == tile) {
-                if idx > route.current_index {
+                if idx != route.current_index {
                     route.current_index = idx;
                     route.needs_redraw = true;
                     route.interp_reset = true;
                 }
+            } else {
+                // Server tile not in our route — route may have changed
+                // Set route to just the server tile
+                route.waypoints = vec![tile];
+                route.current_index = 0;
+                route.needs_redraw = true;
+                route.interp_reset = true;
             }
         }
 
