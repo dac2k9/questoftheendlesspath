@@ -118,7 +118,9 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 speed: f32,
                 distance: i32,
                 #[serde(default)]
-                incline: f32,
+                steps: u64,
+                #[serde(default)]
+                actually_walking: bool,
             }
             if let Ok(req) = serde_json::from_str::<WalkerReq>(body) {
                 let mut lock = state.lock().unwrap();
@@ -126,7 +128,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     player.current_speed_kmh = req.speed;
                     // Walker sends delta_distance — add to player's existing total
                     player.total_distance_m += req.distance;
-                    player.is_walking = req.speed > 0.1;
+                    // Use actually_walking (step-based) instead of just speed
+                    player.is_walking = req.actually_walking;
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
             }
