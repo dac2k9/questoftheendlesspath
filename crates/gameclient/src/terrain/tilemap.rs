@@ -831,14 +831,9 @@ fn update_path_visuals(
                 // Advance local progress
                 interp_progress.0 += progress_per_sec * time.delta_secs();
 
-                // When we reach 1.0, locally advance to next tile and reset
+                // Clamp at 1.0 — wait for server to advance current_index
                 if interp_progress.0 >= 1.0 {
-                    interp_progress.0 = 0.0;
-                    // Advance current_index locally (server will confirm later)
-                    if route.current_index + 1 < route.waypoints.len() {
-                        route.current_index += 1;
-                        route.needs_redraw = true;
-                    }
+                    interp_progress.0 = 1.0;
                 }
 
                 Vec2::new(x, y)

@@ -202,7 +202,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                         player.current_speed_kmh = 0.0;
                         return ("200 OK", r#"{"ok":true,"stopped":true}"#.to_string());
                     }
-                    let delta = (req.speed / 3.6 * 3.0) as i32;
+                    // Speed in m/s * tick interval (3s) * 5x multiplier for faster testing
+                    let delta = (req.speed / 3.6 * 3.0 * 5.0) as i32;
                     player.current_speed_kmh = req.speed;
                     player.total_distance_m += delta;
                     player.is_walking = true;
