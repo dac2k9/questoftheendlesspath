@@ -3,71 +3,78 @@ use std::cmp::Ordering;
 
 use bevy::prelude::*;
 
-use super::world::{WorldGrid, WORLD_W, WORLD_H};
+use super::world::{WorldGrid, WORLD_W, WORLD_H, TILE_PX};
 
-/// The player's planned route — a sequence of tile coordinates.
+/// Route displayed on screen (for path markers).
 #[derive(Resource, Default)]
-pub struct PlannedRoute {
+pub struct DisplayRoute {
     pub waypoints: Vec<(usize, usize)>,
-    pub meters_walked: f32,
-    pub total_meters: f32,
-    pub current_index: usize,
-    /// Set to true when path markers need to be redrawn.
-    pub needs_redraw: bool,
-    /// Set to true when sub-tile interpolation should reset (tile changed).
-    pub interp_reset: bool,
 }
 
-impl PlannedRoute {
-    /// Get the current tile position based on meters walked.
-    pub fn current_tile(&self) -> Option<(usize, usize)> {
-        if self.waypoints.is_empty() {
-            return None;
-        }
-        let idx = self.current_index.min(self.waypoints.len() - 1);
-        Some(self.waypoints[idx])
+/// Predicted meters since last server poll (dead reckoning).
+#[derive(Resource, Default)]
+pub struct PredictedMeters(pub f64);
+
+/// Compute world-space position from a route + meters walked.
+/// Walks through tiles consuming meter costs, interpolates within the current tile.
+pub fn position_from_route_meters(
+    route: &[(usize, usize)],
+    meters: f64,
+    world: &WorldGrid,
+) -> Option<Vec2> {
+    if route.is_empty() {
+        return None;
     }
 
-    /// Advance the route by the given meters. Returns true if the route is complete.
-    pub fn advance(&mut self, meters: f32, world: &WorldGrid) -> bool {
-        if self.waypoints.is_empty() || self.current_index >= self.waypoints.len() {
-            return true;
+    let mut remaining = meters;
+    for i in 0..route.len() {
+        let (x, y) = route[i];
+        let terrain = world.get(x, y);
+        let cost = terrain.movement_cost();
+        if cost == u32::MAX {
+            // Impassable — stop here
+            return Some(WorldGrid::tile_to_world(x, y));
         }
 
-        self.meters_walked += meters;
+        if remaining < cost as f64 {
+            // Partway through this tile — interpolate to next
+            let frac = remaining / cost as f64;
+            let current = WorldGrid::tile_to_world(x, y);
 
-        // Walk through waypoints consuming distance
-        let mut remaining = self.meters_walked;
-        let mut idx = 0;
-        for i in 0..self.waypoints.len() {
-            let (x, y) = self.waypoints[i];
-            let cost = world.get(x, y).movement_cost() as f32;
-            if cost >= u32::MAX as f32 {
-                break;
+            if i + 1 < route.len() {
+                let (nx, ny) = route[i + 1];
+                let next = WorldGrid::tile_to_world(nx, ny);
+                let interp_x = current.x + (next.x - current.x) * frac as f32;
+                let interp_y = current.y + (next.y - current.y) * frac as f32;
+                return Some(Vec2::new(interp_x, interp_y));
+            } else {
+                return Some(current);
             }
-            if remaining < cost {
-                idx = i;
-                break;
-            }
-            remaining -= cost;
-            idx = i + 1;
         }
-
-        self.current_index = idx;
-        self.current_index >= self.waypoints.len()
+        remaining -= cost as f64;
     }
 
-    /// Recalculate total meters from waypoints.
-    pub fn recalculate_total(&mut self, world: &WorldGrid) {
-        self.total_meters = self
-            .waypoints
-            .iter()
-            .map(|&(x, y)| {
-                let cost = world.get(x, y).movement_cost();
-                if cost == u32::MAX { 0.0 } else { cost as f32 }
-            })
-            .sum();
+    // Past the end of the route — return last tile
+    let (x, y) = route[route.len() - 1];
+    Some(WorldGrid::tile_to_world(x, y))
+}
+
+/// Find which tile index in a route corresponds to a given meters walked.
+pub fn tile_index_from_meters(
+    route: &[(usize, usize)],
+    meters: f64,
+    world: &WorldGrid,
+) -> usize {
+    let mut remaining = meters;
+    for i in 0..route.len() {
+        let (x, y) = route[i];
+        let cost = world.get(x, y).movement_cost();
+        if cost == u32::MAX || remaining < cost as f64 {
+            return i;
+        }
+        remaining -= cost as f64;
     }
+    route.len().saturating_sub(1)
 }
 
 /// A* pathfinding between two tiles, using movement cost as weight.
@@ -99,7 +106,6 @@ pub fn find_path(
         let (x, y) = pos;
 
         if pos == goal {
-            // Reconstruct path
             let mut path = vec![goal];
             let mut cur = goal;
             while let Some(p) = prev[idx(cur.0, cur.1)] {
@@ -141,7 +147,7 @@ pub fn find_path(
         }
     }
 
-    None // No path found
+    None
 }
 
 fn neighbors(x: usize, y: usize) -> [(usize, usize); 4] {
@@ -156,7 +162,6 @@ fn neighbors(x: usize, y: usize) -> [(usize, usize); 4] {
 fn heuristic(a: (usize, usize), b: (usize, usize)) -> u32 {
     let dx = (a.0 as i32 - b.0 as i32).unsigned_abs();
     let dy = (a.1 as i32 - b.1 as i32).unsigned_abs();
-    // Manhattan distance * minimum tile cost (100m for road)
     (dx + dy) * 100
 }
 
@@ -169,7 +174,6 @@ struct Node {
 
 impl Ord for Node {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse for min-heap
         let self_f = self.cost.saturating_add(self.heuristic);
         let other_f = other.cost.saturating_add(other.heuristic);
         other_f.cmp(&self_f)

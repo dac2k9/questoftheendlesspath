@@ -3,8 +3,8 @@ pub mod floating_text;
 use bevy::prelude::*;
 
 use crate::states::AppState;
-use crate::supabase::PolledPlayerState;
-use crate::terrain::path::PlannedRoute;
+use crate::terrain::path::DisplayRoute;
+use crate::terrain::tilemap::MyPlayerState;
 use crate::terrain::world::WorldGrid;
 use crate::{GameFont, GameSession};
 use floating_text::{spawn_floating_text, update_floating_texts};
@@ -83,43 +83,29 @@ fn spawn_hud(mut commands: Commands, font: Res<GameFont>) {
 }
 
 fn update_hud(
-    polled: Res<PolledPlayerState>,
-    session: Res<GameSession>,
-    route: Res<PlannedRoute>,
+    state: Res<MyPlayerState>,
+    route: Res<DisplayRoute>,
     world: Option<Res<WorldGrid>>,
     mut gold_q: Query<&mut Text, With<GoldText>>,
     mut dist_q: Query<&mut Text, (With<DistanceText>, Without<GoldText>, Without<SpeedText>)>,
     mut speed_q: Query<&mut Text, (With<SpeedText>, Without<GoldText>, Without<DistanceText>)>,
 ) {
-    let Ok(players) = polled.players.lock() else { return };
-    let Some(me) = players.iter().find(|p| p.name.eq_ignore_ascii_case(&session.player_name)) else { return };
-
-    // Gold
     if let Ok(mut text) = gold_q.get_single_mut() {
-        **text = format!("Gold: {}", me.gold);
+        **text = format!("Gold: {}", state.gold);
     }
-
-    // Speed
     if let Ok(mut text) = speed_q.get_single_mut() {
-        **text = format!("{:.1} km/h", me.current_speed_kmh);
+        **text = format!("{:.1} km/h", state.speed_kmh);
     }
-
-    // Distance to target — only count tiles AHEAD of player
     if let Ok(mut text) = dist_q.get_single_mut() {
-        if route.waypoints.len() > route.current_index + 1 {
-            let remaining: u32 = if let Some(world) = &world {
-                route.waypoints[(route.current_index + 1)..]
+        if !route.waypoints.is_empty() {
+            if let Some(world) = &world {
+                let tile_idx = crate::terrain::path::tile_index_from_meters(&route.waypoints, state.route_meters, world);
+                let remaining: u32 = route.waypoints[(tile_idx + 1).min(route.waypoints.len())..]
                     .iter()
-                    .map(|&(x, y)| {
-                        let terrain = world.get(x, y);
-                        let cost = terrain.movement_cost();
-                        if cost == u32::MAX { 0 } else { cost }
-                    })
-                    .sum()
-            } else {
-                0
-            };
-            **text = format!("{}m to target", remaining);
+                    .map(|&(x, y)| { let c = world.get(x, y).movement_cost(); if c == u32::MAX { 0 } else { c } })
+                    .sum();
+                **text = format!("{}m to target", remaining);
+            }
         } else {
             **text = "No route".to_string();
         }
@@ -127,17 +113,13 @@ fn update_hud(
 }
 
 fn detect_gold_change(
-    polled: Res<PolledPlayerState>,
-    session: Res<GameSession>,
+    state: Res<MyPlayerState>,
     font: Res<GameFont>,
     mut last_gold: ResMut<LastKnownGold>,
     mut commands: Commands,
     player_q: Query<&Transform, With<crate::terrain::tilemap::PlayerSprite>>,
 ) {
-    let Ok(players) = polled.players.lock() else { return };
-    let Some(me) = players.iter().find(|p| p.name.eq_ignore_ascii_case(&session.player_name)) else { return };
-
-    let current_gold = me.gold;
+    let current_gold = state.gold;
     if current_gold > last_gold.0 && last_gold.0 > 0 {
         let delta = current_gold - last_gold.0;
 
