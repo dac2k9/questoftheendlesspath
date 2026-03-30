@@ -837,6 +837,7 @@ fn update_path_visuals(
                     // Advance current_index locally (server will confirm later)
                     if route.current_index + 1 < route.waypoints.len() {
                         route.current_index += 1;
+                        route.needs_redraw = true;
                     }
                 }
 
