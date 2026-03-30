@@ -589,12 +589,13 @@ fn toggle_poi_labels(keys: Res<ButtonInput<KeyCode>>, mut labels: Query<&mut Vis
 }
 
 fn update_fog_texture(
-    fog: Res<FogOfWar>,
+    mut fog: ResMut<FogOfWar>,
     debug: Res<DebugOptions>,
     fog_q: Query<&Sprite, With<FogSprite>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     if !fog.dirty { return; }
+    fog.dirty = false;
     let Ok(sprite) = fog_q.get_single() else { return };
     let Some(image) = images.get_mut(sprite.image.id()) else { return };
     let w = WORLD_W * 16;
