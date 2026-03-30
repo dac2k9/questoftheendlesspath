@@ -328,12 +328,13 @@ fn spawn_world(
         LoadingText,
     ));
 
-    // Tile info text
+    // Tile info text — hidden until map is shown
     commands.spawn((
         Text2d::new(""),
         TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
         TextColor(Color::srgb(1.0, 1.0, 1.0)),
         Transform::from_xyz(0.0, 0.0, 10.0),
+        Visibility::Hidden,
         TileInfoText,
     ));
 
@@ -565,8 +566,9 @@ fn sync_from_supabase(
     mut server_pos: ResMut<ServerTilePos>,
     mut player_vis: Query<&mut Visibility, With<PlayerSprite>>,
     mut nametag_vis: Query<&mut Visibility, (With<PlayerNameTag>, Without<PlayerSprite>, Without<LoadingText>, Without<MapSprite>, Without<FogSprite>)>,
-    mut map_vis: Query<&mut Visibility, (With<MapSprite>, Without<PlayerSprite>, Without<PlayerNameTag>, Without<FogSprite>, Without<LoadingText>)>,
-    mut fog_vis: Query<&mut Visibility, (With<FogSprite>, Without<PlayerSprite>, Without<PlayerNameTag>, Without<MapSprite>, Without<LoadingText>)>,
+    mut map_vis: Query<&mut Visibility, (With<MapSprite>, Without<PlayerSprite>, Without<PlayerNameTag>, Without<FogSprite>, Without<LoadingText>, Without<TileInfoText>)>,
+    mut fog_vis: Query<&mut Visibility, (With<FogSprite>, Without<PlayerSprite>, Without<PlayerNameTag>, Without<MapSprite>, Without<LoadingText>, Without<TileInfoText>)>,
+    mut tileinfo_vis: Query<&mut Visibility, (With<TileInfoText>, Without<PlayerSprite>, Without<PlayerNameTag>, Without<MapSprite>, Without<FogSprite>, Without<LoadingText>)>,
     mut player_tf: Query<&mut Transform, (With<PlayerSprite>, Without<Camera2d>)>,
     mut camera_tf: Query<&mut Transform, (With<Camera2d>, Without<PlayerSprite>)>,
     mut commands: Commands,
@@ -593,6 +595,7 @@ fn sync_from_supabase(
             for mut vis in &mut nametag_vis { *vis = Visibility::Visible; }
             for mut vis in &mut map_vis { *vis = Visibility::Visible; }
             for mut vis in &mut fog_vis { *vis = Visibility::Visible; }
+            for mut vis in &mut tileinfo_vis { *vis = Visibility::Visible; }
 
             // Snap player to position instantly (no lerp)
             let world_pos = WorldGrid::tile_to_world(tile.0, tile.1);

@@ -150,6 +150,9 @@ async fn main() -> Result<()> {
 fn load_state(path: &str) -> Option<HashMap<String, DevPlayerState>> {
     let json = std::fs::read_to_string(path).ok()?;
     let save: SaveData = serde_json::from_str(&json).ok()?;
+    for p in &save.players {
+        info!("  Restored {}: tile=({},{}) gold={} route_m={:.0}", p.name, p.map_tile_x, p.map_tile_y, p.gold, p.route_meters_walked);
+    }
     info!("Loaded {} players from {}", save.players.len(), path);
     Some(save.players.into_iter().map(|p| (p.id.clone(), p)).collect())
 }
