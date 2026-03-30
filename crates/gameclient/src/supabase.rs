@@ -53,7 +53,7 @@ pub struct PolledPlayerState {
 struct PollTimer(Timer);
 
 fn start_polling(mut commands: Commands) {
-    commands.insert_resource(PollTimer(Timer::from_seconds(0.5, TimerMode::Repeating)));
+    commands.insert_resource(PollTimer(Timer::from_seconds(5.0, TimerMode::Repeating)));
 }
 
 fn receive_poll_results(
@@ -68,26 +68,13 @@ fn receive_poll_results(
         return;
     }
 
-    if config.url.is_empty() || session.game_id.is_empty() {
-        return;
-    }
-
-    // Spawn async fetch
-    let url = format!(
-        "{}/rest/v1/players?game_id=eq.{}&select=id,name,current_speed_kmh,total_distance_m,is_walking,map_tile_x,map_tile_y,gold,revealed_tiles,planned_route,route_meters_walked",
-        config.url, session.game_id
-    );
-    let key = config.anon_key.clone();
+    // Dev mode: poll local dev server
+    let dev_url = "http://127.0.0.1:3001/players".to_string();
     let players_ref = state.players.clone();
 
     wasm_bindgen_futures::spawn_local(async move {
         let client = reqwest::Client::new();
-        let resp = client
-            .get(&url)
-            .header("apikey", &key)
-            .header("Authorization", format!("Bearer {}", &key))
-            .send()
-            .await;
+        let resp = client.get(&dev_url).send().await;
 
         if let Ok(resp) = resp {
             if let Ok(players) = resp.json::<Vec<PlayerRow>>().await {
@@ -99,43 +86,36 @@ fn receive_poll_results(
     });
 }
 
-/// Write the planned route to Supabase for this player.
+/// Write the planned route — uses dev server in dev mode.
 pub fn write_planned_route(
-    config: &SupabaseConfig,
+    _config: &SupabaseConfig,
     player_id: &str,
     route_json: &str,
 ) {
-    if config.url.is_empty() || player_id.is_empty() {
+    if player_id.is_empty() {
         return;
     }
 
-    let url = format!(
-        "{}/rest/v1/players?id=eq.{}",
-        config.url, player_id
-    );
-    let key = config.anon_key.clone();
+    let url = "http://127.0.0.1:3001/set_route".to_string();
 
     #[derive(Serialize)]
-    struct RouteUpdate {
-        planned_route: String,
-        route_meters_walked: f64,
+    struct Params {
+        player_id: String,
+        route: String,
     }
 
-    let body = RouteUpdate {
-        planned_route: route_json.to_string(),
-        route_meters_walked: 0.0,
-    };
-
-    let body_str = serde_json::to_string(&body).unwrap_or_default();
+    let body = serde_json::to_string(&Params {
+        player_id: player_id.to_string(),
+        route: route_json.to_string(),
+    })
+    .unwrap_or_default();
 
     wasm_bindgen_futures::spawn_local(async move {
         let client = reqwest::Client::new();
         let _ = client
-            .patch(&url)
-            .header("apikey", &key)
-            .header("Authorization", format!("Bearer {}", &key))
+            .post(&url)
             .header("Content-Type", "application/json")
-            .body(body_str)
+            .body(body)
             .send()
             .await;
     });

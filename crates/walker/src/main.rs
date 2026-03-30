@@ -99,7 +99,7 @@ async fn run_session(
         };
 
         // Rate-limit writes to ~2 Hz
-        if last_write.elapsed() < Duration::from_millis(500) {
+        if last_write.elapsed() < Duration::from_millis(2000) {
             continue;
         }
         last_write = tokio::time::Instant::now();

@@ -1,8 +1,17 @@
 use bevy::prelude::*;
 
+use std::sync::{Arc, Mutex};
+
 use crate::states::AppState;
 use crate::supabase::SupabaseConfig;
 use crate::{GameFont, GameSession};
+
+/// Holds async lookup result — checked each frame to trigger transition.
+#[derive(Resource, Default)]
+struct PendingLogin {
+    result: Arc<Mutex<Option<(String, String)>>>, // (game_id, player_id)
+    waiting: bool,
+}
 
 #[derive(Component)]
 struct ClickZone {
@@ -15,8 +24,9 @@ pub struct TitlePlugin;
 
 impl Plugin for TitlePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (setup_font, spawn_title).chain())
-            .add_systems(Update, (handle_input, handle_mouse).run_if(in_state(AppState::Title)))
+        app.insert_resource(PendingLogin::default())
+            .add_systems(Startup, (setup_font, spawn_title).chain())
+            .add_systems(Update, (handle_input, handle_mouse, check_login_result).run_if(in_state(AppState::Title)))
             .add_systems(OnExit(AppState::Title), cleanup_title);
     }
 }
@@ -175,6 +185,7 @@ fn handle_input(
     mut status_q: Query<&mut Text2d, (With<StatusText>, Without<UsernameText>, Without<JoinCodeText>)>,
     mut session: ResMut<GameSession>,
     mut config: ResMut<SupabaseConfig>,
+    mut pending: ResMut<PendingLogin>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     // Tab switches fields
@@ -215,25 +226,29 @@ fn handle_input(
         config.url = "https://nmgvrnyrnnftgyszadzc.supabase.co".to_string();
         config.anon_key = "sb_publishable_Cz1-0kJ2OczX4slHUR0gqg_cSx9Lo5-".to_string();
 
-        // Look up game + player via Supabase
+        if let Ok(mut text) = status_q.get_single_mut() {
+            *text = Text2d::new("Connecting...");
+        }
+
+        // Launch async lookup — result will be checked by check_login_result system
         let url = config.url.clone();
         let key = config.anon_key.clone();
         let username = form.username.clone();
         let join_code = form.join_code.clone();
-
-        // For now, do the lookup and transition synchronously via spawn_local
-        // Store results in session resource
-        let game_id_ref = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-        let player_id_ref = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-        let gi = game_id_ref.clone();
-        let pi = player_id_ref.clone();
+        let result_ref = pending.result.clone();
+        pending.waiting = true;
 
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
 
-            // Look up game
             #[derive(serde::Deserialize)]
             struct GameRow { id: String }
+            #[derive(serde::Deserialize)]
+            struct PlayerRow { id: String }
+
+            let mut game_id = String::new();
+            let mut player_id = String::new();
+
             if let Ok(resp) = client
                 .get(format!("{}/rest/v1/games?join_code=eq.{}&select=id", url, join_code))
                 .header("apikey", &key)
@@ -242,11 +257,8 @@ fn handle_input(
             {
                 if let Ok(games) = resp.json::<Vec<GameRow>>().await {
                     if let Some(game) = games.first() {
-                        *gi.lock().unwrap() = game.id.clone();
+                        game_id = game.id.clone();
 
-                        // Look up player by name in this game
-                        #[derive(serde::Deserialize)]
-                        struct PlayerRow { id: String }
                         if let Ok(resp2) = client
                             .get(format!("{}/rest/v1/players?game_id=eq.{}&name=ilike.{}&select=id", url, game.id, username))
                             .header("apikey", &key)
@@ -255,25 +267,18 @@ fn handle_input(
                         {
                             if let Ok(players) = resp2.json::<Vec<PlayerRow>>().await {
                                 if let Some(player) = players.first() {
-                                    *pi.lock().unwrap() = player.id.clone();
+                                    player_id = player.id.clone();
                                 }
                             }
                         }
                     }
                 }
             }
+
+            if let Ok(mut lock) = result_ref.lock() {
+                *lock = Some((game_id, player_id));
+            }
         });
-
-        // Store IDs (they'll be populated by the async task shortly)
-        // For immediate use, try to read them
-        session.game_id = game_id_ref.lock().unwrap().clone();
-        session.player_id = player_id_ref.lock().unwrap().clone();
-
-        if let Ok(mut text) = status_q.get_single_mut() {
-            *text = Text2d::new(format!("Welcome, {}!", session.player_name));
-        }
-
-        next_state.set(AppState::InGame);
         return;
     }
 
@@ -360,6 +365,35 @@ fn handle_mouse(
             form.active_field = zone.field;
             return;
         }
+    }
+}
+
+/// Check if the async login lookup completed, then transition to InGame.
+fn check_login_result(
+    mut pending: ResMut<PendingLogin>,
+    mut session: ResMut<GameSession>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    if !pending.waiting {
+        return;
+    }
+
+    let result = {
+        let Ok(mut lock) = pending.result.lock() else { return };
+        lock.take()
+    };
+
+    if let Some((game_id, player_id)) = result {
+        pending.waiting = false;
+
+        if game_id.is_empty() || player_id.is_empty() {
+            // Lookup failed — will show error on next frame
+            return;
+        }
+
+        session.game_id = game_id;
+        session.player_id = player_id;
+        next_state.set(AppState::InGame);
     }
 }
 

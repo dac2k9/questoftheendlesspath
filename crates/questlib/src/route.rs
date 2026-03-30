@@ -5,21 +5,27 @@
 
 use crate::mapgen::{Biome, WorldMap};
 
+/// Base multiplier — adjust this to scale all tile costs.
+/// Lower = faster movement across the map.
+const COST_SCALE: u32 = 1;
+
 /// Movement cost in meters to traverse a tile, based on biome.
 pub fn tile_cost(biome: Biome, has_road: bool) -> u32 {
-    if has_road {
-        return 100;
-    }
-    match biome {
-        Biome::Grassland => 200,
-        Biome::Forest => 350,
-        Biome::DenseForest => 450,
-        Biome::Mountain => 600,
-        Biome::Desert => 250,
-        Biome::Snow => 350,
-        Biome::Swamp => 500,
-        Biome::Water | Biome::DeepWater => u32::MAX,
-    }
+    let base = if has_road {
+        20
+    } else {
+        match biome {
+            Biome::Grassland => 40,
+            Biome::Forest => 70,
+            Biome::DenseForest => 90,
+            Biome::Mountain => 120,
+            Biome::Desert => 50,
+            Biome::Snow => 70,
+            Biome::Swamp => 100,
+            Biome::Water | Biome::DeepWater => return u32::MAX,
+        }
+    };
+    base * COST_SCALE
 }
 
 /// Given a route and total meters walked, find the current tile index and position.

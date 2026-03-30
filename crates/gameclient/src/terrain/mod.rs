@@ -41,11 +41,11 @@ impl Terrain {
         let base = self.ground.movement_cost();
         if base == u32::MAX { return u32::MAX; }
         match self.overlay {
-            Some(Overlay::Tree | Overlay::PineTree) => base + 150,
-            Some(Overlay::Rock) => base + 200,
-            Some(Overlay::Village) => 150,
-            Some(Overlay::Wheat) => base + 50,
-            Some(Overlay::Bridge) => 100,
+            Some(Overlay::Tree | Overlay::PineTree) => base + 30,
+            Some(Overlay::Rock) => base + 40,
+            Some(Overlay::Village) => 30,
+            Some(Overlay::Wheat) => base + 10,
+            Some(Overlay::Bridge) => 20,
             None => base,
         }
     }
@@ -71,11 +71,11 @@ impl Terrain {
 impl Ground {
     pub fn movement_cost(self) -> u32 {
         match self {
-            Ground::Road => 100,
-            Ground::Grass => 200,
-            Ground::Sand => 250,
-            Ground::Snow => 350,
-            Ground::Swamp => 500,
+            Ground::Road => 20,
+            Ground::Grass => 40,
+            Ground::Sand => 50,
+            Ground::Snow => 70,
+            Ground::Swamp => 100,
             Ground::Water => u32::MAX,
         }
     }
