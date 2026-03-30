@@ -33,6 +33,38 @@ struct TileInfoText;
 #[derive(Component)]
 struct PoiLabel;
 
+#[derive(Component)]
+struct PlayerNameTag;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Direction {
+    Down,
+    Up,
+    Right,
+    Left,
+}
+
+impl Direction {
+    /// Base row in the spritesheet for this direction.
+    /// Each direction has 2 rows: idle (even) and walk (odd).
+    fn base_row(self) -> usize {
+        match self {
+            Direction::Down => 0,
+            Direction::Up => 2,
+            Direction::Right => 4,
+            Direction::Left => 6,
+        }
+    }
+}
+
+#[derive(Component)]
+struct WalkAnimation {
+    timer: Timer,
+    frame: usize,
+    direction: Direction,
+    moving: bool,
+}
+
 fn spawn_world(
     mut commands: Commands,
     font: Res<GameFont>,
@@ -95,29 +127,45 @@ fn spawn_world(
         }
     }
 
-    // Player sprite
-    // Start at the first town/village
+    // Player character sprite
     let start_tile = world.map.pois.iter()
         .find(|p| matches!(p.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village))
         .map(|p| (p.x, p.y))
         .unwrap_or((50, 40));
     let start_pos = WorldGrid::tile_to_world(start_tile.0, start_tile.1);
+
+    // Champion spritesheet: 5 cols x 8 rows, 16x16 frames
+    // Rows: 0-1 down, 2-3 up, 4-5 right, 6-7 left (idle row, walk row)
+    let champion_tex: Handle<Image> = asset_server.load("sprites/Katan.png");
+    let champion_layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 5, 8, None, None);
+    let champion_layout_handle = atlases.add(champion_layout);
+
     commands.spawn((
         Sprite {
-            color: Color::srgb(0.77, 0.64, 0.35),
-            custom_size: Some(Vec2::new(12.0, 12.0)),
+            image: champion_tex,
+            texture_atlas: Some(TextureAtlas {
+                layout: champion_layout_handle,
+                index: 0,
+            }),
             ..default()
         },
         Transform::from_xyz(start_pos.x, start_pos.y, 5.0),
         PlayerSprite,
+        WalkAnimation {
+            timer: Timer::from_seconds(0.15, TimerMode::Repeating),
+            frame: 0,
+            direction: Direction::Down,
+            moving: false,
+        },
     ));
 
+    // Player name label
     commands.spawn((
         Text2d::new("Dac"),
         TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
-        TextColor(Color::srgb(0.77, 0.64, 0.35)),
+        TextColor(Color::srgb(0.1, 0.1, 0.1)),
         Transform::from_xyz(start_pos.x, start_pos.y + 12.0, 6.0),
-        PlayerSprite,
+        PlayerNameTag,
     ));
 
     // Tile info text
@@ -267,14 +315,54 @@ fn handle_zoom(
 
 fn update_path_visuals(
     route: Res<PlannedRoute>,
-    mut player_q: Query<&mut Transform, With<PlayerSprite>>,
+    time: Res<Time>,
+    mut player_q: Query<(&mut Transform, &mut WalkAnimation, &mut Sprite), With<PlayerSprite>>,
+    mut nametag_q: Query<&mut Transform, (With<PlayerNameTag>, Without<PlayerSprite>)>,
 ) {
     if let Some((x, y)) = route.current_tile() {
         let target = WorldGrid::tile_to_world(x, y);
-        for mut transform in &mut player_q {
+
+        for (mut transform, mut anim, mut sprite) in &mut player_q {
             let current = transform.translation;
-            transform.translation.x += (target.x - current.x) * 0.1;
-            transform.translation.y += (target.y - current.y) * 0.1;
+            let dx = target.x - current.x;
+            let dy = target.y - current.y;
+
+            // Determine direction from movement delta
+            let moving = dx.abs() > 0.5 || dy.abs() > 0.5;
+            anim.moving = moving;
+
+            if moving {
+                if dx.abs() > dy.abs() {
+                    anim.direction = if dx > 0.0 { Direction::Right } else { Direction::Left };
+                } else {
+                    anim.direction = if dy > 0.0 { Direction::Up } else { Direction::Down };
+                }
+            }
+
+            // Animate walk cycle
+            anim.timer.tick(time.delta());
+            if anim.timer.just_finished() {
+                anim.frame = (anim.frame + 1) % 5;
+            }
+
+            // Pick sprite frame: direction row + walk/idle + frame
+            let row = anim.direction.base_row() + if moving { 1 } else { 0 };
+            let index = row * 5 + anim.frame;
+            if let Some(ref mut atlas) = sprite.texture_atlas {
+                atlas.index = index;
+            }
+
+            // Move toward target
+            transform.translation.x += dx * 0.1;
+            transform.translation.y += dy * 0.1;
+        }
+
+        // Update name tag to follow player
+        if let Ok((player_tf, _, _)) = player_q.get_single() {
+            for mut nametag_tf in &mut nametag_q {
+                nametag_tf.translation.x = player_tf.translation.x;
+                nametag_tf.translation.y = player_tf.translation.y + 12.0;
+            }
         }
     }
 }
