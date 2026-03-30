@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use wasm_bindgen::prelude::*;
 
+mod dialogue;
 mod hud;
 mod states;
 pub mod supabase;
@@ -43,6 +44,7 @@ pub fn start() {
         .add_plugins(terrain::tilemap::TilemapPlugin)
         .add_plugins(supabase::SupabasePlugin)
         .add_plugins(hud::HudPlugin)
+        .add_plugins(dialogue::DialoguePlugin)
         .run();
 }
 
