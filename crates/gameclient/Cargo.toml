@@ -28,6 +28,7 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Storage", "Document", "HtmlInputElement", "Element"] }
 js-sys = "0.3"
 log = "0.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
