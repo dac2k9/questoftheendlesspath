@@ -104,12 +104,11 @@ fn update_hud(
         **text = format!("{:.1} km/h", me.current_speed_kmh);
     }
 
-    // Distance to target
+    // Distance to target — only count tiles AHEAD of player
     if let Ok(mut text) = dist_q.get_single_mut() {
         if route.waypoints.len() > route.current_index + 1 {
-            // Sum remaining tile costs
             let remaining: u32 = if let Some(world) = &world {
-                route.waypoints[route.current_index..]
+                route.waypoints[(route.current_index + 1)..]
                     .iter()
                     .map(|&(x, y)| {
                         let terrain = world.get(x, y);
