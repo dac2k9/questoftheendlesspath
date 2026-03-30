@@ -23,3 +23,6 @@ crates/**/.env
 # Python (legacy scripts)
 __pycache__/
 *.pyc
+
+# Dev server state
+dev_state.json

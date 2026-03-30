@@ -14,6 +14,12 @@ use devserver::{DevPlayerState, SharedState};
 
 pub type SharedEvents = Arc<Mutex<EventCatalog>>;
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SaveData {
+    players: Vec<DevPlayerState>,
+    events: EventCatalog,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -37,53 +43,65 @@ async fn main() -> Result<()> {
         world.width, world.height, world.pois.len(), world.roads.len()
     );
 
-    // Load events
+    let save_path = "dev_state.json";
+
+    // Load events — try saved state first, then events file
     let events_path = std::env::var("EVENTS_PATH")
         .unwrap_or_else(|_| "adventures/seed42_events.json".to_string());
-    let catalog = if std::path::Path::new(&events_path).exists() {
+
+    let saved_events = std::fs::read_to_string(save_path)
+        .ok()
+        .and_then(|json| serde_json::from_str::<SaveData>(&json).ok())
+        .map(|s| s.events);
+
+    let catalog = if let Some(events) = saved_events {
+        info!("Restored {} events from saved state", events.events.len());
+        events
+    } else if std::path::Path::new(&events_path).exists() {
         let json = std::fs::read_to_string(&events_path)?;
-        EventCatalog::from_json(&json)?
+        let c = EventCatalog::from_json(&json)?;
+        info!("Loaded {} events from {}", c.events.len(), events_path);
+        c
     } else {
-        info!("No events file found at {events_path}, starting empty");
+        info!("No events found, starting empty");
         EventCatalog::default()
     };
-    info!("Loaded {} events", catalog.events.len());
 
     let shared_events: SharedEvents = Arc::new(Mutex::new(catalog));
 
-    // Initialize shared player state
-    let state: SharedState = Arc::new(Mutex::new(HashMap::new()));
+    // Initialize shared player state — load from disk if available
+    let state: SharedState = Arc::new(Mutex::new(
+        load_state(save_path).unwrap_or_else(|| {
+            info!("No saved state found, creating fresh players");
+            let start = world.pois.iter()
+                .find(|p| matches!(p.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village))
+                .map(|p| (p.x as i32, p.y as i32))
+                .unwrap_or((50, 40));
 
-    // Add default players
-    {
-        let mut lock = state.lock().unwrap();
-
-        let start = world.pois.iter()
-            .find(|p| matches!(p.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village))
-            .map(|p| (p.x as i32, p.y as i32))
-            .unwrap_or((50, 40));
-
-        lock.insert(
-            "a0000000-0000-0000-0000-000000000001".to_string(),
-            DevPlayerState {
-                id: "a0000000-0000-0000-0000-000000000001".to_string(),
-                name: "Dac".to_string(),
-                map_tile_x: start.0,
-                map_tile_y: start.1,
-                ..Default::default()
-            },
-        );
-        lock.insert(
-            "b0000000-0000-0000-0000-000000000002".to_string(),
-            DevPlayerState {
-                id: "b0000000-0000-0000-0000-000000000002".to_string(),
-                name: "Apanloco".to_string(),
-                map_tile_x: start.0,
-                map_tile_y: start.1,
-                ..Default::default()
-            },
-        );
-    }
+            let mut map = HashMap::new();
+            map.insert(
+                "a0000000-0000-0000-0000-000000000001".to_string(),
+                DevPlayerState {
+                    id: "a0000000-0000-0000-0000-000000000001".to_string(),
+                    name: "Dac".to_string(),
+                    map_tile_x: start.0,
+                    map_tile_y: start.1,
+                    ..Default::default()
+                },
+            );
+            map.insert(
+                "b0000000-0000-0000-0000-000000000002".to_string(),
+                DevPlayerState {
+                    id: "b0000000-0000-0000-0000-000000000002".to_string(),
+                    name: "Apanloco".to_string(),
+                    map_tile_x: start.0,
+                    map_tile_y: start.1,
+                    ..Default::default()
+                },
+            );
+            map
+        })
+    ));
 
     // Start dev HTTP server
     let server_state = state.clone();
@@ -103,10 +121,10 @@ async fn main() -> Result<()> {
 
     // Simple RNG for random encounter rolls
     let mut rng_state: u64 = seed;
+    let mut save_counter: u32 = 0;
 
     loop {
         interval.tick().await;
-        // Roll a random value for this tick
         rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
         let rng_roll = (rng_state >> 33) as f32 / (u32::MAX as f32);
 
@@ -120,5 +138,33 @@ async fn main() -> Result<()> {
         ) {
             error!("Tick error: {e:#}");
         }
+
+        // Save state to disk every 10 ticks (~30 seconds)
+        save_counter += 1;
+        if save_counter % 10 == 0 {
+            save_state(save_path, &state, &shared_events);
+        }
     }
 }
+
+fn load_state(path: &str) -> Option<HashMap<String, DevPlayerState>> {
+    let json = std::fs::read_to_string(path).ok()?;
+    let save: SaveData = serde_json::from_str(&json).ok()?;
+    info!("Loaded {} players from {}", save.players.len(), path);
+    Some(save.players.into_iter().map(|p| (p.id.clone(), p)).collect())
+}
+
+fn save_state(path: &str, state: &SharedState, events: &SharedEvents) {
+    let lock = state.lock().unwrap();
+    let events_lock = events.lock().unwrap();
+    let save = SaveData {
+        players: lock.values().cloned().collect(),
+        events: events_lock.clone(),
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&save) {
+        if let Err(e) = std::fs::write(path, json) {
+            error!("Failed to save state: {e}");
+        }
+    }
+}
+
