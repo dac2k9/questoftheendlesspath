@@ -326,35 +326,46 @@ fn update_path_visuals(
             let current = transform.translation;
             let dx = target.x - current.x;
             let dy = target.y - current.y;
+            let dist = dx.abs() + dy.abs();
 
-            // Determine direction from movement delta
-            let moving = dx.abs() > 0.5 || dy.abs() > 0.5;
-            anim.moving = moving;
+            if dist > 1.0 {
+                // Moving — lerp toward target
+                anim.moving = true;
+                transform.translation.x += dx * 0.1;
+                transform.translation.y += dy * 0.1;
 
-            if moving {
+                // Update facing direction
                 if dx.abs() > dy.abs() {
                     anim.direction = if dx > 0.0 { Direction::Right } else { Direction::Left };
                 } else {
                     anim.direction = if dy > 0.0 { Direction::Up } else { Direction::Down };
                 }
-            }
 
-            // Animate walk cycle
-            anim.timer.tick(time.delta());
-            if anim.timer.just_finished() {
-                anim.frame = (anim.frame + 1) % 5;
-            }
+                // Animate walk
+                anim.timer.tick(time.delta());
+                if anim.timer.just_finished() {
+                    anim.frame = (anim.frame + 1) % 5;
+                }
 
-            // Pick sprite frame: direction row + walk/idle + frame
-            let row = anim.direction.base_row() + if moving { 1 } else { 0 };
-            let index = row * 5 + anim.frame;
-            if let Some(ref mut atlas) = sprite.texture_atlas {
-                atlas.index = index;
-            }
+                let row = anim.direction.base_row() + 1; // walk row
+                if let Some(ref mut atlas) = sprite.texture_atlas {
+                    atlas.index = row * 5 + anim.frame;
+                }
+            } else {
+                // Arrived — snap and go idle
+                transform.translation.x = target.x;
+                transform.translation.y = target.y;
 
-            // Move toward target
-            transform.translation.x += dx * 0.1;
-            transform.translation.y += dy * 0.1;
+                if anim.moving {
+                    // Just stopped — reset to idle
+                    anim.moving = false;
+                    anim.frame = 0;
+                    let row = anim.direction.base_row(); // idle row
+                    if let Some(ref mut atlas) = sprite.texture_atlas {
+                        atlas.index = row * 5;
+                    }
+                }
+            }
         }
 
         // Update name tag to follow player
