@@ -121,7 +121,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents) -> 
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
                     player.current_speed_kmh = req.speed;
-                    player.total_distance_m = req.distance;
+                    // Walker sends delta_distance — add to player's existing total
+                    player.total_distance_m += req.distance;
                     player.is_walking = req.speed > 0.1;
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }

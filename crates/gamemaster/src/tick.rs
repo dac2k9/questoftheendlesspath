@@ -57,7 +57,19 @@ pub fn run_tick_dev(
             continue;
         }
 
-        // Route advancement
+        // Check if a blocking event is active (requires_browser = pauses movement)
+        let has_blocking_event = events_lock.active_events().iter()
+            .any(|e| e.requires_browser);
+
+        // Route advancement — paused during blocking events (still earn gold)
+        if has_blocking_event {
+            let p = lock.get_mut(player_id).unwrap();
+            let gold_earned = (delta_m / 10).max(1);
+            p.gold += gold_earned;
+            debug!("{} paused (blocking event active), earned {} gold", p.name, gold_earned);
+            continue;
+        }
+
         let route_tiles = if !player.planned_route.is_empty() {
             route::parse_route_json(&player.planned_route).unwrap_or_default()
         } else {

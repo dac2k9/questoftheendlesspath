@@ -324,7 +324,14 @@ fn spawn_world(
         Text::new("Loading world..."),
         TextFont { font: font.0.clone(), font_size: 16.0, ..default() },
         TextColor(Color::srgb(0.77, 0.64, 0.35)),
-        Node { position_type: PositionType::Absolute, top: Val::Percent(45.0), left: Val::Percent(38.0), ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Percent(45.0),
+            left: Val::Px(0.0),
+            right: Val::Px(0.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
         LoadingText,
     ));
 
@@ -396,7 +403,9 @@ fn handle_map_click(
         transform.translation = Vec3::new(tile_pos.x, tile_pos.y + 16.0, 10.0);
     }
 
-    if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() {
+    // Can't click on fogged tiles
+    let is_revealed = fog_res.is_revealed(tx, ty) || debug.fog_disabled;
+    if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() && is_revealed {
         let start = if route.waypoints.is_empty() { (50, 40) } else { *route.waypoints.last().unwrap() };
         if start == (tx, ty) { return; }
         if let Some(mut new_segment) = find_path(&world, start, (tx, ty)) {

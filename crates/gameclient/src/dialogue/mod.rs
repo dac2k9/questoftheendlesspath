@@ -92,20 +92,22 @@ fn update_dialogue(
         String::new()
     };
 
-    // Container at bottom of screen
+    // Container centered on screen
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            bottom: Val::Px(20.0),
-            left: Val::Px(40.0),
-            right: Val::Px(40.0),
-            min_height: Val::Px(100.0),
-            padding: UiRect::all(Val::Px(12.0)),
+            top: Val::Percent(30.0),
+            left: Val::Percent(15.0),
+            right: Val::Percent(15.0),
+            min_height: Val::Px(120.0),
+            padding: UiRect::all(Val::Px(16.0)),
+            border: UiRect::all(Val::Px(2.0)),
             flex_direction: FlexDirection::Column,
             ..default()
         },
-        BackgroundColor(Color::srgba(0.05, 0.05, 0.15, 0.9)),
-        BorderRadius::all(Val::Px(4.0)),
+        BackgroundColor(Color::srgba(0.02, 0.02, 0.08, 0.92)),
+        BorderColor(Color::srgb(0.4, 0.35, 0.2)),
+        BorderRadius::all(Val::Px(6.0)),
         DialogueBox,
     )).with_children(|parent| {
         // Speaker name
