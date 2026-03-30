@@ -1,0 +1,161 @@
+{
+  "events": [
+    {
+      "id": "welcome",
+      "name": "A New Journey",
+      "description": "You stand at the edge of the unknown.",
+      "kind": { "type": "story_beat", "lines": [
+        "The world stretches before you, vast and unexplored.",
+        "Your legs carry you forward. The journey begins."
+      ]},
+      "trigger": { "condition": "distance_walked", "meters_min": 10 },
+      "outcomes": [{ "effect": "notification", "text": "Journey begun! Walk to explore the world." }],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "first_treasure",
+      "name": "Roadside Find",
+      "description": "Something glints in the grass beside the road.",
+      "kind": { "type": "treasure", "description": "A small pouch of coins half-buried in the dirt." },
+      "trigger": { "condition": "distance_walked", "meters_min": 100 },
+      "outcomes": [
+        { "effect": "gold", "amount": 50 },
+        { "effect": "notification", "text": "Found 50 gold!" }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "forest_wolves",
+      "name": "Wolf Pack",
+      "description": "Yellow eyes gleam between the trees.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Forest Wolves",
+        "description": "A pack of three hungry wolves emerges from the undergrowth.",
+        "difficulty": 2
+      },
+      "trigger": { "condition": "random_in_biome", "biome": "Forest", "chance": 0.2 },
+      "outcomes": [
+        { "effect": "gold", "amount": 30 },
+        { "effect": "notification", "text": "The wolves flee! Found 30 gold in their den." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "hermit_cabin",
+      "name": "The Hermit's Wisdom",
+      "description": "Smoke rises from a small cabin in the woods.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Old Hermit",
+        "lines": [
+          "Ah, a traveler! It's been so long since anyone came this way.",
+          "The ruins to the north hold great treasure, but beware — the forest grows thick around them.",
+          "Take this charm. It may protect you on your journey."
+        ],
+        "choices": []
+      },
+      "trigger": { "condition": "any", "conditions": [
+        { "condition": "at_poi", "poi_id": 14 },
+        { "condition": "at_poi", "poi_id": 15 },
+        { "condition": "at_poi", "poi_id": 16 }
+      ]},
+      "outcomes": [
+        { "effect": "item", "name": "wooden_charm" },
+        { "effect": "gold", "amount": 25 },
+        { "effect": "notification", "text": "Received: Wooden Charm + 25 gold" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_shop",
+      "name": "Traveler's Market",
+      "description": "A cheerful merchant waves from a colorful stall.",
+      "kind": {
+        "type": "shop",
+        "merchant_name": "Merchant Yara",
+        "items": [
+          { "name": "Health Potion", "cost": 50, "effect": "heal" },
+          { "name": "Swift Boots", "cost": 150, "effect": "speed_boost" },
+          { "name": "Explorer's Map", "cost": 200, "effect": "reveal_fog" }
+        ]
+      },
+      "trigger": { "condition": "any", "conditions": [
+        { "condition": "at_poi", "poi_id": 2 },
+        { "condition": "at_poi", "poi_id": 3 },
+        { "condition": "at_poi", "poi_id": 4 },
+        { "condition": "at_poi", "poi_id": 5 }
+      ]},
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "dungeon_entrance",
+      "name": "The Dark Passage",
+      "description": "A stone archway leads into darkness.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Weathered Sign",
+        "lines": [
+          "DANGER: Ancient dungeon ahead.",
+          "Only the brave (or foolish) enter.",
+          "Reward: Legendary treasure within."
+        ],
+        "choices": []
+      },
+      "trigger": { "condition": "any", "conditions": [
+        { "condition": "at_poi", "poi_id": 10 },
+        { "condition": "at_poi", "poi_id": 11 }
+      ]},
+      "outcomes": [
+        { "effect": "reveal_fog", "x": 50, "y": 40, "radius": 10 },
+        { "effect": "notification", "text": "Dungeon discovered! Fog cleared around entrance." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "shrine_blessing",
+      "name": "Ancient Shrine",
+      "description": "A weathered shrine hums with faint energy.",
+      "kind": { "type": "story_beat", "lines": [
+        "You kneel before the ancient shrine.",
+        "A warm light envelops you. You feel stronger.",
+        "The shrine's blessing will guide your path."
+      ]},
+      "trigger": { "condition": "any", "conditions": [
+        { "condition": "at_poi", "poi_id": 18 },
+        { "condition": "at_poi", "poi_id": 19 }
+      ]},
+      "outcomes": [
+        { "effect": "gold", "amount": 100 },
+        { "effect": "reveal_fog", "x": 50, "y": 40, "radius": 15 },
+        { "effect": "notification", "text": "Shrine blessing: +100 gold, map revealed!" }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "mountain_danger",
+      "name": "Treacherous Path",
+      "description": "The mountain path is steep and dangerous.",
+      "kind": {
+        "type": "environmental_effect",
+        "effect": "tile_cost_multiplier",
+        "value": 1.5,
+        "duration_tiles": 20
+      },
+      "trigger": { "condition": "in_biome", "biome": "Mountain" },
+      "outcomes": [
+        { "effect": "notification", "text": "Mountain terrain! Movement costs increased." }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    }
+  ]
+}

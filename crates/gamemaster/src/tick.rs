@@ -1,21 +1,26 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use questlib::events::{EventCatalog, EventOutcome, EventStatus, TriggerContext};
 use questlib::fog::FogBitfield;
 use questlib::mapgen::WorldMap;
 use questlib::route::{self, position_along_route};
 use tracing::{debug, info};
 
 use crate::devserver::SharedState;
+use crate::SharedEvents;
 
-/// Dev mode tick — works with in-memory shared state (no Supabase).
+/// Dev mode tick — works with in-memory shared state.
 pub fn run_tick_dev(
     state: &SharedState,
     world: &WorldMap,
+    shared_events: &SharedEvents,
     player_fogs: &mut HashMap<String, FogBitfield>,
     player_last_distance: &mut HashMap<String, i32>,
+    rng_roll: f32,
 ) -> Result<()> {
     let mut lock = state.lock().map_err(|e| anyhow::anyhow!("lock error: {e}"))?;
+    let mut events_lock = shared_events.lock().map_err(|e| anyhow::anyhow!("events lock: {e}"))?;
 
     let player_ids: Vec<String> = lock.keys().cloned().collect();
 
@@ -34,7 +39,6 @@ pub fn run_tick_dev(
             player_fogs.insert(player_id.clone(), fog);
         }
 
-        // Initialize last distance
         if !player_last_distance.contains_key(player_id) {
             player_last_distance.insert(player_id.clone(), player.total_distance_m);
         }
@@ -63,20 +67,17 @@ pub fn run_tick_dev(
         let p = lock.get_mut(player_id).unwrap();
 
         if route_tiles.is_empty() {
-            // No route — just earn gold
             let gold_earned = (delta_m / 10).max(1);
             p.gold += gold_earned;
-            debug!("{} earned {} gold (no route, total: {})", p.name, gold_earned, p.gold);
+            debug!("{} earned {} gold (no route)", p.name, gold_earned);
             continue;
         }
 
-        // Advance along route
         let new_meters = p.route_meters_walked + delta_m as f64;
         let (tile_x, tile_y, _idx, route_complete) =
             position_along_route(&route_tiles, new_meters, world);
 
         let moved = tile_x as i32 != p.map_tile_x || tile_y as i32 != p.map_tile_y;
-
         p.route_meters_walked = new_meters;
 
         if moved {
@@ -101,8 +102,83 @@ pub fn run_tick_dev(
         // Gold
         let gold_earned = (delta_m / 10).max(1);
         p.gold += gold_earned;
-        debug!("{} earned {} gold (total: {})", p.name, gold_earned, p.gold);
+
+        // ── Event Triggers ────────────────────────────────
+        let poi_id = world.poi_at(tile_x, tile_y).map(|poi| poi.id);
+        let biome = world.biome_at(tile_x, tile_y);
+
+        let ctx = TriggerContext {
+            player_tile: (tile_x, tile_y),
+            player_poi: poi_id,
+            player_biome: biome,
+            total_distance_m: p.total_distance_m as u32,
+            inventory: vec![], // TODO: parse from player inventory
+            completed_events: events_lock.completed_ids(),
+            rng_roll,
+        };
+
+        // Find triggered events
+        let triggered_ids: Vec<String> = events_lock
+            .check_triggers(&ctx)
+            .iter()
+            .map(|e| e.id.clone())
+            .collect();
+
+        for event_id in &triggered_ids {
+            let event = events_lock.get_mut(event_id).unwrap();
+
+            if event.transition(EventStatus::Active).is_ok() {
+                info!("Event triggered for {}: {} ({})", p.name, event.name, event.id);
+
+                // Auto-complete non-browser events
+                if event.auto_completes() {
+                    if event.transition(EventStatus::Completed).is_ok() {
+                        info!("  Auto-completed: {}", event.name);
+
+                        // Apply outcomes
+                        for outcome in &event.outcomes {
+                            apply_outcome(outcome, p, fog);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
+}
+
+/// Apply an event outcome to a player.
+fn apply_outcome(
+    outcome: &EventOutcome,
+    player: &mut crate::devserver::DevPlayerState,
+    fog: &mut FogBitfield,
+) {
+    match outcome {
+        EventOutcome::Gold { amount } => {
+            player.gold += amount;
+            info!("  {} received {} gold", player.name, amount);
+        }
+        EventOutcome::Item { name } => {
+            info!("  {} received item: {}", player.name, name);
+            // TODO: add to player inventory
+        }
+        EventOutcome::RevealFog { x, y, radius } => {
+            fog.reveal_radius(*x, *y, *radius);
+            player.revealed_tiles = fog.to_base64();
+            info!("  Fog revealed around ({},{}) radius {}", x, y, radius);
+        }
+        EventOutcome::Notification { text } => {
+            info!("  Notification: {}", text);
+            // Browser will see this via active events poll
+        }
+        EventOutcome::SpawnEvents { event_ids } => {
+            info!("  Would spawn events: {:?}", event_ids);
+            // TODO: add new events to catalog
+        }
+        EventOutcome::TileCostModifier { multiplier, duration_tiles } => {
+            info!("  Tile cost modifier: {}x for {} tiles", multiplier, duration_tiles);
+            // TODO: apply modifier
+        }
+    }
 }

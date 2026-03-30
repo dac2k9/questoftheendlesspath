@@ -27,21 +27,24 @@ pub struct DevPlayerState {
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
 
+use crate::SharedEvents;
+
 /// Start the dev HTTP server on port 3001.
-pub async fn start_dev_server(state: SharedState) -> Result<()> {
+pub async fn start_dev_server(state: SharedState, events: SharedEvents) -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:3001").await?;
     tracing::info!("Dev server listening on http://127.0.0.1:3001");
 
     loop {
         let (mut stream, _) = listener.accept().await?;
         let state = state.clone();
+        let events = events.clone();
 
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 8192];
+            let mut buf = vec![0u8; 16384];
             let n = stream.read(&mut buf).await.unwrap_or(0);
             let request = String::from_utf8_lossy(&buf[..n]);
 
-            let (status, body) = handle_request(&request, &state);
+            let (status, body) = handle_request(&request, &state, &events);
 
             let response = format!(
                 "HTTP/1.1 {}\r\n\
@@ -62,7 +65,7 @@ pub async fn start_dev_server(state: SharedState) -> Result<()> {
     }
 }
 
-fn handle_request(request: &str, state: &SharedState) -> (&'static str, String) {
+fn handle_request(request: &str, state: &SharedState, events: &SharedEvents) -> (&'static str, String) {
     let first_line = request.lines().next().unwrap_or("");
 
     // CORS preflight
@@ -125,6 +128,43 @@ fn handle_request(request: &str, state: &SharedState) -> (&'static str, String) 
             }
         }
         return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
+    // GET /events — all events
+    if first_line.starts_with("GET /events/active") {
+        let lock = events.lock().unwrap();
+        let active: Vec<_> = lock.active_events();
+        let json = serde_json::to_string(&active).unwrap_or_default();
+        return ("200 OK", json);
+    }
+
+    if first_line.starts_with("GET /events") {
+        let lock = events.lock().unwrap();
+        let json = lock.to_json();
+        return ("200 OK", json);
+    }
+
+    // POST /events/{id}/complete — mark event as completed
+    if first_line.contains("/events/") && first_line.contains("/complete") {
+        // Extract event id from URL: POST /events/some_id/complete
+        let parts: Vec<&str> = first_line.split('/').collect();
+        if parts.len() >= 3 {
+            // parts: ["POST ", "events", "some_id", "complete", ...]
+            let event_id = parts.iter()
+                .position(|&p| p == "events")
+                .and_then(|i| parts.get(i + 1))
+                .map(|s| s.split_whitespace().next().unwrap_or(s));
+
+            if let Some(event_id) = event_id {
+                let mut lock = events.lock().unwrap();
+                if let Some(event) = lock.get_mut(event_id) {
+                    if event.transition(questlib::events::EventStatus::Completed).is_ok() {
+                        return ("200 OK", r#"{"ok":true}"#.to_string());
+                    }
+                }
+            }
+        }
+        return ("400 Bad Request", r#"{"error":"invalid event"}"#.to_string());
     }
 
     // POST /heartbeat — mark player browser as open (no-op for dev)
