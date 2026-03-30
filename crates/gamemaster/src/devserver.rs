@@ -23,6 +23,8 @@ pub struct DevPlayerState {
     pub revealed_tiles: String,
     pub planned_route: String,
     pub route_meters_walked: f64,
+    #[serde(default)]
+    pub debug_walking: bool,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
@@ -125,11 +127,12 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             if let Ok(req) = serde_json::from_str::<WalkerReq>(body) {
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
-                    player.current_speed_kmh = req.speed;
-                    // Walker sends delta_distance — add to player's existing total
-                    player.total_distance_m += req.distance;
-                    // Use actually_walking (step-based) instead of just speed
-                    player.is_walking = req.actually_walking;
+                    // Don't override if debug_walk is active
+                    if !player.debug_walking {
+                        player.current_speed_kmh = req.speed;
+                        player.total_distance_m += req.distance;
+                        player.is_walking = req.actually_walking;
+                    }
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
             }
@@ -192,11 +195,18 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             if let Ok(req) = serde_json::from_str::<DebugReq>(body) {
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
-                    // Simulate distance based on speed: meters per 3s tick
+                    if req.speed <= 0.0 {
+                        // Stop debug walking
+                        player.debug_walking = false;
+                        player.is_walking = false;
+                        player.current_speed_kmh = 0.0;
+                        return ("200 OK", r#"{"ok":true,"stopped":true}"#.to_string());
+                    }
                     let delta = (req.speed / 3.6 * 3.0) as i32;
                     player.current_speed_kmh = req.speed;
                     player.total_distance_m += delta;
-                    player.is_walking = req.speed > 0.1;
+                    player.is_walking = true;
+                    player.debug_walking = true;
                     return ("200 OK", format!("{{\"ok\":true,\"delta\":{}}}", delta));
                 }
             }
