@@ -108,29 +108,35 @@ pub fn run_tick_dev(
         let (tile_x, tile_y, _idx, route_complete) =
             position_along_route(&route_tiles, new_meters, world);
 
-        // NEVER move player backwards — only accept forward movement along route
+        // Only move forward along the route
         let current_pos = (p.map_tile_x as usize, p.map_tile_y as usize);
         let new_pos = (tile_x, tile_y);
 
-        // Check if new position is further along the route than current
-        let current_route_idx = route_tiles.iter().position(|&w| w == current_pos);
-        let new_route_idx = route_tiles.iter().position(|&w| w == new_pos);
+        let should_move = if new_pos == current_pos {
+            false // already here
+        } else {
+            let current_route_idx = route_tiles.iter().position(|&w| w == current_pos);
+            let new_route_idx = route_tiles.iter().position(|&w| w == new_pos);
 
-        let should_move = match (current_route_idx, new_route_idx) {
-            (Some(cur), Some(new)) => new > cur,  // only move forward
-            (None, Some(_)) => true,               // current pos not on route, move to route
-            _ => false,
+            match (current_route_idx, new_route_idx) {
+                (Some(cur), Some(new_idx)) => new_idx > cur,  // only move forward
+                (None, Some(_)) => true,                       // not on route, move to it
+                (Some(_), None) => false,                      // new pos not on route??
+                (None, None) => true,                          // neither on route, allow
+            }
         };
 
         p.route_meters_walked = new_meters;
 
         if should_move {
+            info!("[{}] moved ({},{}) → ({},{}) [{:.0}m walked]", p.name, p.map_tile_x, p.map_tile_y, tile_x, tile_y, new_meters);
             p.map_tile_x = tile_x as i32;
             p.map_tile_y = tile_y as i32;
-            info!("[{}] moved to ({},{}) [{:.0}m walked]", p.name, tile_x, tile_y, new_meters);
         } else if new_pos != current_pos {
-            info!("[{}] skipped backward move to ({},{}) — staying at ({},{})",
-                p.name, tile_x, tile_y, p.map_tile_x, p.map_tile_y);
+            let cur_idx = route_tiles.iter().position(|&w| w == current_pos);
+            let new_idx = route_tiles.iter().position(|&w| w == new_pos);
+            info!("[{}] blocked move ({},{}) → ({},{}) cur_idx={:?} new_idx={:?}",
+                p.name, p.map_tile_x, p.map_tile_y, tile_x, tile_y, cur_idx, new_idx);
         }
 
         // Fog

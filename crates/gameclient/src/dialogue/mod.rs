@@ -232,8 +232,13 @@ fn update_notifications(
     mut banners: Query<(Entity, &mut NotificationBanner)>,
     dismiss_q: Query<&Interaction, With<NotificationDismiss>>,
 ) {
-    // Dismiss on X key or clicking [X]
-    let dismiss = keys.just_pressed(KeyCode::KeyX);
+    // Dismiss on X key or clicking the X button
+    let mut dismiss = keys.just_pressed(KeyCode::KeyX);
+    for interaction in &dismiss_q {
+        if *interaction == Interaction::Pressed {
+            dismiss = true;
+        }
+    }
     if dismiss {
         for (entity, _) in &banners {
             commands.entity(entity).despawn_recursive();
@@ -275,13 +280,23 @@ fn update_notifications(
                     TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
                     TextColor(Color::srgb(1.0, 0.95, 0.7)),
                 ));
-                // Dismiss button
+                // Dismiss button — clickable
                 parent.spawn((
-                    Text::new("[X]"),
-                    TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
-                    TextColor(Color::srgb(0.6, 0.4, 0.4)),
+                    Button,
+                    Node {
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.4, 0.2, 0.2, 0.5)),
+                    BorderRadius::all(Val::Px(3.0)),
                     NotificationDismiss,
-                ));
+                )).with_children(|btn| {
+                    btn.spawn((
+                        Text::new("X"),
+                        TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                        TextColor(Color::srgb(1.0, 0.6, 0.6)),
+                    ));
+                });
             });
         }
     }

@@ -852,26 +852,26 @@ fn update_path_visuals(
     };
 
     if interp_target != Vec2::ZERO {
-        let target = Vec3::new(interp_target.x, interp_target.y, 5.0);
         for (mut transform, mut anim, mut sprite) in &mut player_q {
-            let current = transform.translation;
-            let dx = target.x - current.x;
-            let dy = target.y - current.y;
+            let old_x = transform.translation.x;
+            let old_y = transform.translation.y;
+
+            // Set position directly from interpolation (no lerp lag)
+            transform.translation.x = interp_target.x;
+            transform.translation.y = interp_target.y;
+
+            // Determine direction from actual movement delta
+            let dx = transform.translation.x - old_x;
+            let dy = transform.translation.y - old_y;
             let dist = dx.abs() + dy.abs();
 
-            // Smooth move toward interpolated target
-            if dist > 0.5 {
-                transform.translation.x += dx * 0.15;
-                transform.translation.y += dy * 0.15;
+            if dist > 0.1 {
                 if dx.abs() > dy.abs() { anim.direction = if dx > 0.0 { Direction::Right } else { Direction::Left }; }
                 else { anim.direction = if dy > 0.0 { Direction::Up } else { Direction::Down }; }
-            } else {
-                transform.translation.x = target.x;
-                transform.translation.y = target.y;
             }
 
-            // Animate based on belt + speed
-            let should_animate = belt_moving || dist > 0.5;
+            // Animate based on belt or actual movement
+            let should_animate = belt_moving || dist > 0.1;
 
             if should_animate {
                 let speed_factor = walking_speed.clamp(0.5, 6.0);
