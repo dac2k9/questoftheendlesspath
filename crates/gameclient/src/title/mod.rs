@@ -81,39 +81,21 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>, asset_server: Res<As
     commands.spawn((
         Sprite {
             image: asset_server.load("background.png"),
-            custom_size: Some(Vec2::new(960.0, 540.0)),
+            custom_size: Some(Vec2::new(1200.0, 700.0)), // oversized to fill any aspect ratio
             ..default()
         },
         Transform::from_xyz(0.0, 0.0, -1.0),
         TitleScreen,
     ));
 
-    // Semi-transparent dark overlay so text is readable
+    // Semi-transparent dark overlay at bottom for login form
     commands.spawn((
         Sprite {
-            color: Color::srgba(0.0, 0.0, 0.0, 0.6),
-            custom_size: Some(Vec2::new(960.0, 540.0)),
+            color: Color::srgba(0.0, 0.0, 0.0, 0.5),
+            custom_size: Some(Vec2::new(960.0, 200.0)),
             ..default()
         },
-        Transform::from_xyz(0.0, 0.0, 0.0),
-        TitleScreen,
-    ));
-
-    // Title
-    commands.spawn((
-        Text2d::new("Quest of the\nEndless Path"),
-        TextFont { font: f.clone(), font_size: 32.0, ..default() },
-        TextColor(Color::srgb(0.77, 0.64, 0.35)),
-        TextLayout::new_with_justify(JustifyText::Center),
-        Transform::from_xyz(0.0, 160.0, 1.0),
-        TitleScreen,
-    ));
-
-    commands.spawn((
-        Text2d::new("A cooperative treadmill adventure"),
-        TextFont { font: f.clone(), font_size: 8.0, ..default() },
-        TextColor(Color::srgb(0.5, 0.5, 0.5)),
-        Transform::from_xyz(0.0, 96.0, 1.0),
+        Transform::from_xyz(0.0, -170.0, 0.0),
         TitleScreen,
     ));
 
@@ -122,7 +104,7 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>, asset_server: Res<As
         Text2d::new("Name:"),
         TextFont { font: f.clone(), font_size: 16.0, ..default() },
         TextColor(Color::srgb(0.6, 0.6, 0.6)),
-        Transform::from_xyz(-160.0, 32.0, 1.0),
+        Transform::from_xyz(-160.0, -128.0, 1.0),
         TitleScreen,
     ));
 
@@ -131,7 +113,7 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>, asset_server: Res<As
         Text2d::new("> Dac_"),
         TextFont { font: f.clone(), font_size: 16.0, ..default() },
         TextColor(Color::srgb(0.77, 0.64, 0.35)),
-        Transform::from_xyz(-160.0, 0.0, 1.0),
+        Transform::from_xyz(-160.0, -160.0, 1.0),
         UsernameText,
         ClickZone { field: ActiveField::Username, half_width: 200.0, half_height: 24.0 },
         TitleScreen,
@@ -142,7 +124,7 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>, asset_server: Res<As
         Text2d::new("Game code:"),
         TextFont { font: f.clone(), font_size: 16.0, ..default() },
         TextColor(Color::srgb(0.6, 0.6, 0.6)),
-        Transform::from_xyz(-160.0, -40.0, 1.0),
+        Transform::from_xyz(-160.0, -200.0, 1.0),
         TitleScreen,
     ));
 
@@ -151,7 +133,7 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>, asset_server: Res<As
         Text2d::new("  QUEST1"),
         TextFont { font: f.clone(), font_size: 16.0, ..default() },
         TextColor(Color::srgb(0.5, 0.5, 0.5)),
-        Transform::from_xyz(-160.0, -72.0, 1.0),
+        Transform::from_xyz(-160.0, -232.0, 1.0),
         JoinCodeText,
         ClickZone { field: ActiveField::JoinCode, half_width: 200.0, half_height: 24.0 },
         TitleScreen,
@@ -162,7 +144,7 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>, asset_server: Res<As
         Text2d::new("TAB to switch  |  ENTER to join"),
         TextFont { font: f.clone(), font_size: 8.0, ..default() },
         TextColor(Color::srgb(0.35, 0.35, 0.35)),
-        Transform::from_xyz(0.0, -120.0, 1.0),
+        Transform::from_xyz(0.0, -260.0, 1.0),
         TitleScreen,
     ));
 
@@ -171,7 +153,7 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>, asset_server: Res<As
         Text2d::new(""),
         TextFont { font: f, font_size: 16.0, ..default() },
         TextColor(Color::srgb(0.3, 0.8, 0.3)),
-        Transform::from_xyz(0.0, -160.0, 1.0),
+        Transform::from_xyz(0.0, -100.0, 1.0),
         StatusText,
         TitleScreen,
     ));
