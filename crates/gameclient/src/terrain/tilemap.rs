@@ -319,21 +319,23 @@ fn spawn_world(
         PlayerNameTag,
     ));
 
-    // Loading text — shown until server position arrives
+    // Loading text — centered on screen
     commands.spawn((
-        Text::new("Loading world..."),
-        TextFont { font: font.0.clone(), font_size: 16.0, ..default() },
-        TextColor(Color::srgb(0.77, 0.64, 0.35)),
         Node {
             position_type: PositionType::Absolute,
             top: Val::Percent(45.0),
-            left: Val::Px(0.0),
-            right: Val::Px(0.0),
+            width: Val::Percent(100.0),
             justify_content: JustifyContent::Center,
             ..default()
         },
         LoadingText,
-    ));
+    )).with_children(|parent| {
+        parent.spawn((
+            Text::new("Loading world..."),
+            TextFont { font: font.0.clone(), font_size: 16.0, ..default() },
+            TextColor(Color::srgb(0.77, 0.64, 0.35)),
+        ));
+    });
 
     // Tile info text — hidden until map is shown
     commands.spawn((
@@ -761,13 +763,13 @@ fn update_path_visuals(
     mut player_q: Query<(&mut Transform, &mut WalkAnimation, &mut Sprite), With<PlayerSprite>>,
     mut nametag_q: Query<&mut Transform, (With<PlayerNameTag>, Without<PlayerSprite>)>,
 ) {
-    // Check if treadmill belt is running
-    let belt_moving = {
-        let Ok(players) = polled.players.lock() else { false; return };
+    // Check if treadmill belt is running + get speed
+    let (belt_moving, walking_speed) = {
+        let Ok(players) = polled.players.lock() else { return };
         players.iter()
             .find(|p| p.name.eq_ignore_ascii_case(&session.player_name))
-            .map(|p| p.is_walking)
-            .unwrap_or(false)
+            .map(|p| (p.is_walking, p.current_speed_kmh))
+            .unwrap_or((false, 0.0))
     };
 
     if let Some((x, y)) = route.current_tile() {
@@ -794,6 +796,12 @@ fn update_path_visuals(
             let should_animate = belt_moving || dist > 1.0;
 
             if should_animate {
+                // Adjust animation speed based on walking speed
+                // At 1 km/h → slow (0.25s per frame), at 6 km/h → fast (0.08s per frame)
+                let speed_factor = walking_speed.clamp(0.5, 6.0);
+                let frame_duration = 0.3 / speed_factor;
+                anim.timer.set_duration(std::time::Duration::from_secs_f32(frame_duration));
+
                 anim.timer.tick(time.delta());
                 if anim.timer.just_finished() { anim.frame = (anim.frame + 1) % 5; }
                 let row = anim.direction.base_row() + 1; // walk row
