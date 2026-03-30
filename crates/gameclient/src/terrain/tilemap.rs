@@ -285,11 +285,12 @@ fn apply_server_state(
     state.gold = me.gold;
     state.route_meters = me.route_meters_walked.unwrap_or(0.0);
 
-    // Parse route from server — don't overwrite if user just modified locally
+    // Parse route from server
     if let Some(ref route_json) = me.planned_route {
         if !route_json.is_empty() {
             if let Some(route) = questlib::route::parse_route_json(route_json) {
                 state.route = route.clone();
+                // Only update display if we didn't just modify it locally
                 if !display_route.locally_modified {
                     display_route.waypoints = route;
                 }
@@ -299,10 +300,14 @@ fn apply_server_state(
             if !display_route.locally_modified {
                 display_route.waypoints.clear();
             }
+            // Server confirmed empty route — safe to clear local flag
+            display_route.locally_modified = false;
         }
     }
-    // Clear local flag after server confirms (next poll will have updated route)
-    display_route.locally_modified = false;
+    // If server has a route and it matches our local one, clear flag
+    if display_route.locally_modified && !state.route.is_empty() && state.route == display_route.waypoints {
+        display_route.locally_modified = false;
+    }
 
     // Reset prediction on each poll (server is truth)
     predicted.0 = 0.0;
@@ -335,9 +340,8 @@ fn apply_server_state(
         for entity in &loading_q { commands.entity(entity).despawn_recursive(); }
     }
 
-    // Redraw path markers when tile changes
-    if tile_changed || !state.initialized {
-        // Redraw
+    // Redraw path markers when tile changes (but not if user just modified route)
+    if (tile_changed || !state.initialized) && !display_route.locally_modified {
         for entity in &path_markers { commands.entity(entity).despawn(); }
         if let Some(world) = &world {
             let tile_idx = tile_index_from_meters(&state.route, state.route_meters, world);
