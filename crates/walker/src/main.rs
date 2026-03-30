@@ -80,33 +80,39 @@ struct ActivityTracker {
     last_step_total: u64,
     last_step_time: Option<Instant>,
     moving: bool,
+    has_step_data: bool, // true once we've seen any step increase
 }
 
 const IDLE_TIMEOUT_SECS: f64 = 5.0;
 
 impl ActivityTracker {
     fn new() -> Self {
-        Self { last_step_total: 0, last_step_time: None, moving: false }
+        Self { last_step_total: 0, last_step_time: None, moving: false, has_step_data: false }
     }
 
-    fn update(&mut self, total_steps: u64, treadmill_running: bool) -> bool {
+    fn update(&mut self, total_steps: u64, treadmill_running: bool, has_urevo: bool) -> bool {
         let now = Instant::now();
 
         if total_steps > self.last_step_total {
             self.moving = true;
+            self.has_step_data = true;
             self.last_step_time = Some(now);
             self.last_step_total = total_steps;
-        } else if let Some(last) = self.last_step_time {
-            if now.duration_since(last).as_secs_f64() >= IDLE_TIMEOUT_SECS {
-                if self.moving {
-                    info!("No steps for {:.0}s — marking as idle", IDLE_TIMEOUT_SECS);
+        } else if self.has_step_data || has_urevo {
+            // We have step tracking — if no steps for timeout, mark idle
+            if let Some(last) = self.last_step_time {
+                if now.duration_since(last).as_secs_f64() >= IDLE_TIMEOUT_SECS {
+                    if self.moving {
+                        info!("No steps for {:.0}s — idle", IDLE_TIMEOUT_SECS);
+                    }
+                    self.moving = false;
                 }
+            } else {
+                // UREVO active but no steps ever — belt running without walking
                 self.moving = false;
             }
-        }
-
-        // If no step data available, fall back to treadmill running status
-        if self.last_step_time.is_none() {
+        } else {
+            // No step data at all (FTMS-only device) — fall back to belt status
             self.moving = treadmill_running;
         }
 
@@ -196,7 +202,7 @@ async fn run_session(player_id: &str, device_name: &str) -> Result<()> {
         last_write = Instant::now();
 
         // Check if user is actually walking (steps increasing)
-        let actually_walking = activity.update(current_steps, treadmill_running);
+        let actually_walking = activity.update(current_steps, treadmill_running, has_urevo);
 
         // Distance from FTMS
         let raw_distance = parse_treadmill_data(&notification.value)
