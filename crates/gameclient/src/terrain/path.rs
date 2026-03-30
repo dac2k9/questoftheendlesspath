@@ -8,14 +8,12 @@ use super::world::{WorldGrid, WORLD_W, WORLD_H};
 /// The player's planned route — a sequence of tile coordinates.
 #[derive(Resource, Default)]
 pub struct PlannedRoute {
-    /// Ordered list of (x, y) tile coordinates from current position to destination.
     pub waypoints: Vec<(usize, usize)>,
-    /// How many meters the player has walked into the current route.
     pub meters_walked: f32,
-    /// Total meters required for the full route.
     pub total_meters: f32,
-    /// Index of the current waypoint the player is walking toward.
     pub current_index: usize,
+    /// Set to true when path markers need to be redrawn.
+    pub needs_redraw: bool,
 }
 
 impl PlannedRoute {

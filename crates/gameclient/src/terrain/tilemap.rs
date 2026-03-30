@@ -14,7 +14,7 @@ impl Plugin for TilemapPlugin {
         app.add_systems(OnEnter(AppState::InGame), spawn_world)
             .add_systems(
                 Update,
-                (handle_map_click, handle_zoom, handle_pan, handle_clear_route, toggle_poi_labels, update_fog_texture, sync_from_supabase, update_path_visuals, update_camera, handle_debug_menu)
+                (handle_map_click, handle_zoom, handle_pan, handle_clear_route, toggle_poi_labels, update_fog_texture, sync_from_supabase, check_path_redraw, update_path_visuals, update_camera, handle_debug_menu)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -288,8 +288,7 @@ fn spawn_world(
         FogSprite,
     ));
 
-    // Player character
-    let start_pos = WorldGrid::tile_to_world(start_tile.0, start_tile.1);
+    // Player character — hidden until first server poll sets position
     let champion_tex: Handle<Image> = asset_server.load("sprites/Katan.png");
     let champion_layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, None, None);
     let champion_layout_handle = atlases.add(champion_layout);
@@ -300,7 +299,8 @@ fn spawn_world(
             texture_atlas: Some(TextureAtlas { layout: champion_layout_handle, index: 0 }),
             ..default()
         },
-        Transform::from_xyz(start_pos.x, start_pos.y, 5.0),
+        Transform::from_xyz(0.0, 0.0, 5.0),
+        Visibility::Hidden,
         PlayerSprite,
         WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, direction: Direction::Down, moving: false },
     ));
@@ -309,7 +309,8 @@ fn spawn_world(
         Text2d::new("Dac"),
         TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
         TextColor(Color::srgb(0.1, 0.1, 0.1)),
-        Transform::from_xyz(start_pos.x, start_pos.y + 12.0, 6.0),
+        Transform::from_xyz(0.0, 12.0, 6.0),
+        Visibility::Hidden,
         PlayerNameTag,
     ));
 
@@ -338,7 +339,7 @@ fn spawn_world(
     commands.insert_resource(fog);
     commands.insert_resource(debug);
     // Route starts empty — sync_from_supabase will set position from server on first poll
-    commands.insert_resource(PlannedRoute { waypoints: vec![], meters_walked: 0.0, total_meters: 0.0, current_index: 0 });
+    commands.insert_resource(PlannedRoute { waypoints: vec![], meters_walked: 0.0, total_meters: 0.0, current_index: 0, needs_redraw: false });
     commands.insert_resource(CameraPan::default());
     commands.insert_resource(ServerTilePos::default());
     commands.insert_resource(world);
@@ -547,6 +548,8 @@ fn sync_from_supabase(
     mut route: ResMut<PlannedRoute>,
     mut fog: ResMut<FogOfWar>,
     mut server_pos: ResMut<ServerTilePos>,
+    mut player_vis: Query<&mut Visibility, With<PlayerSprite>>,
+    mut nametag_vis: Query<&mut Visibility, (With<PlayerNameTag>, Without<PlayerSprite>)>,
 ) {
     let Ok(players) = polled.players.lock() else { return };
     if players.is_empty() || session.player_name.is_empty() { return; }
@@ -559,18 +562,44 @@ fn sync_from_supabase(
         // Always update the authoritative server position
         server_pos.x = tile.0;
         server_pos.y = tile.1;
-        server_pos.initialized = true;
 
-        // If we have a route, advance the index to match server position
-        if !route.waypoints.is_empty() {
-            if let Some(idx) = route.waypoints.iter().position(|&w| w == tile) {
-                route.current_index = idx;
+        // Show player on first server sync
+        if !server_pos.initialized {
+            server_pos.initialized = true;
+            for mut vis in &mut player_vis { *vis = Visibility::Visible; }
+            for mut vis in &mut nametag_vis { *vis = Visibility::Visible; }
+        }
+
+        // Restore route from server if browser has no route
+        if route.waypoints.is_empty() {
+            if let Some(ref route_json) = me.planned_route {
+                if !route_json.is_empty() {
+                    if let Some(server_route) = questlib::route::parse_route_json(route_json) {
+                        if !server_route.is_empty() {
+                            route.waypoints = server_route;
+                            route.meters_walked = me.route_meters_walked.unwrap_or(0.0) as f32;
+                            // Find current index from server position
+                            if let Some(idx) = route.waypoints.iter().position(|&w| w == tile) {
+                                route.current_index = idx;
+                            }
+                            route.needs_redraw = true;
+                        }
+                    }
+                }
             }
-        } else {
-            // No route — set waypoints to just the server position so character moves there
-            if route.current_tile() != Some(tile) {
+
+            // If still no route, just place character at server position
+            if route.waypoints.is_empty() && route.current_tile() != Some(tile) {
                 route.waypoints = vec![tile];
                 route.current_index = 0;
+            }
+        } else {
+            // Already have a route — advance index to match server position
+            if let Some(idx) = route.waypoints.iter().position(|&w| w == tile) {
+                if idx != route.current_index {
+                    route.current_index = idx;
+                    route.needs_redraw = true;
+                }
             }
         }
 
@@ -591,6 +620,17 @@ fn sync_from_supabase(
             }
         }
     }
+}
+
+fn check_path_redraw(
+    mut route: ResMut<PlannedRoute>,
+    fog: Res<FogOfWar>,
+    mut commands: Commands,
+    path_markers: Query<Entity, With<PathMarker>>,
+) {
+    if !route.needs_redraw { return; }
+    route.needs_redraw = false;
+    redraw_path_markers(&mut commands, &path_markers, &route, &fog);
 }
 
 fn toggle_poi_labels(keys: Res<ButtonInput<KeyCode>>, mut labels: Query<&mut Visibility, With<PoiLabel>>, debug: Res<DebugOptions>) {
@@ -699,7 +739,7 @@ fn update_path_visuals(
 
             if should_animate {
                 anim.timer.tick(time.delta());
-                if anim.timer.just_finished() { anim.frame = ((anim.frame) % 5) + 1; }
+                if anim.timer.just_finished() { anim.frame = (anim.frame + 1) % 5; }
                 let row = anim.direction.base_row() + 1; // walk row
                 if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6 + anim.frame; }
                 anim.moving = true;

@@ -5,26 +5,27 @@
   <title>Quest of the Endless Path</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
+      width: 100%;
+      height: 100%;
       background: #1a1a2e;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
       overflow: hidden;
     }
     canvas {
+      width: 100% !important;
+      height: 100% !important;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
       outline: none;
       border: none;
+      display: block;
     }
   </style>
 </head>
 <body>
   <canvas id="game-canvas"></canvas>
   <script type="module">
-    import init from './web/gameclient.js?v=25';
+    import init from './web/gameclient.js?v=29';
     init();
   </script>
 </body>
