@@ -182,6 +182,28 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", json);
     }
 
+    // POST /debug_walk — simulate walking at a given speed (for testing)
+    // Body: {"player_id": "...", "speed": 3.0}
+    if first_line.starts_with("POST /debug_walk") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            let body = &request[body_start + 4..];
+            #[derive(Deserialize)]
+            struct DebugReq { player_id: String, speed: f32 }
+            if let Ok(req) = serde_json::from_str::<DebugReq>(body) {
+                let mut lock = state.lock().unwrap();
+                if let Some(player) = lock.get_mut(&req.player_id) {
+                    // Simulate distance based on speed: meters per 3s tick
+                    let delta = (req.speed / 3.6 * 3.0) as i32;
+                    player.current_speed_kmh = req.speed;
+                    player.total_distance_m += delta;
+                    player.is_walking = req.speed > 0.1;
+                    return ("200 OK", format!("{{\"ok\":true,\"delta\":{}}}", delta));
+                }
+            }
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
     // POST /heartbeat — mark player browser as open (no-op for dev)
     if first_line.starts_with("POST /heartbeat") {
         return ("200 OK", r#"{"ok":true}"#.to_string());
