@@ -100,7 +100,17 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             if let Ok(req) = serde_json::from_str::<RouteReq>(body) {
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
-                    player.planned_route = req.route;
+                    // Trim route to start from player's current tile.
+                    // The client should already do this, but enforce server-side too.
+                    let current = (player.map_tile_x as usize, player.map_tile_y as usize);
+                    let route = questlib::route::parse_route_json(&req.route)
+                        .unwrap_or_default();
+                    let trimmed = if let Some(idx) = route.iter().position(|&t| t == current) {
+                        &route[idx..]
+                    } else {
+                        &route[..]
+                    };
+                    player.planned_route = questlib::route::encode_route_json(trimmed);
                     player.route_meters_walked = 0.0;
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }

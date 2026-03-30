@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
     let mut player_last_distance: HashMap<String, i32> = HashMap::new();
 
     info!("Game Master running (dev mode). Tick interval: 3s. Dev server on :3001");
-    let mut interval = tokio::time::interval(Duration::from_secs(3));
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
 
     // Simple RNG for random encounter rolls
     let mut rng_state: u64 = seed;
@@ -146,7 +146,7 @@ async fn main() -> Result<()> {
 
         // Save state to disk every 10 ticks (~30 seconds)
         save_counter += 1;
-        if save_counter % 10 == 0 {
+        if save_counter % 30 == 0 {
             save_state(save_path, &state, &shared_events);
         }
     }

@@ -18,6 +18,11 @@ impl Plugin for TilemapPlugin {
                     apply_server_state,
                     predict_movement,
                     render_character,
+                ).chain().run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                (
                     handle_map_click,
                     handle_clear_route,
                     handle_pan,
@@ -445,8 +450,9 @@ fn handle_map_click(
     debug: Res<DebugOptions>,
     config: Res<SupabaseConfig>,
     session: Res<GameSession>,
-    state: Res<MyPlayerState>,
+    mut state: ResMut<MyPlayerState>,
     mut display_route: ResMut<DisplayRoute>,
+    mut predicted: ResMut<PredictedMeters>,
     mut commands: Commands,
     path_markers: Query<Entity, With<PathMarker>>,
     mut info_q: Query<(&mut Text2d, &mut Transform), (With<TileInfoText>, Without<PlayerSprite>)>,
@@ -474,8 +480,21 @@ fn handle_map_click(
     // Click to plan route
     let is_revealed = fog.is_revealed(tx, ty) || debug.fog_disabled;
     if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() && is_revealed {
+        let current_pos = (state.tile_x as usize, state.tile_y as usize);
+
+        // Trim already-walked tiles so the route starts from current position.
+        // This prevents teleporting back to the start when adding a waypoint mid-walk.
+        if !display_route.waypoints.is_empty() {
+            if let Some(cur_idx) = display_route.waypoints.iter().position(|&t| t == current_pos) {
+                display_route.waypoints = display_route.waypoints[cur_idx..].to_vec();
+            } else {
+                // Player is not on the route (completed or off-route) — start fresh
+                display_route.waypoints.clear();
+            }
+        }
+
         let start = if display_route.waypoints.is_empty() {
-            (state.tile_x as usize, state.tile_y as usize)
+            current_pos
         } else {
             *display_route.waypoints.last().unwrap()
         };
@@ -486,10 +505,14 @@ fn handle_map_click(
             display_route.waypoints.extend(segment);
             display_route.locally_modified = true;
 
+            // Mirror to state — route now starts at current_pos, so meters = 0 is correct
+            state.route = display_route.waypoints.clone();
+            state.route_meters = 0.0;
+            predicted.0 = 0.0;
+
             // Redraw markers
             for entity in &path_markers { commands.entity(entity).despawn(); }
-            let tile_idx = tile_index_from_meters(&display_route.waypoints, state.route_meters, &world);
-            draw_path_markers(&mut commands, &display_route.waypoints, tile_idx, &fog);
+            draw_path_markers(&mut commands, &display_route.waypoints, 0, &fog);
 
             // Send to server
             let route_json = questlib::route::encode_route_json(&display_route.waypoints);
@@ -502,13 +525,18 @@ fn handle_clear_route(
     keys: Res<ButtonInput<KeyCode>>,
     config: Res<SupabaseConfig>,
     session: Res<GameSession>,
+    mut state: ResMut<MyPlayerState>,
     mut display_route: ResMut<DisplayRoute>,
+    mut predicted: ResMut<PredictedMeters>,
     mut commands: Commands,
     path_markers: Query<Entity, With<PathMarker>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         display_route.waypoints.clear();
         display_route.locally_modified = true;
+        state.route.clear();
+        state.route_meters = 0.0;
+        predicted.0 = 0.0;
         for entity in &path_markers { commands.entity(entity).despawn(); }
         supabase::write_planned_route(&config, &session.player_id, "");
     }

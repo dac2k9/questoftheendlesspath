@@ -61,7 +61,7 @@ pub fn run_tick_dev(
         // Distance delta
         let last_dist = *player_last_distance.get(player_id).unwrap_or(&player.total_distance_m);
         let raw_delta = (player.total_distance_m - last_dist).max(0);
-        let delta_m = raw_delta.min(50);
+        let delta_m = raw_delta.min(20);
         player_last_distance.insert(player_id.clone(), player.total_distance_m);
 
         if raw_delta != delta_m {
@@ -213,6 +213,36 @@ pub fn run_tick_dev(
     Ok(())
 }
 
+/// Create a test player with the given parameters.
+#[cfg(test)]
+fn test_player(name: &str, tile_x: i32, tile_y: i32, route: &str, distance: i32, walking: bool) -> DevPlayerState {
+    DevPlayerState {
+        id: format!("test-{name}"),
+        name: name.to_string(),
+        map_tile_x: tile_x,
+        map_tile_y: tile_y,
+        planned_route: route.to_string(),
+        total_distance_m: distance,
+        is_walking: walking,
+        route_meters_walked: 0.0,
+        ..Default::default()
+    }
+}
+
+#[cfg(test)]
+fn make_test_state(players: Vec<DevPlayerState>) -> (SharedState, SharedEvents, SharedNotifs) {
+    use std::sync::{Arc, Mutex};
+    let mut map = HashMap::new();
+    for p in players {
+        map.insert(p.id.clone(), p);
+    }
+    (
+        Arc::new(Mutex::new(map)),
+        Arc::new(Mutex::new(EventCatalog::default())),
+        Arc::new(Mutex::new(Vec::new())),
+    )
+}
+
 fn apply_outcome(outcome: &EventOutcome, player: &mut DevPlayerState, fog: &mut FogBitfield) {
     match outcome {
         EventOutcome::Gold { amount } => {
@@ -236,5 +266,257 @@ fn apply_outcome(outcome: &EventOutcome, player: &mut DevPlayerState, fog: &mut 
         EventOutcome::TileCostModifier { multiplier, duration_tiles } => {
             info!("  Cost modifier: {}x for {} tiles", multiplier, duration_tiles);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use questlib::route::encode_route_json;
+
+    fn world() -> WorldMap {
+        WorldMap::generate(42)
+    }
+
+    /// Find a road route of `len` tiles.
+    fn road_route(world: &WorldMap, len: usize) -> Vec<(usize, usize)> {
+        for road in &world.roads {
+            if road.path.len() >= len {
+                return road.path[..len].to_vec();
+            }
+        }
+        panic!("no road long enough");
+    }
+
+    /// Get the player state after ticking.
+    fn get_player(state: &SharedState, id: &str) -> DevPlayerState {
+        state.lock().unwrap().get(id).unwrap().clone()
+    }
+
+    /// Run N ticks, incrementing total_distance by delta_per_tick each time.
+    fn run_ticks(
+        state: &SharedState, world: &WorldMap, events: &SharedEvents, notifs: &SharedNotifs,
+        fogs: &mut HashMap<String, FogBitfield>, last_dist: &mut HashMap<String, i32>,
+        player_id: &str, n: usize, delta_per_tick: i32,
+    ) {
+        for _ in 0..n {
+            {
+                let mut lock = state.lock().unwrap();
+                if let Some(p) = lock.get_mut(player_id) {
+                    p.total_distance_m += delta_per_tick;
+                }
+            }
+            run_tick_dev(state, world, events, notifs, fogs, last_dist, 0.5).unwrap();
+        }
+    }
+
+    // -- Basic tick tests --
+
+    #[test]
+    fn not_walking_does_nothing() {
+        let w = world();
+        let route = road_route(&w, 5);
+        let player = test_player("idle", route[0].0 as i32, route[0].1 as i32,
+            &encode_route_json(&route), 100, false);
+        let pid = player.id.clone();
+        let (state, events, notifs) = make_test_state(vec![player]);
+        let mut fogs = HashMap::new();
+        let mut last_dist = HashMap::new();
+
+        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+
+        let p = get_player(&state, &pid);
+        assert_eq!(p.gold, 0, "idle player should earn no gold");
+        assert_eq!(p.route_meters_walked, 0.0, "idle player should not advance");
+    }
+
+    #[test]
+    fn walking_no_route_earns_gold() {
+        let w = world();
+        let player = test_player("noroute", 50, 40, "", 100, true);
+        let pid = player.id.clone();
+        let (state, events, notifs) = make_test_state(vec![player]);
+        let mut fogs = HashMap::new();
+        let mut last_dist = HashMap::new();
+
+        // First tick inits last_distance, so add distance then tick again
+        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+        {
+            let mut lock = state.lock().unwrap();
+            lock.get_mut(&pid).unwrap().total_distance_m = 110;
+        }
+        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+
+        let p = get_player(&state, &pid);
+        assert!(p.gold > 0, "walking without route should still earn gold");
+        assert_eq!(p.route_meters_walked, 0.0, "no route means no route meters");
+    }
+
+    #[test]
+    fn walking_advances_along_route() {
+        let w = world();
+        let route = road_route(&w, 10);
+        let start = route[0];
+        let player = test_player("walker", start.0 as i32, start.1 as i32,
+            &encode_route_json(&route), 0, true);
+        let pid = player.id.clone();
+        let (state, events, notifs) = make_test_state(vec![player]);
+        let mut fogs = HashMap::new();
+        let mut last_dist = HashMap::new();
+
+        // Walk 10m per tick for 20 ticks (200m total — enough for several road tiles at 20m each)
+        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 20, 10);
+
+        let p = get_player(&state, &pid);
+        assert!(p.route_meters_walked > 0.0, "route_meters should advance");
+        // Should have moved from start tile
+        let moved = p.map_tile_x != start.0 as i32 || p.map_tile_y != start.1 as i32;
+        assert!(moved, "player should have moved tiles: still at ({},{})", p.map_tile_x, p.map_tile_y);
+    }
+
+    #[test]
+    fn delta_is_capped() {
+        let w = world();
+        let route = road_route(&w, 10);
+        let start = route[0];
+        let player = test_player("speedy", start.0 as i32, start.1 as i32,
+            &encode_route_json(&route), 0, true);
+        let pid = player.id.clone();
+        let (state, events, notifs) = make_test_state(vec![player]);
+        let mut fogs = HashMap::new();
+        let mut last_dist = HashMap::new();
+
+        // Huge jump in distance (cheating or glitch)
+        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 0);
+        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 500);
+
+        let p = get_player(&state, &pid);
+        // Delta capped at 20, so route_meters should be <= 20
+        assert!(p.route_meters_walked <= 20.0,
+            "route_meters should be capped: got {}", p.route_meters_walked);
+    }
+
+    #[test]
+    fn route_completes_and_clears() {
+        let w = world();
+        let route = road_route(&w, 3); // short route: 3 road tiles = 60m
+        let start = route[0];
+        let player = test_player("finisher", start.0 as i32, start.1 as i32,
+            &encode_route_json(&route), 0, true);
+        let pid = player.id.clone();
+        let (state, events, notifs) = make_test_state(vec![player]);
+        let mut fogs = HashMap::new();
+        let mut last_dist = HashMap::new();
+
+        // Walk 10m/tick for 20 ticks (200m — plenty for 60m route)
+        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 20, 10);
+
+        let p = get_player(&state, &pid);
+        assert!(p.planned_route.is_empty(), "route should be cleared after completion");
+        assert_eq!(p.route_meters_walked, 0.0, "meters should reset after completion");
+        // Player should be at or near the last route tile
+        let end = route.last().unwrap();
+        assert_eq!((p.map_tile_x, p.map_tile_y), (end.0 as i32, end.1 as i32),
+            "player should be at route end");
+    }
+
+    #[test]
+    fn player_never_moves_backward() {
+        let w = world();
+        let route = road_route(&w, 15);
+        let start = route[0];
+        let player = test_player("forward", start.0 as i32, start.1 as i32,
+            &encode_route_json(&route), 0, true);
+        let pid = player.id.clone();
+        let (state, events, notifs) = make_test_state(vec![player]);
+        let mut fogs = HashMap::new();
+        let mut last_dist = HashMap::new();
+
+        let mut max_route_idx = 0usize;
+        for tick in 0..30 {
+            {
+                let mut lock = state.lock().unwrap();
+                lock.get_mut(&pid).unwrap().total_distance_m += 10;
+            }
+            run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+
+            let p = get_player(&state, &pid);
+            let pos = (p.map_tile_x as usize, p.map_tile_y as usize);
+            if let Some(idx) = route.iter().position(|&t| t == pos) {
+                assert!(idx >= max_route_idx,
+                    "tick {tick}: player went backward on route: {max_route_idx} -> {idx}");
+                max_route_idx = idx;
+            }
+
+            if p.planned_route.is_empty() { break; }
+        }
+        assert!(max_route_idx > 0, "player should have advanced at least one tile");
+    }
+
+    #[test]
+    fn gold_earned_every_tick_while_walking() {
+        let w = world();
+        let route = road_route(&w, 10);
+        let start = route[0];
+        let player = test_player("miner", start.0 as i32, start.1 as i32,
+            &encode_route_json(&route), 0, true);
+        let pid = player.id.clone();
+        let (state, events, notifs) = make_test_state(vec![player]);
+        let mut fogs = HashMap::new();
+        let mut last_dist = HashMap::new();
+
+        // Init tick
+        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 0);
+
+        let mut last_gold = 0;
+        for _ in 0..5 {
+            run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 15);
+            let p = get_player(&state, &pid);
+            assert!(p.gold > last_gold, "gold should increase each tick: {} -> {}", last_gold, p.gold);
+            last_gold = p.gold;
+        }
+    }
+
+    #[test]
+    fn fog_reveals_around_player() {
+        let w = world();
+        let route = road_route(&w, 5);
+        let start = route[0];
+        let player = test_player("explorer", start.0 as i32, start.1 as i32,
+            &encode_route_json(&route), 0, true);
+        let pid = player.id.clone();
+        let (state, events, notifs) = make_test_state(vec![player]);
+        let mut fogs = HashMap::new();
+        let mut last_dist = HashMap::new();
+
+        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 0);
+
+        let fog = fogs.get(&pid).unwrap();
+        assert!(fog.is_revealed(start.0, start.1), "start tile should be revealed");
+        // Check radius
+        if start.0 >= 3 && start.1 >= 3 {
+            assert!(fog.is_revealed(start.0 - 3, start.1), "nearby tile should be revealed");
+        }
+    }
+
+    #[test]
+    fn zero_distance_delta_no_progress() {
+        let w = world();
+        let route = road_route(&w, 5);
+        let start = route[0];
+        let player = test_player("still", start.0 as i32, start.1 as i32,
+            &encode_route_json(&route), 100, true);
+        let pid = player.id.clone();
+        let (state, events, notifs) = make_test_state(vec![player]);
+        let mut fogs = HashMap::new();
+        let mut last_dist = HashMap::new();
+
+        // Two ticks with same distance — no movement
+        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+
+        let p = get_player(&state, &pid);
+        assert_eq!(p.route_meters_walked, 0.0);
+        assert_eq!((p.map_tile_x, p.map_tile_y), (start.0 as i32, start.1 as i32));
     }
 }

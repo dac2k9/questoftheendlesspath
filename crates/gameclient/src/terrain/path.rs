@@ -31,8 +31,8 @@ pub fn position_from_route_meters(
     let mut remaining = meters;
     for i in 0..route.len() {
         let (x, y) = route[i];
-        let terrain = world.get(x, y);
-        let cost = terrain.movement_cost();
+        // Use server-compatible cost to stay in sync with game master
+        let cost = world.server_tile_cost(x, y);
         if cost == u32::MAX {
             // Impassable — stop here
             return Some(WorldGrid::tile_to_world(x, y));
@@ -70,7 +70,8 @@ pub fn tile_index_from_meters(
     let mut remaining = meters;
     for i in 0..route.len() {
         let (x, y) = route[i];
-        let cost = world.get(x, y).movement_cost();
+        // Use server-compatible cost to stay in sync with game master
+        let cost = world.server_tile_cost(x, y);
         if cost == u32::MAX || remaining < cost as f64 {
             return i;
         }

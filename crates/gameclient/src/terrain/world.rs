@@ -129,6 +129,14 @@ impl WorldGrid {
         if x < self.width && y < self.height { self.cells[y][x].ground } else { Ground::Water }
     }
 
+    /// Movement cost matching the server's calculation (questlib::route::tile_cost).
+    /// MUST be used for position computation to stay in sync with the game master.
+    pub fn server_tile_cost(&self, x: usize, y: usize) -> u32 {
+        let biome = self.map.biome_at(x, y);
+        let has_road = self.map.has_road_at(x, y);
+        questlib::route::tile_cost(biome, has_road)
+    }
+
     pub fn tile_to_world(x: usize, y: usize) -> Vec2 {
         Vec2::new(x as f32 * TILE_PX, -(y as f32) * TILE_PX)
     }
