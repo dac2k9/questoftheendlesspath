@@ -414,8 +414,24 @@ fn handle_map_click(
     let is_revealed = fog_res.is_revealed(tx, ty) || debug.fog_disabled;
     if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() && is_revealed {
         let start = if route.waypoints.is_empty() { (50, 40) } else { *route.waypoints.last().unwrap() };
-        if start == (tx, ty) { return; }
-        if let Some(mut new_segment) = find_path(&world, start, (tx, ty)) {
+
+        // Snap click to nearest POI center if within 2 tiles
+        let target = world.map.pois.iter()
+            .filter(|p| {
+                let dx = (p.x as i32 - tx as i32).unsigned_abs() as usize;
+                let dy = (p.y as i32 - ty as i32).unsigned_abs() as usize;
+                dx <= 2 && dy <= 2
+            })
+            .min_by_key(|p| {
+                let dx = (p.x as i32 - tx as i32).unsigned_abs();
+                let dy = (p.y as i32 - ty as i32).unsigned_abs();
+                dx + dy
+            })
+            .map(|p| (p.x, p.y))
+            .unwrap_or((tx, ty));
+
+        if start == target { return; }
+        if let Some(mut new_segment) = find_path(&world, start, target) {
             if !new_segment.is_empty() && !route.waypoints.is_empty() { new_segment.remove(0); }
             route.waypoints.extend(new_segment);
             route.recalculate_total(&world);

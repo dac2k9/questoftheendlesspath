@@ -49,9 +49,7 @@ impl TriggerCondition {
     pub fn evaluate(&self, ctx: &TriggerContext) -> bool {
         match self {
             Self::AtTile { x, y } => ctx.player_tile == (*x, *y),
-            Self::AtPoi { poi_id } => {
-                ctx.player_poi == Some(*poi_id) || ctx.nearby_poi_ids.contains(poi_id)
-            },
+            Self::AtPoi { poi_id } => ctx.player_poi == Some(*poi_id),
             Self::InBiome { biome } => ctx.player_biome == *biome,
             Self::DistanceWalked { meters_min } => ctx.total_distance_m >= *meters_min,
             Self::EventCompleted { event_id } => ctx.completed_events.contains(event_id),
@@ -96,8 +94,7 @@ mod tests {
     #[test]
     fn at_poi_match() {
         assert!(TriggerCondition::AtPoi { poi_id: 3 }.evaluate(&ctx()));
-        assert!(TriggerCondition::AtPoi { poi_id: 5 }.evaluate(&ctx())); // in nearby_poi_ids
-        assert!(!TriggerCondition::AtPoi { poi_id: 99 }.evaluate(&ctx()));
+        assert!(!TriggerCondition::AtPoi { poi_id: 5 }.evaluate(&ctx()));
     }
 
     #[test]

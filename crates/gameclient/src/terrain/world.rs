@@ -90,17 +90,16 @@ impl WorldGrid {
             }
         }
 
-        // Place POI overlays (villages, etc.)
+        // Place POI overlays (villages, etc.) — make POI tiles walkable (Road)
         for poi in &map.pois {
             if poi.x < WORLD_W && poi.y < WORLD_H {
-                // Clear area around POI
                 for dy in -1i32..=1 {
                     for dx in -1i32..=1 {
                         let px = (poi.x as i32 + dx) as usize;
                         let py = (poi.y as i32 + dy) as usize;
                         if px < WORLD_W && py < WORLD_H {
+                            cells[py][px].ground = Ground::Road; // cheap to walk through
                             cells[py][px].overlay = None;
-                            // POI center gets a village marker
                             if dx == 0 && dy == 0 {
                                 cells[py][px].overlay = Some(Overlay::Village);
                             }
