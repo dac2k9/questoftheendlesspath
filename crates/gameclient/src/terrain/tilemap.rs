@@ -464,6 +464,7 @@ fn handle_clear_route(
         route.waypoints = vec![current];
         route.meters_walked = 0.0;
         route.current_index = 0;
+        route.interp_reset = true;
         route.recalculate_total(&world);
         for entity in &path_markers { commands.entity(entity).despawn(); }
     }
