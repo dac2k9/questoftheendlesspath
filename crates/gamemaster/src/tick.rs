@@ -47,17 +47,16 @@ pub fn run_tick_dev(
             player_last_distance.insert(player_id.clone(), player.total_distance_m);
         }
 
-        info!(
-            "[{}] tile=({},{}) dist={}m gold={} walking={} route_len={} route_m={:.0}",
-            player.name, player.map_tile_x, player.map_tile_y,
-            player.total_distance_m, player.gold, player.is_walking,
-            player.planned_route.len(), player.route_meters_walked
-        );
-
         if !player.is_walking {
             player_last_distance.insert(player_id.clone(), player.total_distance_m);
             continue;
         }
+
+        info!(
+            "[{}] tile=({},{}) dist={}m gold={} route_m={:.0}",
+            player.name, player.map_tile_x, player.map_tile_y,
+            player.total_distance_m, player.gold, player.route_meters_walked
+        );
 
         // Distance delta
         let last_dist = *player_last_distance.get(player_id).unwrap_or(&player.total_distance_m);
