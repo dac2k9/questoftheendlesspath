@@ -19,6 +19,10 @@ pub struct Player {
     pub revealed_tiles: Option<String>,
     pub map_tile_x: Option<i32>,
     pub map_tile_y: Option<i32>,
+    /// Planned route as JSON array of [x,y] pairs. Written by browser.
+    pub planned_route: Option<String>,
+    /// Meters walked along current route. Written by game master.
+    pub route_meters_walked: Option<f64>,
     pub last_seen_at: String,
 }
 
@@ -48,6 +52,10 @@ pub struct PlayerUpdate {
     pub map_tile_x: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub map_tile_y: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planned_route: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route_meters_walked: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_seen_at: Option<String>,
 }

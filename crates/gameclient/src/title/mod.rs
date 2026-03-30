@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::states::AppState;
+use crate::supabase::SupabaseConfig;
 use crate::{GameFont, GameSession};
 
 #[derive(Component)]
@@ -173,6 +174,7 @@ fn handle_input(
     mut joincode_q: Query<(&mut Text2d, &mut TextColor), (With<JoinCodeText>, Without<UsernameText>, Without<StatusText>)>,
     mut status_q: Query<&mut Text2d, (With<StatusText>, Without<UsernameText>, Without<JoinCodeText>)>,
     mut session: ResMut<GameSession>,
+    mut config: ResMut<SupabaseConfig>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     // Tab switches fields
@@ -209,11 +211,68 @@ fn handle_input(
         session.player_name = form.username.clone();
         session.join_code = form.join_code.clone();
 
+        // Set Supabase config
+        config.url = "https://nmgvrnyrnnftgyszadzc.supabase.co".to_string();
+        config.anon_key = "sb_publishable_Cz1-0kJ2OczX4slHUR0gqg_cSx9Lo5-".to_string();
+
+        // Look up game + player via Supabase
+        let url = config.url.clone();
+        let key = config.anon_key.clone();
+        let username = form.username.clone();
+        let join_code = form.join_code.clone();
+
+        // For now, do the lookup and transition synchronously via spawn_local
+        // Store results in session resource
+        let game_id_ref = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let player_id_ref = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let gi = game_id_ref.clone();
+        let pi = player_id_ref.clone();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = reqwest::Client::new();
+
+            // Look up game
+            #[derive(serde::Deserialize)]
+            struct GameRow { id: String }
+            if let Ok(resp) = client
+                .get(format!("{}/rest/v1/games?join_code=eq.{}&select=id", url, join_code))
+                .header("apikey", &key)
+                .header("Authorization", format!("Bearer {}", &key))
+                .send().await
+            {
+                if let Ok(games) = resp.json::<Vec<GameRow>>().await {
+                    if let Some(game) = games.first() {
+                        *gi.lock().unwrap() = game.id.clone();
+
+                        // Look up player by name in this game
+                        #[derive(serde::Deserialize)]
+                        struct PlayerRow { id: String }
+                        if let Ok(resp2) = client
+                            .get(format!("{}/rest/v1/players?game_id=eq.{}&name=ilike.{}&select=id", url, game.id, username))
+                            .header("apikey", &key)
+                            .header("Authorization", format!("Bearer {}", &key))
+                            .send().await
+                        {
+                            if let Ok(players) = resp2.json::<Vec<PlayerRow>>().await {
+                                if let Some(player) = players.first() {
+                                    *pi.lock().unwrap() = player.id.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Store IDs (they'll be populated by the async task shortly)
+        // For immediate use, try to read them
+        session.game_id = game_id_ref.lock().unwrap().clone();
+        session.player_id = player_id_ref.lock().unwrap().clone();
+
         if let Ok(mut text) = status_q.get_single_mut() {
             *text = Text2d::new(format!("Welcome, {}!", session.player_name));
         }
 
-        // TODO: Supabase lookup here. For now, go straight to InGame.
         next_state.set(AppState::InGame);
         return;
     }

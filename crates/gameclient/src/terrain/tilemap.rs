@@ -4,7 +4,8 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use super::world::{WorldGrid, WORLD_W, WORLD_H, TILE_PX};
 use super::path::{PlannedRoute, find_path};
 use crate::states::AppState;
-use crate::GameFont;
+use crate::supabase::{self, PolledPlayerState, SupabaseConfig};
+use crate::{GameFont, GameSession};
 
 pub struct TilemapPlugin;
 
@@ -13,7 +14,7 @@ impl Plugin for TilemapPlugin {
         app.add_systems(OnEnter(AppState::InGame), spawn_world)
             .add_systems(
                 Update,
-                (handle_map_click, handle_zoom, handle_pan, handle_clear_route, toggle_poi_labels, update_fog_texture, update_path_visuals, update_camera, handle_debug_menu)
+                (handle_map_click, handle_zoom, handle_pan, handle_clear_route, toggle_poi_labels, update_fog_texture, sync_from_supabase, update_path_visuals, update_camera, handle_debug_menu)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -337,6 +338,8 @@ fn handle_map_click(
     world: Res<WorldGrid>,
     fog_res: Res<FogOfWar>,
     debug: Res<DebugOptions>,
+    supa_config: Res<SupabaseConfig>,
+    session: Res<GameSession>,
     mut route: ResMut<PlannedRoute>,
     mut commands: Commands,
     path_markers: Query<Entity, With<PathMarker>>,
@@ -370,6 +373,10 @@ fn handle_map_click(
             route.waypoints.extend(new_segment);
             route.recalculate_total(&world);
             redraw_path_markers(&mut commands, &path_markers, &route, &fog_res);
+
+            // Write route to Supabase so Game Master can advance the player
+            let route_json = questlib::route::encode_route_json(&route.waypoints);
+            supabase::write_planned_route(&supa_config, &session.player_id, &route_json);
         }
     }
 }
@@ -507,6 +514,49 @@ fn redraw_path_markers(commands: &mut Commands, path_markers: &Query<Entity, Wit
             Transform::from_xyz(pos.x + 1.0, pos.y + 9.0, 3.6),
             PathMarker,
         ));
+    }
+}
+
+/// Sync player character position from Supabase polled data.
+fn sync_from_supabase(
+    polled: Res<PolledPlayerState>,
+    session: Res<GameSession>,
+    mut route: ResMut<PlannedRoute>,
+    mut fog: ResMut<FogOfWar>,
+) {
+    let Ok(players) = polled.players.lock() else { return };
+    if players.is_empty() || session.player_id.is_empty() { return; }
+
+    // Find our player
+    let Some(me) = players.iter().find(|p| p.name.eq_ignore_ascii_case(&session.player_name)) else { return };
+
+    // Update route position from server's map_tile_x/y
+    if let (Some(tx), Some(ty)) = (me.map_tile_x, me.map_tile_y) {
+        let tile = (tx as usize, ty as usize);
+        // Update current tile in route (the character moves here)
+        if route.waypoints.is_empty() || route.current_tile() != Some(tile) {
+            // Server advanced us — update the route's current position
+            if let Some(idx) = route.waypoints.iter().position(|&w| w == tile) {
+                route.current_index = idx;
+            }
+        }
+
+        // Update fog from server's revealed_tiles
+        if let Some(ref encoded) = me.revealed_tiles {
+            if !encoded.is_empty() {
+                if let Some(server_fog) = questlib::fog::FogBitfield::from_base64(encoded) {
+                    // Merge server fog into local fog
+                    for y in 0..super::world::WORLD_H {
+                        for x in 0..super::world::WORLD_W {
+                            if server_fog.is_revealed(x, y) && !fog.is_revealed(x, y) {
+                                fog.revealed[y * super::world::WORLD_W + x] = true;
+                                fog.dirty = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
