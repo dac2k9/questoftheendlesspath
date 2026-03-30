@@ -9,6 +9,8 @@ use super::world::{WorldGrid, WORLD_W, WORLD_H, TILE_PX};
 #[derive(Resource, Default)]
 pub struct DisplayRoute {
     pub waypoints: Vec<(usize, usize)>,
+    /// True if user just set/cleared route locally — don't overwrite from server until next poll confirms.
+    pub locally_modified: bool,
 }
 
 /// Predicted meters since last server poll (dead reckoning).

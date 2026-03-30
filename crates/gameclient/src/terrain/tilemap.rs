@@ -285,18 +285,24 @@ fn apply_server_state(
     state.gold = me.gold;
     state.route_meters = me.route_meters_walked.unwrap_or(0.0);
 
-    // Parse route from server
+    // Parse route from server — don't overwrite if user just modified locally
     if let Some(ref route_json) = me.planned_route {
         if !route_json.is_empty() {
             if let Some(route) = questlib::route::parse_route_json(route_json) {
                 state.route = route.clone();
-                display_route.waypoints = route;
+                if !display_route.locally_modified {
+                    display_route.waypoints = route;
+                }
             }
         } else {
             state.route.clear();
-            display_route.waypoints.clear();
+            if !display_route.locally_modified {
+                display_route.waypoints.clear();
+            }
         }
     }
+    // Clear local flag after server confirms (next poll will have updated route)
+    display_route.locally_modified = false;
 
     // Reset prediction on each poll (server is truth)
     predicted.0 = 0.0;
@@ -474,6 +480,7 @@ fn handle_map_click(
         if let Some(mut segment) = find_path(&world, start, (tx, ty)) {
             if !segment.is_empty() && !display_route.waypoints.is_empty() { segment.remove(0); }
             display_route.waypoints.extend(segment);
+            display_route.locally_modified = true;
 
             // Redraw markers
             for entity in &path_markers { commands.entity(entity).despawn(); }
@@ -497,6 +504,7 @@ fn handle_clear_route(
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         display_route.waypoints.clear();
+        display_route.locally_modified = true;
         for entity in &path_markers { commands.entity(entity).despawn(); }
         supabase::write_planned_route(&config, &session.player_id, "");
     }
