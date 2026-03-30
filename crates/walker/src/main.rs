@@ -221,10 +221,14 @@ async fn run_session(player_id: &str, device_name: &str) -> Result<()> {
         let delta = (raw_distance - last_sent_distance.unwrap_or(0)).max(0);
         last_sent_distance = Some(raw_distance);
 
+        // If idle (belt running but no steps), report 0 speed
+        let reported_speed = if actually_walking { current_speed_kmh } else { 0.0 };
+        let reported_delta = if actually_walking { delta } else { 0 };
+
         send_update(
             player_id,
-            current_speed_kmh,
-            delta,
+            reported_speed,
+            reported_delta,
             current_steps,
             actually_walking,
         ).await;
