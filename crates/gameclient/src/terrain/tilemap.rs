@@ -48,8 +48,21 @@ struct DebugMenuUi;
 enum Direction { Down, Up, Right, Left }
 
 impl Direction {
+    /// Walk rows for Katan (6 cols x 8 rows):
+    /// Rows 0-1: down (idle/walk), Rows 2-3: up (idle/walk)
+    /// Rows 4-7: attack animations (not used for walking)
+    /// For left/right walking, use down walk row.
     fn base_row(self) -> usize {
-        match self { Direction::Down => 0, Direction::Up => 2, Direction::Right => 4, Direction::Left => 6 }
+        match self {
+            Direction::Down => 0,
+            Direction::Up => 2,
+            Direction::Right => 0,  // no dedicated right walk — use down
+            Direction::Left => 0,   // no dedicated left walk — use down
+        }
+    }
+
+    fn num_frames(self) -> usize {
+        6 // Katan has 6 columns
     }
 }
 
@@ -278,7 +291,7 @@ fn spawn_world(
     // Player character
     let start_pos = WorldGrid::tile_to_world(start_tile.0, start_tile.1);
     let champion_tex: Handle<Image> = asset_server.load("sprites/Katan.png");
-    let champion_layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 5, 8, None, None);
+    let champion_layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, None, None);
     let champion_layout_handle = atlases.add(champion_layout);
 
     commands.spawn((
@@ -324,8 +337,10 @@ fn spawn_world(
 
     commands.insert_resource(fog);
     commands.insert_resource(debug);
-    commands.insert_resource(PlannedRoute { waypoints: vec![start_tile], meters_walked: 0.0, total_meters: 0.0, current_index: 0 });
+    // Route starts empty — sync_from_supabase will set position from server on first poll
+    commands.insert_resource(PlannedRoute { waypoints: vec![], meters_walked: 0.0, total_meters: 0.0, current_index: 0 });
     commands.insert_resource(CameraPan::default());
+    commands.insert_resource(ServerTilePos::default());
     commands.insert_resource(world);
 }
 
@@ -518,26 +533,44 @@ fn redraw_path_markers(commands: &mut Commands, path_markers: &Query<Entity, Wit
 }
 
 /// Sync player character position from Supabase polled data.
+/// Tracks the authoritative server tile position.
+#[derive(Resource, Default)]
+struct ServerTilePos {
+    x: usize,
+    y: usize,
+    initialized: bool,
+}
+
 fn sync_from_supabase(
     polled: Res<PolledPlayerState>,
     session: Res<GameSession>,
     mut route: ResMut<PlannedRoute>,
     mut fog: ResMut<FogOfWar>,
+    mut server_pos: ResMut<ServerTilePos>,
 ) {
     let Ok(players) = polled.players.lock() else { return };
-    if players.is_empty() || session.player_id.is_empty() { return; }
+    if players.is_empty() || session.player_name.is_empty() { return; }
 
-    // Find our player
     let Some(me) = players.iter().find(|p| p.name.eq_ignore_ascii_case(&session.player_name)) else { return };
 
-    // Update route position from server's map_tile_x/y
     if let (Some(tx), Some(ty)) = (me.map_tile_x, me.map_tile_y) {
         let tile = (tx as usize, ty as usize);
-        // Update current tile in route (the character moves here)
-        if route.waypoints.is_empty() || route.current_tile() != Some(tile) {
-            // Server advanced us — update the route's current position
+
+        // Always update the authoritative server position
+        server_pos.x = tile.0;
+        server_pos.y = tile.1;
+        server_pos.initialized = true;
+
+        // If we have a route, advance the index to match server position
+        if !route.waypoints.is_empty() {
             if let Some(idx) = route.waypoints.iter().position(|&w| w == tile) {
                 route.current_index = idx;
+            }
+        } else {
+            // No route — set waypoints to just the server position so character moves there
+            if route.current_tile() != Some(tile) {
+                route.waypoints = vec![tile];
+                route.current_index = 0;
             }
         }
 
@@ -626,10 +659,21 @@ fn handle_zoom(
 
 fn update_path_visuals(
     route: Res<PlannedRoute>,
+    polled: Res<PolledPlayerState>,
+    session: Res<GameSession>,
     time: Res<Time>,
     mut player_q: Query<(&mut Transform, &mut WalkAnimation, &mut Sprite), With<PlayerSprite>>,
     mut nametag_q: Query<&mut Transform, (With<PlayerNameTag>, Without<PlayerSprite>)>,
 ) {
+    // Check if treadmill belt is running
+    let belt_moving = {
+        let Ok(players) = polled.players.lock() else { false; return };
+        players.iter()
+            .find(|p| p.name.eq_ignore_ascii_case(&session.player_name))
+            .map(|p| p.is_walking)
+            .unwrap_or(false)
+    };
+
     if let Some((x, y)) = route.current_tile() {
         let target = WorldGrid::tile_to_world(x, y);
         for (mut transform, mut anim, mut sprite) in &mut player_q {
@@ -638,25 +682,33 @@ fn update_path_visuals(
             let dy = target.y - current.y;
             let dist = dx.abs() + dy.abs();
 
+            // Move toward target tile
             if dist > 1.0 {
-                anim.moving = true;
                 transform.translation.x += dx * 0.1;
                 transform.translation.y += dy * 0.1;
+                // Update direction from movement
                 if dx.abs() > dy.abs() { anim.direction = if dx > 0.0 { Direction::Right } else { Direction::Left }; }
                 else { anim.direction = if dy > 0.0 { Direction::Up } else { Direction::Down }; }
-                anim.timer.tick(time.delta());
-                if anim.timer.just_finished() { anim.frame = (anim.frame + 1) % 5; }
-                let row = anim.direction.base_row() + 1;
-                if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 5 + anim.frame; }
             } else {
                 transform.translation.x = target.x;
                 transform.translation.y = target.y;
-                if anim.moving {
-                    anim.moving = false;
-                    anim.frame = 0;
-                    let row = anim.direction.base_row();
-                    if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 5; }
-                }
+            }
+
+            // Animate if belt is running OR physically moving between tiles
+            let should_animate = belt_moving || dist > 1.0;
+
+            if should_animate {
+                anim.timer.tick(time.delta());
+                if anim.timer.just_finished() { anim.frame = ((anim.frame) % 5) + 1; }
+                let row = anim.direction.base_row() + 1; // walk row
+                if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6 + anim.frame; }
+                anim.moving = true;
+            } else if anim.moving {
+                // Just stopped — reset to idle
+                anim.moving = false;
+                anim.frame = 0;
+                let row = anim.direction.base_row(); // idle row
+                if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6; }
             }
         }
         if let Ok((player_tf, _, _)) = player_q.get_single() {

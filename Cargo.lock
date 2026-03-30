@@ -1886,6 +1886,7 @@ dependencies = [
  "dotenvy",
  "futures",
  "questlib",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

@@ -82,6 +82,8 @@ async fn run_session(
 
     let mut notification_stream = peripheral.notifications().await?;
     let mut last_write = tokio::time::Instant::now();
+    let mut baseline_distance: Option<i32> = None; // first reading, subtracted from all future
+    let mut accumulated_distance: i32 = 0;
 
     use futures::StreamExt;
     while let Some(notification) = notification_stream.next().await {
@@ -98,37 +100,53 @@ async fn run_session(
             continue;
         };
 
-        // Rate-limit writes to ~2 Hz
+        // Rate-limit writes
         if last_write.elapsed() < Duration::from_millis(2000) {
             continue;
         }
         last_write = tokio::time::Instant::now();
 
-        // Track distance locally if treadmill doesn't report it
-        // CyberPad may not set the distance flag in FTMS
-        let distance = data.total_distance_m.map(|d| d as i32);
+        let raw_distance = data.total_distance_m.map(|d| d as i32).unwrap_or(0);
 
-        let update = PlayerUpdate {
-            current_speed_kmh: Some(data.speed_kmh),
-            total_distance_m: distance,
-            current_incline: data.incline_pct,
-            is_walking: Some(data.speed_kmh > 0.1),
-            last_seen_at: Some("now()".to_string()),
-            ..Default::default()
-        };
+        // Capture baseline on first reading — only send deltas
+        if baseline_distance.is_none() {
+            baseline_distance = Some(raw_distance);
+            info!("Baseline distance set to {}m (will be subtracted from future readings)", raw_distance);
+        }
 
-        if let Err(e) = supabase.upsert_player(player_id, &update).await {
-            warn!("Failed to write to Supabase: {e}");
-        } else {
-            info!(
-                "Speed: {:.2} km/h | Distance: {} | Incline: {:.1}%",
-                data.speed_kmh,
-                match distance {
-                    Some(d) => format!("{d}m"),
-                    None => "N/A (not in FTMS data)".to_string(),
-                },
-                data.incline_pct.unwrap_or(0.0),
-            );
+        let delta_from_baseline = (raw_distance - baseline_distance.unwrap_or(0)).max(0);
+        accumulated_distance = delta_from_baseline;
+
+        let speed = data.speed_kmh;
+        let dist = accumulated_distance;
+        let incline = data.incline_pct.unwrap_or(0.0);
+
+        // Write to dev server
+        let dev_url = format!("http://127.0.0.1:3001/walker_update");
+        let body = serde_json::json!({
+            "player_id": player_id,
+            "speed": speed,
+            "distance": dist,
+            "incline": incline,
+        });
+
+        let client = reqwest::Client::new();
+        match client
+            .post(&dev_url)
+            .header("Content-Type", "application/json")
+            .body(body.to_string())
+            .send()
+            .await
+        {
+            Ok(_) => {
+                info!(
+                    "Speed: {:.2} km/h | Distance: {}m | Incline: {:.1}%",
+                    speed, dist, incline,
+                );
+            }
+            Err(e) => {
+                warn!("Failed to write to dev server: {e}");
+            }
         }
     }
 

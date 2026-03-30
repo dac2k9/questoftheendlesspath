@@ -53,7 +53,10 @@ pub struct PolledPlayerState {
 struct PollTimer(Timer);
 
 fn start_polling(mut commands: Commands) {
-    commands.insert_resource(PollTimer(Timer::from_seconds(5.0, TimerMode::Repeating)));
+    // First tick fires immediately, then every 5 seconds
+    let mut timer = Timer::from_seconds(5.0, TimerMode::Repeating);
+    timer.tick(std::time::Duration::from_secs(5)); // force first tick
+    commands.insert_resource(PollTimer(timer));
 }
 
 fn receive_poll_results(

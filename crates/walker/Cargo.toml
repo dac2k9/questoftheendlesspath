@@ -8,6 +8,7 @@ questlib = { path = "../questlib", features = ["native"] }
 anyhow.workspace = true
 btleplug.workspace = true
 dotenvy.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
