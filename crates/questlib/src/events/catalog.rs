@@ -135,6 +135,7 @@ mod tests {
         TriggerContext {
             player_tile: tile,
             player_poi: poi,
+            nearby_poi_ids: poi.into_iter().collect(),
             player_biome: Biome::Forest,
             total_distance_m: 500,
             inventory: vec![],

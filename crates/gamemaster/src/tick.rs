@@ -158,11 +158,13 @@ pub fn run_tick_dev(
 
         // ── Event Triggers ────────────────────────────────
         let poi_id = world.poi_at(tile_x, tile_y).map(|poi| poi.id);
+        let nearby_pois = world.pois_near(tile_x, tile_y, 5);
         let biome = world.biome_at(tile_x, tile_y);
 
         let ctx = TriggerContext {
             player_tile: (tile_x, tile_y),
             player_poi: poi_id,
+            nearby_poi_ids: nearby_pois,
             player_biome: biome,
             total_distance_m: p.total_distance_m as u32,
             inventory: vec![], // TODO: parse from player inventory

@@ -35,11 +35,12 @@ pub enum TriggerCondition {
 pub struct TriggerContext {
     pub player_tile: (usize, usize),
     pub player_poi: Option<usize>,
+    /// POI IDs within a wider radius (for fuzzy matching).
+    pub nearby_poi_ids: Vec<usize>,
     pub player_biome: Biome,
     pub total_distance_m: u32,
     pub inventory: Vec<String>,
     pub completed_events: HashSet<String>,
-    /// Pre-rolled random value 0.0..1.0 for deterministic testing.
     pub rng_roll: f32,
 }
 
@@ -48,7 +49,9 @@ impl TriggerCondition {
     pub fn evaluate(&self, ctx: &TriggerContext) -> bool {
         match self {
             Self::AtTile { x, y } => ctx.player_tile == (*x, *y),
-            Self::AtPoi { poi_id } => ctx.player_poi == Some(*poi_id),
+            Self::AtPoi { poi_id } => {
+                ctx.player_poi == Some(*poi_id) || ctx.nearby_poi_ids.contains(poi_id)
+            },
             Self::InBiome { biome } => ctx.player_biome == *biome,
             Self::DistanceWalked { meters_min } => ctx.total_distance_m >= *meters_min,
             Self::EventCompleted { event_id } => ctx.completed_events.contains(event_id),
@@ -71,6 +74,7 @@ mod tests {
         TriggerContext {
             player_tile: (50, 40),
             player_poi: Some(3),
+            nearby_poi_ids: vec![3, 5],
             player_biome: Biome::Forest,
             total_distance_m: 500,
             inventory: vec!["map_fragment".into(), "sword".into()],
@@ -92,7 +96,8 @@ mod tests {
     #[test]
     fn at_poi_match() {
         assert!(TriggerCondition::AtPoi { poi_id: 3 }.evaluate(&ctx()));
-        assert!(!TriggerCondition::AtPoi { poi_id: 5 }.evaluate(&ctx()));
+        assert!(TriggerCondition::AtPoi { poi_id: 5 }.evaluate(&ctx())); // in nearby_poi_ids
+        assert!(!TriggerCondition::AtPoi { poi_id: 99 }.evaluate(&ctx()));
     }
 
     #[test]

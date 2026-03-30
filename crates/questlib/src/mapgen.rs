@@ -109,13 +109,25 @@ impl WorldMap {
             .any(|r| r.path.iter().any(|&(rx, ry)| rx == x && ry == y))
     }
 
-    /// Get POI at position, if any.
+    /// Get POI at position (exact or within 1 tile).
     pub fn poi_at(&self, x: usize, y: usize) -> Option<&PointOfInterest> {
         self.pois.iter().find(|p| {
             let dx = (p.x as i32 - x as i32).unsigned_abs() as usize;
             let dy = (p.y as i32 - y as i32).unsigned_abs() as usize;
             dx <= 1 && dy <= 1
         })
+    }
+
+    /// Get all POI IDs within a given radius.
+    pub fn pois_near(&self, x: usize, y: usize, radius: usize) -> Vec<usize> {
+        self.pois.iter()
+            .filter(|p| {
+                let dx = (p.x as i32 - x as i32).unsigned_abs() as usize;
+                let dy = (p.y as i32 - y as i32).unsigned_abs() as usize;
+                dx <= radius && dy <= radius
+            })
+            .map(|p| p.id)
+            .collect()
     }
 
     /// Export POIs as JSON for the LLM game master.
