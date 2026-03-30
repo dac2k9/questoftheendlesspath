@@ -659,12 +659,12 @@ fn sync_from_supabase(
                 route.current_index = 0;
             }
         } else {
-            // Already have a route — advance index to match server position
+            // Already have a route — only advance forward (never backwards)
             if let Some(idx) = route.waypoints.iter().position(|&w| w == tile) {
-                if idx != route.current_index {
+                if idx > route.current_index {
                     route.current_index = idx;
                     route.needs_redraw = true;
-                    route.interp_reset = true; // reset sub-tile progress
+                    route.interp_reset = true;
                 }
             }
         }
