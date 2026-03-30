@@ -1,4 +1,5 @@
 pub mod adventure;
+pub mod fog;
 pub mod ftms;
 pub mod mapgen;
 #[cfg(not(target_arch = "wasm32"))]

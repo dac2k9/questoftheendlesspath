@@ -16,6 +16,9 @@ pub struct Player {
     pub is_blocked: bool,
     pub blocked_at_km: Option<f32>,
     pub inventory: serde_json::Value,
+    pub revealed_tiles: Option<String>,
+    pub map_tile_x: Option<i32>,
+    pub map_tile_y: Option<i32>,
     pub last_seen_at: String,
 }
 
@@ -39,6 +42,12 @@ pub struct PlayerUpdate {
     pub is_blocked: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocked_at_km: Option<Option<f32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revealed_tiles: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub map_tile_x: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub map_tile_y: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_seen_at: Option<String>,
 }

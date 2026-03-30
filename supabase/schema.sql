@@ -28,6 +28,12 @@ create table if not exists players (
   is_blocked boolean default false,
   blocked_at_km real,
   inventory jsonb default '[]'::jsonb,
+  -- Fog of war: base64-encoded bitfield (100x80 = 8000 bits = 1000 bytes)
+  -- Each bit = 1 tile revealed. Written by game master.
+  revealed_tiles text default '',
+  -- Current tile position on the map grid (written by game master)
+  map_tile_x integer default 0,
+  map_tile_y integer default 0,
   last_seen_at timestamptz default now()
 );
 
