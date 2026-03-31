@@ -208,9 +208,10 @@ pub fn run_tick_dev(
             if event.transition(EventStatus::Active).is_ok() {
                 info!("[{}] Event triggered: {} ({})", player.name, event.name, event.id);
 
-                // Start combat for Boss/RandomEncounter events
+                // Start combat for Boss/RandomEncounter events (only if player has a route)
                 if matches!(event.kind, questlib::events::kind::EventKind::Boss { .. }
                     | questlib::events::kind::EventKind::RandomEncounter { .. })
+                    && !player.planned_route.is_empty()
                 {
                     server_combat::start_combat(
                         shared_combat,

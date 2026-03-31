@@ -6,19 +6,19 @@
 use serde::{Deserialize, Serialize};
 
 /// Meters required to reach each level (cumulative).
-/// Level 2 = 100m (quick!), but lvl 29→30 gap ≈ 8km.
-/// Uses cubic scaling: meters = 3 * N^3
-/// This gives: lvl2=24m, lvl5=375m, lvl10=3km, lvl20=24km, lvl30=81km total
-/// Gaps: lvl1→2=24m, lvl9→10=867m, lvl19→20=3.5km, lvl29→30=7.8km
+/// Each level gap grows by 10%: Lv 1→2 = 1000m, Lv 2→3 = 1100m, Lv 3→4 = 1210m, etc.
+/// Cumulative: sum of 1000 * 1.1^(i-1) for i=1..level-1
+/// This gives: Lv 2 = 1km, Lv 5 = 4.6km, Lv 10 = 15.9km, Lv 20 = 57.3km, Lv 30 = 164km
 
 /// Compute the cumulative meters required to reach a given level.
 pub fn meters_for_level(level: u32) -> u64 {
     if level <= 1 {
         return 0;
     }
-    let n = level as f64;
-    // Cubic with offset: starts at ~100m for lvl 2, ~8km gap at lvl 29→30
-    (3.0 * n * n * n + 70.0 * n) as u64
+    // Sum of geometric series: 1000 * (1.1^(n-1) - 1) / (1.1 - 1)
+    // = 10000 * (1.1^(n-1) - 1)
+    let n = (level - 1) as f64;
+    (10000.0 * (1.1_f64.powf(n) - 1.0)) as u64
 }
 
 /// Compute the current level from total meters walked.
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn level_2_threshold() {
         let threshold = meters_for_level(2);
-        assert!(threshold > 50 && threshold <= 300, "level 2 at {}m", threshold);
+        assert_eq!(threshold, 1000, "level 2 should be at 1000m, got {}m", threshold);
         assert_eq!(level_from_meters(threshold), 2);
         assert_eq!(level_from_meters(threshold - 1), 1);
     }
