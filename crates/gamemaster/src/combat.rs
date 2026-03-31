@@ -22,54 +22,48 @@ pub fn start_combat(
     lock.insert(event_id.to_string(), state);
 }
 
-/// Tick all active combats. Returns event IDs of combats that just ended in Victory.
+/// Tick all active combats. Returns event IDs of combats that ended in Victory.
+/// Defeat and Fled combats are removed but do NOT complete the event.
 pub fn tick_all(
     shared: &SharedCombat,
     player_speed_kmh: f32,
+    player_incline: f32,
     delta_secs: f32,
-) -> Vec<String> {
+) -> (Vec<String>, Vec<String>) {
     let mut lock = shared.lock().unwrap();
     let mut victories = Vec::new();
+    let mut retreats = Vec::new();
 
     for (event_id, state) in lock.iter_mut() {
-        let ended = combat::tick_combat(state, player_speed_kmh, delta_secs);
-        if ended && state.status == combat::CombatStatus::Victory {
-            victories.push(event_id.clone());
-        }
-        // Auto-retry on defeat
-        if state.status == combat::CombatStatus::Defeat {
-            combat::retry_combat(state);
+        combat::tick_combat(state, player_speed_kmh, player_incline, delta_secs);
+        match state.status {
+            combat::CombatStatus::Victory => victories.push(event_id.clone()),
+            combat::CombatStatus::Defeat | combat::CombatStatus::Fled => retreats.push(event_id.clone()),
+            _ => {}
         }
     }
 
-    victories
+    (victories, retreats)
 }
 
-/// Get the first active combat state (for single-player, there's only one at a time).
+/// Get the first active combat state.
 pub fn get_active_combat(shared: &SharedCombat) -> Option<CombatState> {
     let lock = shared.lock().unwrap();
-    lock.values()
-        .find(|s| s.status != combat::CombatStatus::Victory)
-        .cloned()
+    lock.values().next().cloned()
 }
 
-/// Apply a player action to the combat matching the given event_id.
-pub fn apply_action(
-    shared: &SharedCombat,
-    event_id: &str,
-    action: &str,
-    incline_pct: f32,
-) -> Option<CombatState> {
+/// Player runs away from combat.
+pub fn flee(shared: &SharedCombat, event_id: &str) -> Option<CombatState> {
     let mut lock = shared.lock().unwrap();
     if let Some(state) = lock.get_mut(event_id) {
-        combat::apply_player_action(state, action, incline_pct);
+        combat::flee_combat(state);
         Some(state.clone())
     } else {
         None
     }
 }
 
-/// Remove a completed combat.
+/// Remove a combat (after victory, defeat, or flee has been shown to client).
 pub fn remove_combat(shared: &SharedCombat, event_id: &str) {
     let mut lock = shared.lock().unwrap();
     lock.remove(event_id);

@@ -1,4 +1,4 @@
-//! Combat overlay UI — spawns/despawns the popup, renders bars and buttons.
+//! Combat overlay UI — auto-attack display with run away button.
 
 use bevy::prelude::*;
 
@@ -38,24 +38,10 @@ pub(crate) struct PlayerChargeBarFill;
 pub(crate) struct CombatLogText;
 
 #[derive(Component)]
-pub(crate) struct AttackButton;
+pub(crate) struct FleeButton;
 
 #[derive(Component)]
-pub(crate) struct DefendButton;
-
-#[derive(Component)]
-pub(crate) struct ActionButtonsContainer;
-
-#[derive(Component)]
-pub(crate) struct VictoryText;
-
-/// Timer for auto-closing after victory/defeat.
-#[derive(Resource)]
-pub(crate) struct CombatEndTimer(Option<Timer>);
-
-impl Default for CombatEndTimer {
-    fn default() -> Self { Self(None) }
-}
+pub(crate) struct LevelInfoText;
 
 // ── Colors ───────────────────────────────────────────
 
@@ -68,8 +54,9 @@ const BAR_BG_COLOR: Color = Color::srgba(1.0, 1.0, 1.0, 0.12);
 const TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 const GOLD_COLOR: Color = Color::srgb(1.0, 0.85, 0.3);
 const LOG_COLOR: Color = Color::srgb(0.7, 0.7, 0.6);
-const BTN_COLOR: Color = Color::srgb(0.15, 0.15, 0.25);
-const BTN_HOVER: Color = Color::srgb(0.25, 0.25, 0.4);
+const DIM_TEXT: Color = Color::srgb(0.5, 0.5, 0.5);
+const BTN_COLOR: Color = Color::srgb(0.25, 0.12, 0.12);
+const BTN_HOVER: Color = Color::srgb(0.4, 0.15, 0.15);
 
 // ── Spawn / Despawn ──────────────────────────────────
 
@@ -78,27 +65,8 @@ pub fn manage_combat_overlay(
     combat: Res<CombatUiState>,
     font: Res<GameFont>,
     existing: Query<Entity, With<CombatOverlay>>,
-    mut end_timer: Local<Option<Timer>>,
-    time: Res<Time>,
 ) {
     let should_show = combat.active && combat.state.is_some();
-
-    // Handle victory/defeat auto-close
-    if let Some(ref cs) = combat.state {
-        use questlib::combat::CombatStatus;
-        if cs.status == CombatStatus::Victory {
-            if end_timer.is_none() {
-                *end_timer = Some(Timer::from_seconds(3.0, TimerMode::Once));
-            }
-        }
-    }
-    if let Some(ref mut timer) = *end_timer {
-        timer.tick(time.delta());
-        if timer.finished() {
-            *end_timer = None;
-            // Combat ended — will be cleaned up when server returns null
-        }
-    }
 
     if should_show && existing.is_empty() {
         spawn_overlay(&mut commands, &font.0);
@@ -112,7 +80,7 @@ pub fn manage_combat_overlay(
 fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
     let font_10 = TextFont { font: font.clone(), font_size: 10.0, ..default() };
     let font_8 = TextFont { font: font.clone(), font_size: 8.0, ..default() };
-    let font_9 = TextFont { font: font.clone(), font_size: 9.0, ..default() };
+    let font_7 = TextFont { font: font.clone(), font_size: 7.0, ..default() };
 
     commands.spawn((
         Node {
@@ -138,7 +106,6 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
             row_gap: Val::Px(4.0),
             ..default()
         }).with_children(|enemy| {
-            // Name + HP text row
             enemy.spawn(Node {
                 flex_direction: FlexDirection::Row,
                 justify_content: JustifyContent::SpaceBetween,
@@ -158,9 +125,7 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
                 ));
             });
 
-            // Enemy HP bar
             spawn_bar(enemy, ENEMY_HP_COLOR, EnemyHpBarFill);
-            // Enemy charge bar
             spawn_bar(enemy, CHARGE_COLOR, EnemyChargeBarFill);
         });
 
@@ -185,7 +150,6 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
             row_gap: Val::Px(4.0),
             ..default()
         }).with_children(|player| {
-            // Name + HP text row
             player.spawn(Node {
                 flex_direction: FlexDirection::Row,
                 justify_content: JustifyContent::SpaceBetween,
@@ -205,25 +169,43 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
                 ));
             });
 
-            // Player HP bar
             spawn_bar(player, PLAYER_HP_COLOR, PlayerHpBarFill);
-            // Player charge bar
             spawn_bar(player, CHARGE_COLOR, PlayerChargeBarFill);
 
-            // Action buttons (hidden until player turn)
-            player.spawn((
-                Node {
-                    flex_direction: FlexDirection::Row,
-                    justify_content: JustifyContent::Center,
-                    column_gap: Val::Px(16.0),
-                    margin: UiRect::top(Val::Px(8.0)),
-                    ..default()
-                },
-                Visibility::Hidden,
-                ActionButtonsContainer,
-            )).with_children(|buttons| {
-                spawn_action_button(buttons, font, "ATTACK", AttackButton);
-                spawn_action_button(buttons, font, "DEFEND", DefendButton);
+            // Level info + flee button row
+            player.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                margin: UiRect::top(Val::Px(8.0)),
+                ..default()
+            }).with_children(|row| {
+                row.spawn((
+                    Text::new(""),
+                    font_7.clone(),
+                    TextColor(DIM_TEXT),
+                    LevelInfoText,
+                ));
+
+                // Run away button
+                row.spawn((
+                    Button,
+                    Node {
+                        padding: UiRect::axes(Val::Px(16.0), Val::Px(6.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BackgroundColor(BTN_COLOR),
+                    BorderColor(BORDER_COLOR),
+                    BorderRadius::all(Val::Px(4.0)),
+                    FleeButton,
+                )).with_children(|btn| {
+                    btn.spawn((
+                        Text::new("RUN AWAY"),
+                        TextFont { font: font.clone(), font_size: 8.0, ..default() },
+                        TextColor(TEXT_COLOR),
+                    ));
+                });
             });
         });
     });
@@ -252,43 +234,21 @@ fn spawn_bar(parent: &mut ChildBuilder, fill_color: Color, marker: impl Componen
     });
 }
 
-fn spawn_action_button(parent: &mut ChildBuilder, font: &Handle<Font>, label: &str, marker: impl Component) {
-    parent.spawn((
-        Button,
-        Node {
-            padding: UiRect::axes(Val::Px(20.0), Val::Px(8.0)),
-            border: UiRect::all(Val::Px(1.0)),
-            ..default()
-        },
-        BackgroundColor(BTN_COLOR),
-        BorderColor(BORDER_COLOR),
-        BorderRadius::all(Val::Px(4.0)),
-        marker,
-    )).with_children(|btn| {
-        btn.spawn((
-            Text::new(label),
-            TextFont { font: font.clone(), font_size: 9.0, ..default() },
-            TextColor(TEXT_COLOR),
-        ));
-    });
-}
-
 // ── Update UI ────────────────────────────────────────
 
 pub fn update_combat_ui(
     combat: Res<CombatUiState>,
-    mut enemy_name_q: Query<&mut Text, (With<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<CombatLogText>)>,
-    mut enemy_hp_q: Query<&mut Text, (With<EnemyHpText>, Without<EnemyNameText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<CombatLogText>)>,
+    mut enemy_name_q: Query<&mut Text, (With<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<CombatLogText>, Without<LevelInfoText>)>,
+    mut enemy_hp_q: Query<&mut Text, (With<EnemyHpText>, Without<EnemyNameText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<CombatLogText>, Without<LevelInfoText>)>,
     mut enemy_hp_bar: Query<&mut Node, (With<EnemyHpBarFill>, Without<EnemyChargeBarFill>, Without<PlayerHpBarFill>, Without<PlayerChargeBarFill>)>,
     mut enemy_charge_bar: Query<&mut Node, (With<EnemyChargeBarFill>, Without<EnemyHpBarFill>, Without<PlayerHpBarFill>, Without<PlayerChargeBarFill>)>,
-    mut player_name_q: Query<&mut Text, (With<PlayerNameText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerHpText>, Without<CombatLogText>)>,
-    mut player_hp_q: Query<&mut Text, (With<PlayerHpText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<CombatLogText>)>,
+    mut player_name_q: Query<&mut Text, (With<PlayerNameText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerHpText>, Without<CombatLogText>, Without<LevelInfoText>)>,
+    mut player_hp_q: Query<&mut Text, (With<PlayerHpText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<CombatLogText>, Without<LevelInfoText>)>,
     mut player_hp_bar: Query<&mut Node, (With<PlayerHpBarFill>, Without<EnemyHpBarFill>, Without<EnemyChargeBarFill>, Without<PlayerChargeBarFill>)>,
     mut player_charge_bar: Query<&mut Node, (With<PlayerChargeBarFill>, Without<EnemyHpBarFill>, Without<EnemyChargeBarFill>, Without<PlayerHpBarFill>)>,
-    mut log_q: Query<&mut Text, (With<CombatLogText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<PlayerHpText>)>,
-    mut buttons_q: Query<&mut Visibility, With<ActionButtonsContainer>>,
-    mut attack_btn_q: Query<(&Interaction, &mut BackgroundColor), (With<AttackButton>, Without<DefendButton>)>,
-    mut defend_btn_q: Query<(&Interaction, &mut BackgroundColor), (With<DefendButton>, Without<AttackButton>)>,
+    mut log_q: Query<&mut Text, (With<CombatLogText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<LevelInfoText>)>,
+    mut level_info_q: Query<&mut Text, (With<LevelInfoText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<CombatLogText>)>,
+    mut flee_btn_q: Query<(&Interaction, &mut BackgroundColor), With<FleeButton>>,
 ) {
     let Some(ref cs) = combat.state else { return };
 
@@ -322,27 +282,20 @@ pub fn update_combat_ui(
         node.width = Val::Percent(combat.local_player_charge * 100.0);
     }
 
-    // Combat log — show last 3 entries
+    // Combat log
     if let Ok(mut text) = log_q.get_single_mut() {
-        let entries: Vec<&str> = cs.turn_log.iter().rev().take(3).map(|e| e.message.as_str()).collect();
+        let entries: Vec<&str> = cs.turn_log.iter().rev().take(4).map(|e| e.message.as_str()).collect();
         let reversed: Vec<&str> = entries.into_iter().rev().collect();
         **text = reversed.join("\n");
     }
 
-    // Action buttons visibility
-    let show_buttons = cs.status == questlib::combat::CombatStatus::PlayerTurn;
-    if let Ok(mut vis) = buttons_q.get_single_mut() {
-        *vis = if show_buttons { Visibility::Inherited } else { Visibility::Hidden };
+    // Level info
+    if let Ok(mut text) = level_info_q.get_single_mut() {
+        **text = format!("Min Lv {} / Rec Lv {}", cs.min_level, cs.recommended_level);
     }
 
-    // Button hover effects
-    for (interaction, mut bg) in &mut attack_btn_q {
-        *bg = match interaction {
-            Interaction::Hovered | Interaction::Pressed => BackgroundColor(BTN_HOVER),
-            _ => BackgroundColor(BTN_COLOR),
-        };
-    }
-    for (interaction, mut bg) in &mut defend_btn_q {
+    // Flee button hover
+    for (interaction, mut bg) in &mut flee_btn_q {
         *bg = match interaction {
             Interaction::Hovered | Interaction::Pressed => BackgroundColor(BTN_HOVER),
             _ => BackgroundColor(BTN_COLOR),
@@ -355,40 +308,29 @@ pub fn update_combat_ui(
 pub fn handle_combat_input(
     mut combat: ResMut<CombatUiState>,
     keys: Res<ButtonInput<KeyCode>>,
-    attack_btn: Query<&Interaction, (With<AttackButton>, Changed<Interaction>)>,
-    defend_btn: Query<&Interaction, (With<DefendButton>, Changed<Interaction>)>,
+    flee_btn: Query<&Interaction, (With<FleeButton>, Changed<Interaction>)>,
 ) {
     let Some(ref cs) = combat.state else { return };
-    if cs.status != questlib::combat::CombatStatus::PlayerTurn || combat.action_pending {
+    if cs.status != questlib::combat::CombatStatus::Fighting || combat.action_pending {
         return;
     }
 
-    let mut action: Option<&str> = None;
+    let mut should_flee = false;
 
-    // Keyboard
-    if keys.just_pressed(KeyCode::Digit1) || keys.just_pressed(KeyCode::KeyA)
-        || keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space)
-    {
-        action = Some("attack");
-    }
-    if keys.just_pressed(KeyCode::Digit2) || keys.just_pressed(KeyCode::KeyD) {
-        action = Some("defend");
+    // ESC or R to run away
+    if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::KeyR) {
+        should_flee = true;
     }
 
-    // Mouse buttons
-    if let Ok(interaction) = attack_btn.get_single() {
+    // Click flee button
+    if let Ok(interaction) = flee_btn.get_single() {
         if *interaction == Interaction::Pressed {
-            action = Some("attack");
-        }
-    }
-    if let Ok(interaction) = defend_btn.get_single() {
-        if *interaction == Interaction::Pressed {
-            action = Some("defend");
+            should_flee = true;
         }
     }
 
-    if let Some(act) = action {
+    if should_flee {
         combat.action_pending = true;
-        super::poll::send_combat_action(act, combat.fetched.clone());
+        super::poll::send_flee(combat.fetched.clone());
     }
 }

@@ -69,7 +69,7 @@ pub fn poll_combat_state(
 
     // Advance local charge prediction between polls
     let should_predict = combat.active && !combat.action_pending
-        && combat.state.as_ref().is_some_and(|cs| cs.status == questlib::combat::CombatStatus::Charging);
+        && combat.state.as_ref().is_some_and(|cs| cs.status == questlib::combat::CombatStatus::Fighting);
     let difficulty = combat.state.as_ref().map(|cs| cs.difficulty).unwrap_or(1);
     if should_predict {
         let dt = time.delta_secs();
@@ -80,14 +80,11 @@ pub fn poll_combat_state(
     }
 }
 
-/// Send a combat action to the server.
-pub fn send_combat_action(action: &str, fetched: Arc<Mutex<Option<questlib::combat::CombatState>>>) {
-    let body = format!(r#"{{"action":"{}"}}"#, action);
+/// Send flee request to the server.
+pub fn send_flee(fetched: Arc<Mutex<Option<questlib::combat::CombatState>>>) {
     wasm_bindgen_futures::spawn_local(async move {
         let client = reqwest::Client::new();
-        if let Ok(resp) = client.post("http://localhost:3001/combat/action")
-            .header("Content-Type", "application/json")
-            .body(body)
+        if let Ok(resp) = client.post("http://localhost:3001/combat/flee")
             .send()
             .await
         {

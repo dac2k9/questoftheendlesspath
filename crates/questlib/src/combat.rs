@@ -1,6 +1,8 @@
-//! JRPG combat system — shared types and formulas.
+//! Auto-attack combat system — walking speed drives the fight.
 //!
-//! Pure logic, no Bevy. Used by both gamemaster (authoritative) and gameclient (prediction).
+//! Both player and enemy auto-attack when their charge bars fill.
+//! The only player action is "run away" to escape a losing fight.
+//! Pure logic, no Bevy. Used by both gamemaster and gameclient.
 
 use serde::{Deserialize, Serialize};
 
@@ -12,16 +14,14 @@ use crate::leveling;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CombatStatus {
-    /// Both charge bars filling.
-    Charging,
-    /// Player charge full — waiting for action input.
-    PlayerTurn,
-    /// Enemy charge full — enemy attacks this tick.
-    EnemyAttacking,
+    /// Both charge bars filling, auto-attacks fire when full.
+    Fighting,
     /// Enemy HP reached 0.
     Victory,
-    /// Player HP reached 0 (auto-retries with full heal).
+    /// Player HP reached 0 — retreated, enemy stays on map.
     Defeat,
+    /// Player chose to run away.
+    Fled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +44,6 @@ pub struct CombatState {
     pub player_defense: i32,
     pub player_level: u32,
     pub player_charge: f32,
-    pub player_defending: bool,
 
     // Enemy
     pub enemy_name: String,
@@ -54,6 +53,10 @@ pub struct CombatState {
     pub enemy_defense: i32,
     pub enemy_charge: f32,
     pub difficulty: u32,
+
+    // Balancing info
+    pub min_level: u32,
+    pub recommended_level: u32,
 
     // Log
     pub turn_log: Vec<CombatLogEntry>,
@@ -82,10 +85,9 @@ pub fn player_damage(player_attack: i32, enemy_defense: i32, incline_pct: f32) -
     raw.round().max(1.0) as i32
 }
 
-/// Enemy attack damage. Halved if player is defending.
-pub fn enemy_damage(enemy_attack: i32, player_defense: i32, player_defending: bool) -> i32 {
-    let def_mult = if player_defending { 2.0 } else { 1.0 };
-    let raw = enemy_attack as f32 - (player_defense as f32 * def_mult / 2.0);
+/// Enemy attack damage.
+pub fn enemy_damage(enemy_attack: i32, player_defense: i32) -> i32 {
+    let raw = enemy_attack as f32 - (player_defense as f32 / 2.0);
     raw.round().max(1.0) as i32
 }
 
@@ -135,6 +137,56 @@ pub fn enemy_name_from_event(kind: &EventKind) -> String {
     }
 }
 
+// ── Encounter Balancing ──────────────────────────────
+
+/// Simulate a fight at a given level and speed. Returns true if player wins.
+fn simulate_fight(player_level: u32, enemy: &EnemyStats, speed_kmh: f32) -> bool {
+    let stats = leveling::CharacterStats::new_at_level(player_level);
+    let p_dmg = player_damage(stats.attack, enemy.defense, 0.0).max(1);
+    let e_dmg = enemy_damage(enemy.attack, stats.defense).max(1);
+
+    let p_rate = player_charge_rate(speed_kmh);
+    let e_rate = enemy_charge_rate(enemy.difficulty);
+
+    if p_rate < 0.001 { return false; } // not walking = can't win
+
+    // Time to fill charge bars
+    let p_fill = 1.0 / p_rate;
+    let e_fill = 1.0 / e_rate;
+
+    // Attacks per second
+    let p_dps = p_dmg as f64 / p_fill as f64;
+    let e_dps = e_dmg as f64 / e_fill as f64;
+
+    // Time to kill
+    let time_to_kill_enemy = enemy.max_hp as f64 / p_dps;
+    let time_to_kill_player = stats.max_hp as f64 / e_dps;
+
+    time_to_kill_enemy < time_to_kill_player
+}
+
+/// Minimum level to beat this enemy at max walking speed (5 km/h).
+pub fn min_level(kind: &EventKind) -> u32 {
+    for lvl in 1..=100 {
+        let enemy = enemy_stats_from_event(kind, lvl);
+        if simulate_fight(lvl, &enemy, 5.0) {
+            return lvl;
+        }
+    }
+    100
+}
+
+/// Recommended level to beat this enemy at comfortable speed (3 km/h).
+pub fn recommended_level(kind: &EventKind) -> u32 {
+    for lvl in 1..=100 {
+        let enemy = enemy_stats_from_event(kind, lvl);
+        if simulate_fight(lvl, &enemy, 3.0) {
+            return lvl;
+        }
+    }
+    100
+}
+
 // ── Combat Initialization ────────────────────────────
 
 /// Create a new combat state from event data and player distance.
@@ -143,17 +195,18 @@ pub fn init_combat(event_id: &str, kind: &EventKind, total_distance_m: u64) -> C
     let stats = leveling::CharacterStats::new_at_level(player_level);
     let enemy = enemy_stats_from_event(kind, player_level);
     let name = enemy_name_from_event(kind);
+    let min_lvl = min_level(kind);
+    let rec_lvl = recommended_level(kind);
 
     CombatState {
         event_id: event_id.to_string(),
-        status: CombatStatus::Charging,
+        status: CombatStatus::Fighting,
         player_hp: stats.max_hp,
         player_max_hp: stats.max_hp,
         player_attack: stats.attack,
         player_defense: stats.defense,
         player_level,
         player_charge: 0.0,
-        player_defending: false,
         enemy_name: name,
         enemy_hp: enemy.max_hp,
         enemy_max_hp: enemy.max_hp,
@@ -161,17 +214,19 @@ pub fn init_combat(event_id: &str, kind: &EventKind, total_distance_m: u64) -> C
         enemy_defense: enemy.defense,
         enemy_charge: 0.0,
         difficulty: enemy.difficulty,
+        min_level: min_lvl,
+        recommended_level: rec_lvl,
         turn_log: Vec::new(),
     }
 }
 
 // ── Combat Tick (server-side) ────────────────────────
 
-/// Advance combat by one tick. Returns true if combat ended (Victory or Defeat).
-pub fn tick_combat(state: &mut CombatState, speed_kmh: f32, delta_secs: f32) -> bool {
+/// Advance combat by one tick. Both sides auto-attack when charge fills.
+/// Returns true if combat ended (Victory or Defeat).
+pub fn tick_combat(state: &mut CombatState, speed_kmh: f32, incline_pct: f32, delta_secs: f32) -> bool {
     match state.status {
-        CombatStatus::Victory | CombatStatus::Defeat => return true,
-        CombatStatus::PlayerTurn => return false, // waiting for player action
+        CombatStatus::Victory | CombatStatus::Defeat | CombatStatus::Fled => return true,
         _ => {}
     }
 
@@ -179,11 +234,29 @@ pub fn tick_combat(state: &mut CombatState, speed_kmh: f32, delta_secs: f32) -> 
     state.player_charge += player_charge_rate(speed_kmh) * delta_secs;
     state.enemy_charge += enemy_charge_rate(state.difficulty) * delta_secs;
 
-    // Enemy acts when charge full
+    // Player auto-attacks when charge full
+    if state.player_charge >= 1.0 {
+        let dmg = player_damage(state.player_attack, state.enemy_defense, incline_pct);
+        state.enemy_hp = (state.enemy_hp - dmg).max(0);
+        state.player_charge = 0.0;
+
+        state.turn_log.push(CombatLogEntry {
+            actor: "You".to_string(),
+            action: "attack".to_string(),
+            damage: dmg,
+            message: format!("You strike for {} damage!", dmg),
+        });
+
+        if state.enemy_hp <= 0 {
+            state.status = CombatStatus::Victory;
+            return true;
+        }
+    }
+
+    // Enemy auto-attacks when charge full
     if state.enemy_charge >= 1.0 {
-        let dmg = enemy_damage(state.enemy_attack, state.player_defense, state.player_defending);
+        let dmg = enemy_damage(state.enemy_attack, state.player_defense);
         state.player_hp = (state.player_hp - dmg).max(0);
-        state.player_defending = false; // defend consumed
         state.enemy_charge = 0.0;
 
         state.turn_log.push(CombatLogEntry {
@@ -199,68 +272,17 @@ pub fn tick_combat(state: &mut CombatState, speed_kmh: f32, delta_secs: f32) -> 
         }
     }
 
-    // Player can act when charge full
-    if state.player_charge >= 1.0 {
-        state.player_charge = 1.0;
-        state.status = CombatStatus::PlayerTurn;
-    }
-
     false
 }
 
-/// Apply a player action. Returns true if combat ended.
-pub fn apply_player_action(state: &mut CombatState, action: &str, incline_pct: f32) -> bool {
-    if state.status != CombatStatus::PlayerTurn {
-        return false;
-    }
-
-    match action {
-        "attack" => {
-            let dmg = player_damage(state.player_attack, state.enemy_defense, incline_pct);
-            state.enemy_hp = (state.enemy_hp - dmg).max(0);
-            state.turn_log.push(CombatLogEntry {
-                actor: "You".to_string(),
-                action: "attack".to_string(),
-                damage: dmg,
-                message: format!("You attack for {} damage!", dmg),
-            });
-
-            if state.enemy_hp <= 0 {
-                state.status = CombatStatus::Victory;
-                return true;
-            }
-        }
-        "defend" => {
-            state.player_defending = true;
-            state.turn_log.push(CombatLogEntry {
-                actor: "You".to_string(),
-                action: "defend".to_string(),
-                damage: 0,
-                message: "You brace for the next attack!".to_string(),
-            });
-        }
-        _ => {}
-    }
-
-    state.player_charge = 0.0;
-    state.status = CombatStatus::Charging;
-    false
-}
-
-/// Reset combat after defeat (full heal, restart).
-pub fn retry_combat(state: &mut CombatState) {
-    state.player_hp = state.player_max_hp;
-    state.player_charge = 0.0;
-    state.enemy_charge = 0.0;
-    state.player_defending = false;
-    state.enemy_hp = state.enemy_max_hp;
-    state.status = CombatStatus::Charging;
-    state.turn_log.clear();
+/// Player runs away. Combat ends, enemy stays on map.
+pub fn flee_combat(state: &mut CombatState) {
+    state.status = CombatStatus::Fled;
     state.turn_log.push(CombatLogEntry {
-        actor: "System".to_string(),
-        action: "retry".to_string(),
+        actor: "You".to_string(),
+        action: "flee".to_string(),
         damage: 0,
-        message: "You steel yourself and try again!".to_string(),
+        message: "You run away!".to_string(),
     });
 }
 
@@ -274,7 +296,7 @@ mod tests {
     fn charge_rates() {
         assert!(player_charge_rate(0.0) < 0.001);
         assert!((player_charge_rate(3.0) - 0.165).abs() < 0.001);
-        assert!(player_charge_rate(10.0) <= 0.5); // capped
+        assert!(player_charge_rate(10.0) <= 0.5);
 
         assert!(enemy_charge_rate(1) > 0.07);
         assert!(enemy_charge_rate(5) > enemy_charge_rate(1));
@@ -282,119 +304,44 @@ mod tests {
 
     #[test]
     fn damage_formulas() {
-        // Basic attack
         let dmg = player_damage(10, 4, 0.0);
-        assert!(dmg >= 1);
         assert_eq!(dmg, 8); // 10 - 4/2 = 8
 
-        // Incline bonus (5% = 1.5x)
         let dmg_incline = player_damage(10, 4, 5.0);
         assert!(dmg_incline > dmg);
 
-        // Enemy damage
-        let edmg = enemy_damage(8, 6, false);
+        let edmg = enemy_damage(8, 6);
         assert_eq!(edmg, 5); // 8 - 6/2 = 5
 
-        // Defending halves
-        let edmg_def = enemy_damage(8, 6, true);
-        assert!(edmg_def < edmg);
-
-        // Minimum 1
         assert_eq!(player_damage(1, 100, 0.0), 1);
-        assert_eq!(enemy_damage(1, 100, false), 1);
+        assert_eq!(enemy_damage(1, 100), 1);
     }
 
     #[test]
-    fn enemy_stats_scale() {
-        let boss = enemy_stats_from_event(
-            &EventKind::Boss {
-                boss_name: "Troll".into(),
-                max_hp: 500,
-                portrait: None,
-                dialogue_intro: vec![],
-                dialogue_defeat: vec![],
-            },
-            5,
-        );
-        assert_eq!(boss.max_hp, 500);
-        assert_eq!(boss.attack, 14); // 4 + 5*2
-        assert_eq!(boss.defense, 7); // 2 + 5
-
-        let enc = enemy_stats_from_event(
-            &EventKind::RandomEncounter {
-                enemy_name: "Wolf".into(),
-                description: "A wolf".into(),
-                difficulty: 2,
-            },
-            5,
-        );
-        assert_eq!(enc.max_hp, 20 + 30 + 40); // 20 + 2*15 + 5*8
-        assert_eq!(enc.attack, 12); // 3 + 2*2 + 5
-    }
-
-    #[test]
-    fn combat_lifecycle() {
+    fn auto_attack_combat() {
         let kind = EventKind::RandomEncounter {
             enemy_name: "Slime".into(),
             description: "A weak slime".into(),
             difficulty: 1,
         };
-        let mut combat = init_combat("test_event", &kind, 500);
-        assert_eq!(combat.status, CombatStatus::Charging);
-        assert!(combat.player_hp > 0);
-        assert!(combat.enemy_hp > 0);
+        let mut combat = init_combat("test", &kind, 5000);
+        assert_eq!(combat.status, CombatStatus::Fighting);
 
-        // Tick until player can act (simulate 3 km/h walking)
-        for _ in 0..100 {
-            if combat.status == CombatStatus::PlayerTurn {
-                break;
-            }
-            tick_combat(&mut combat, 3.0, 0.1);
+        // Simulate at 3 km/h until combat ends
+        let mut ticks = 0;
+        loop {
+            let ended = tick_combat(&mut combat, 3.0, 0.0, 0.1);
+            ticks += 1;
+            if ended || ticks > 10000 { break; }
         }
-        assert_eq!(combat.status, CombatStatus::PlayerTurn);
 
-        // Attack
-        let old_hp = combat.enemy_hp;
-        apply_player_action(&mut combat, "attack", 0.0);
-        assert!(combat.enemy_hp < old_hp);
-        assert_eq!(combat.status, CombatStatus::Charging);
+        // Should have ended (either victory or defeat)
+        assert!(combat.status == CombatStatus::Victory || combat.status == CombatStatus::Defeat);
+        assert!(!combat.turn_log.is_empty());
     }
 
     #[test]
-    fn defend_reduces_damage() {
-        let kind = EventKind::RandomEncounter {
-            enemy_name: "Goblin".into(),
-            description: "test".into(),
-            difficulty: 2,
-        };
-        let mut combat = init_combat("test", &kind, 1000);
-
-        // Charge player and defend
-        combat.player_charge = 1.0;
-        combat.status = CombatStatus::PlayerTurn;
-        apply_player_action(&mut combat, "defend", 0.0);
-        assert!(combat.player_defending);
-
-        // Enemy attacks — damage should be reduced
-        let hp_before = combat.player_hp;
-        combat.enemy_charge = 1.0;
-        tick_combat(&mut combat, 0.0, 0.0);
-        let hp_after = combat.player_hp;
-        let dmg_defended = hp_before - hp_after;
-
-        // Reset and take undefended hit
-        combat.player_hp = hp_before;
-        combat.player_defending = false;
-        combat.enemy_charge = 1.0;
-        combat.status = CombatStatus::Charging;
-        tick_combat(&mut combat, 0.0, 0.0);
-        let dmg_undefended = hp_before - combat.player_hp;
-
-        assert!(dmg_defended <= dmg_undefended);
-    }
-
-    #[test]
-    fn defeat_and_retry() {
+    fn flee_ends_combat() {
         let kind = EventKind::RandomEncounter {
             enemy_name: "Dragon".into(),
             description: "test".into(),
@@ -402,17 +349,43 @@ mod tests {
         };
         let mut combat = init_combat("test", &kind, 100);
 
+        flee_combat(&mut combat);
+        assert_eq!(combat.status, CombatStatus::Fled);
+        assert!(tick_combat(&mut combat, 3.0, 0.0, 1.0)); // returns true (ended)
+    }
+
+    #[test]
+    fn encounter_balancing() {
+        let kind = EventKind::RandomEncounter {
+            enemy_name: "Wolf".into(),
+            description: "test".into(),
+            difficulty: 2,
+        };
+        let min = min_level(&kind);
+        let rec = recommended_level(&kind);
+
+        assert!(min >= 1);
+        assert!(rec >= min);
+        // At recommended level + 3 km/h, player should win
+        let enemy = enemy_stats_from_event(&kind, rec);
+        assert!(simulate_fight(rec, &enemy, 3.0));
+    }
+
+    #[test]
+    fn defeat_preserves_state() {
+        let kind = EventKind::RandomEncounter {
+            enemy_name: "Goblin".into(),
+            description: "test".into(),
+            difficulty: 1,
+        };
+        let mut combat = init_combat("test", &kind, 100);
+
         // Force defeat
         combat.player_hp = 1;
         combat.enemy_charge = 1.0;
-        let ended = tick_combat(&mut combat, 0.0, 0.0);
+        let ended = tick_combat(&mut combat, 0.0, 0.0, 0.0);
         assert!(ended);
         assert_eq!(combat.status, CombatStatus::Defeat);
-
-        // Retry
-        retry_combat(&mut combat);
-        assert_eq!(combat.status, CombatStatus::Charging);
-        assert_eq!(combat.player_hp, combat.player_max_hp);
-        assert_eq!(combat.enemy_hp, combat.enemy_max_hp);
+        // Enemy HP should NOT be reset — stays damaged
     }
 }

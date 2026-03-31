@@ -253,35 +253,16 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", "null".to_string());
     }
 
-    // POST /combat/action — player combat action
-    if first_line.starts_with("POST /combat/action") {
-        if let Some(body_start) = request.find("\r\n\r\n") {
-            let body = &request[body_start + 4..];
-            #[derive(Deserialize)]
-            struct ActionReq {
-                action: String,
-                #[serde(default)]
-                event_id: Option<String>,
-            }
-            if let Ok(req) = serde_json::from_str::<ActionReq>(body) {
-                // Get incline from first player (single-player for now)
-                let incline = {
-                    let lock = state.lock().unwrap();
-                    lock.values().next().map(|p| p.current_incline).unwrap_or(0.0)
-                };
-                // Find the active combat event_id
-                let event_id = req.event_id.or_else(|| {
-                    crate::combat::get_active_combat(combat).map(|c| c.event_id)
-                });
-                if let Some(eid) = event_id {
-                    if let Some(updated) = crate::combat::apply_action(combat, &eid, &req.action, incline) {
-                        let json = serde_json::to_string(&updated).unwrap_or_default();
-                        return ("200 OK", json);
-                    }
-                }
+    // POST /combat/flee — player runs away
+    if first_line.starts_with("POST /combat/flee") {
+        let event_id = crate::combat::get_active_combat(combat).map(|c| c.event_id);
+        if let Some(eid) = event_id {
+            if let Some(updated) = crate::combat::flee(combat, &eid) {
+                let json = serde_json::to_string(&updated).unwrap_or_default();
+                return ("200 OK", json);
             }
         }
-        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+        return ("400 Bad Request", r#"{"error":"no active combat"}"#.to_string());
     }
 
     // POST /heartbeat — mark player browser as open (no-op for dev)

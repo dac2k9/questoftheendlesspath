@@ -244,16 +244,21 @@ pub fn run_tick_dev(
 
     // Tick active combats once per game tick (not per player).
     // Use the max walking speed across all players.
+    // Tick active combats once per game tick.
     let combat_speed = players.iter()
         .filter(|p| p.is_walking)
         .map(|p| p.current_speed_kmh)
         .fold(0.0_f32, f32::max);
-    let combat_victories = server_combat::tick_all(shared_combat, combat_speed, 1.0);
-    for victory_event_id in &combat_victories {
+    let combat_incline = players.iter()
+        .filter(|p| p.is_walking)
+        .map(|p| p.current_incline)
+        .fold(0.0_f32, f32::max);
+    let (victories, retreats) = server_combat::tick_all(shared_combat, combat_speed, combat_incline, 1.0);
+
+    for victory_event_id in &victories {
         info!("Combat victory: {}", victory_event_id);
-        if let Some(event) = events_lock.get_mut(&victory_event_id) {
+        if let Some(event) = events_lock.get_mut(victory_event_id) {
             if event.transition(EventStatus::Completed).is_ok() {
-                // Apply outcomes to all players
                 let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
                 for (pid, p) in lock.iter_mut() {
                     if let Some(fog) = player_fogs.get_mut(pid) {
@@ -269,7 +274,16 @@ pub fn run_tick_dev(
                 }
             }
         }
-        server_combat::remove_combat(shared_combat, &victory_event_id);
+        server_combat::remove_combat(shared_combat, victory_event_id);
+    }
+
+    // Defeat/Fled: revert event to Pending so it can trigger again later
+    for retreat_event_id in &retreats {
+        info!("Combat retreat: {}", retreat_event_id);
+        if let Some(event) = events_lock.get_mut(retreat_event_id) {
+            event.force_status(EventStatus::Pending);
+        }
+        server_combat::remove_combat(shared_combat, retreat_event_id);
     }
 
     Ok(())

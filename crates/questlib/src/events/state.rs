@@ -74,6 +74,12 @@ impl EventInstance {
         }
     }
 
+    /// Force a status change, bypassing transition validation.
+    /// Used for combat retreat (Active → Pending).
+    pub fn force_status(&mut self, status: EventStatus) {
+        self.status = status;
+    }
+
     /// Whether this event auto-completes (doesn't need browser interaction).
     pub fn auto_completes(&self) -> bool {
         !self.requires_browser
