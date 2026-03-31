@@ -19,7 +19,7 @@ impl Plugin for DialoguePlugin {
                     update_notifications,
                     handle_dialogue_input,
                 )
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(in_state(AppState::InGame).and(not(crate::combat::combat_active))),
             );
     }
 }

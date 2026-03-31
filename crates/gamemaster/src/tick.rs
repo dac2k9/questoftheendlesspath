@@ -179,30 +179,6 @@ pub fn run_tick_dev(
             }
         }
 
-        // Tick active combats
-        let combat_victories = server_combat::tick_all(shared_combat, player.current_speed_kmh, 1.0);
-        for victory_event_id in &combat_victories {
-            info!("[{}] Combat victory: {}", player.name, victory_event_id);
-            // Complete the event and apply outcomes
-            if let Some(event) = events_lock.get_mut(victory_event_id) {
-                if event.transition(EventStatus::Completed).is_ok() {
-                    let fog = player_fogs.get_mut(player_id).unwrap();
-                    let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-                    if let Some(p) = lock.get_mut(player_id) {
-                        for outcome in &event.outcomes {
-                            apply_outcome(outcome, p, fog);
-                            if let EventOutcome::Notification { text } = outcome {
-                                if let Ok(mut notifs) = shared_notifs.lock() {
-                                    notifs.push(text.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            server_combat::remove_combat(shared_combat, victory_event_id);
-        }
-
         // Event triggers
         let tile_x = new_tile.map(|(x, _)| x as usize).unwrap_or(player.map_tile_x as usize);
         let tile_y = new_tile.map(|(_, y)| y as usize).unwrap_or(player.map_tile_y as usize);
@@ -264,6 +240,36 @@ pub fn run_tick_dev(
                 }
             }
         }
+    }
+
+    // Tick active combats once per game tick (not per player).
+    // Use the max walking speed across all players.
+    let combat_speed = players.iter()
+        .filter(|p| p.is_walking)
+        .map(|p| p.current_speed_kmh)
+        .fold(0.0_f32, f32::max);
+    let combat_victories = server_combat::tick_all(shared_combat, combat_speed, 1.0);
+    for victory_event_id in &combat_victories {
+        info!("Combat victory: {}", victory_event_id);
+        if let Some(event) = events_lock.get_mut(&victory_event_id) {
+            if event.transition(EventStatus::Completed).is_ok() {
+                // Apply outcomes to all players
+                let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+                for (pid, p) in lock.iter_mut() {
+                    if let Some(fog) = player_fogs.get_mut(pid) {
+                        for outcome in &event.outcomes {
+                            apply_outcome(outcome, p, fog);
+                            if let EventOutcome::Notification { text } = outcome {
+                                if let Ok(mut notifs) = shared_notifs.lock() {
+                                    notifs.push(text.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        server_combat::remove_combat(shared_combat, &victory_event_id);
     }
 
     Ok(())
