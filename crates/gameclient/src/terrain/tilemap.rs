@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use super::world::{WorldGrid, WORLD_W, WORLD_H, TILE_PX};
-use super::path::{DisplayRoute, PredictedMeters, find_path, position_from_route_meters, tile_index_from_meters};
+use super::path::{DisplayRoute, PredictedMeters, find_path, position_and_index_from_route_meters, position_from_route_meters, tile_index_from_meters};
 use crate::states::AppState;
 use crate::supabase::{self, PolledPlayerState, SupabaseConfig};
 use crate::{GameFont, GameSession};
@@ -106,6 +106,17 @@ pub struct MyPlayerState {
     pub facing: questlib::route::Facing,
     pub initialized: bool,
     pub last_poll_tile: (i32, i32),
+}
+
+/// Smoothly interpolated visual state, decoupled from server state.
+#[derive(Resource)]
+struct VisualState {
+    pos: Vec2,
+    initialized: bool,
+}
+
+impl Default for VisualState {
+    fn default() -> Self { Self { pos: Vec2::ZERO, initialized: false } }
 }
 
 #[derive(Resource, Default)]
@@ -257,6 +268,7 @@ fn spawn_world(
     commands.insert_resource(MyPlayerState::default());
     commands.insert_resource(DisplayRoute::default());
     commands.insert_resource(PredictedMeters::default());
+    commands.insert_resource(VisualState::default());
     commands.insert_resource(CameraPan::default());
     commands.insert_resource(world);
 }
@@ -374,10 +386,11 @@ fn predict_movement(
     }
 }
 
-/// Set character position from server state + prediction.
+/// Set character position with smooth interpolation.
 fn render_character(
     state: Res<MyPlayerState>,
     predicted: Res<PredictedMeters>,
+    mut visual: ResMut<VisualState>,
     session: Res<GameSession>,
     time: Res<Time>,
     world: Option<Res<WorldGrid>>,
@@ -387,24 +400,47 @@ fn render_character(
 ) {
     if !state.initialized { return; }
 
-    // Compute target position
-    let target_pos = if !state.route.is_empty() {
+    // Compute target position and facing from route
+    let total_meters = state.route_meters + predicted.0;
+    let (target_pos, visual_facing) = if !state.route.is_empty() {
         if let Some(world) = &world {
-            let total_meters = state.route_meters + predicted.0;
-            position_from_route_meters(&state.route, total_meters, world)
+            if let Some((pos, idx)) = position_and_index_from_route_meters(&state.route, total_meters, world) {
+                let facing = questlib::route::facing_along_route(&state.route, idx);
+                (pos, facing)
+            } else {
+                (WorldGrid::tile_to_world(state.tile_x as usize, state.tile_y as usize), state.facing)
+            }
         } else {
-            None
+            (WorldGrid::tile_to_world(state.tile_x as usize, state.tile_y as usize), state.facing)
         }
     } else {
-        None
-    }.unwrap_or_else(|| WorldGrid::tile_to_world(state.tile_x as usize, state.tile_y as usize));
+        (WorldGrid::tile_to_world(state.tile_x as usize, state.tile_y as usize), state.facing)
+    };
+
+    // Initialize visual position on first frame (snap, don't lerp)
+    if !visual.initialized {
+        visual.pos = target_pos;
+        visual.initialized = true;
+    }
+
+    // Smoothly interpolate visual position toward target.
+    // Uses exponential decay: lerp factor = 1 - e^(-rate * dt)
+    // Rate of 12 gives snappy but smooth movement (~80ms to close half the gap).
+    let dt = time.delta_secs();
+    let lerp_factor = 1.0 - (-12.0_f32 * dt).exp();
+    visual.pos = visual.pos.lerp(target_pos, lerp_factor);
+
+    // Snap if very close to avoid perpetual micro-drift
+    if visual.pos.distance_squared(target_pos) < 0.01 {
+        visual.pos = target_pos;
+    }
 
     for (mut tf, mut anim, mut sprite) in &mut player_q {
-        tf.translation.x = target_pos.x;
-        tf.translation.y = target_pos.y;
+        tf.translation.x = visual.pos.x;
+        tf.translation.y = visual.pos.y;
 
-        // Use server-authoritative facing direction
-        anim.facing = state.facing;
+        // Derive facing from the visual position on the route
+        anim.facing = visual_facing;
 
         sprite.flip_x = false;
 

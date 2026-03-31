@@ -61,6 +61,45 @@ pub fn position_from_route_meters(
     Some(WorldGrid::tile_to_world(x, y))
 }
 
+/// Compute world-space position and route index from a route + meters walked.
+pub fn position_and_index_from_route_meters(
+    route: &[(usize, usize)],
+    meters: f64,
+    world: &WorldGrid,
+) -> Option<(Vec2, usize)> {
+    if route.is_empty() {
+        return None;
+    }
+
+    let mut remaining = meters;
+    for i in 0..route.len() {
+        let (x, y) = route[i];
+        let cost = world.server_tile_cost(x, y);
+        if cost == u32::MAX {
+            return Some((WorldGrid::tile_to_world(x, y), i));
+        }
+
+        if remaining < cost as f64 {
+            let frac = remaining / cost as f64;
+            let current = WorldGrid::tile_to_world(x, y);
+
+            if i + 1 < route.len() {
+                let (nx, ny) = route[i + 1];
+                let next = WorldGrid::tile_to_world(nx, ny);
+                let interp_x = current.x + (next.x - current.x) * frac as f32;
+                let interp_y = current.y + (next.y - current.y) * frac as f32;
+                return Some((Vec2::new(interp_x, interp_y), i));
+            } else {
+                return Some((current, i));
+            }
+        }
+        remaining -= cost as f64;
+    }
+
+    let (x, y) = route[route.len() - 1];
+    Some((WorldGrid::tile_to_world(x, y), route.len().saturating_sub(1)))
+}
+
 /// Find which tile index in a route corresponds to a given meters walked.
 pub fn tile_index_from_meters(
     route: &[(usize, usize)],
