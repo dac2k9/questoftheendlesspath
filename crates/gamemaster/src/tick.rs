@@ -277,11 +277,12 @@ pub fn run_tick_dev(
         server_combat::remove_combat(shared_combat, victory_event_id);
     }
 
-    // Defeat/Fled: revert event to Pending so it can trigger again later
+    // Defeat/Fled: dismiss the event for now (prevents immediate re-trigger).
+    // TODO: re-encounter system — place enemy on map, re-trigger when player returns.
     for retreat_event_id in &retreats {
         info!("Combat retreat: {}", retreat_event_id);
         if let Some(event) = events_lock.get_mut(retreat_event_id) {
-            event.force_status(EventStatus::Pending);
+            event.force_status(EventStatus::Dismissed);
         }
         server_combat::remove_combat(shared_combat, retreat_event_id);
     }
