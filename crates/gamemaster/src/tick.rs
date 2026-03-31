@@ -39,6 +39,11 @@ pub fn run_tick_dev(
             } else {
                 let mut f = FogBitfield::new();
                 f.reveal_radius(player.map_tile_x as usize, player.map_tile_y as usize, 5);
+                // Write initial fog to player state so client can see it
+                let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+                if let Some(p) = lock.get_mut(player_id) {
+                    p.revealed_tiles = f.to_base64();
+                }
                 f
             };
             player_fogs.insert(player_id.clone(), fog);
