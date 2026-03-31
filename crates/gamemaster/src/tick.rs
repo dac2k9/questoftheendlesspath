@@ -4,7 +4,7 @@ use anyhow::Result;
 use questlib::events::{EventCatalog, EventOutcome, EventStatus, TriggerContext};
 use questlib::fog::FogBitfield;
 use questlib::mapgen::WorldMap;
-use questlib::route::{self, position_along_route};
+use questlib::route::{self, facing_along_route, position_along_route};
 use tracing::{debug, info};
 
 use crate::devserver::{DevPlayerState, SharedState};
@@ -89,6 +89,7 @@ pub fn run_tick_dev(
         let mut new_route_meters = player.route_meters_walked;
         let mut new_revealed: Option<String> = None;
         let mut clear_route = false;
+        let mut new_facing: Option<route::Facing> = None;
 
         if has_blocking {
             gold_delta = (delta_m / 10).max(1);
@@ -100,8 +101,11 @@ pub fn run_tick_dev(
             info!("[{}] route has {} waypoints, advancing {}m", player.name, route_tiles.len(), delta_m);
 
             new_route_meters += delta_m as f64;
-            let (tile_x, tile_y, _idx, route_complete) =
+            let (tile_x, tile_y, idx, route_complete) =
                 position_along_route(&route_tiles, new_route_meters, world);
+
+            // Compute facing direction toward next tile on route
+            new_facing = Some(facing_along_route(&route_tiles, idx));
 
             let current_pos = (player.map_tile_x as usize, player.map_tile_y as usize);
             let new_pos = (tile_x, tile_y);
@@ -152,6 +156,9 @@ pub fn run_tick_dev(
                 }
                 if let Some(revealed) = new_revealed {
                     p.revealed_tiles = revealed;
+                }
+                if let Some(facing) = new_facing {
+                    p.facing = facing;
                 }
                 if clear_route {
                     p.planned_route = String::new();

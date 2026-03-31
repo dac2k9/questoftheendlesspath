@@ -3,7 +3,20 @@
 //! Given a planned route (list of tile coordinates) and meters walked,
 //! compute the current tile position and whether the route is complete.
 
+use serde::{Deserialize, Serialize};
+
 use crate::mapgen::{Biome, WorldMap};
+
+/// Cardinal direction the character is facing/moving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Facing {
+    #[default]
+    Down,
+    Up,
+    Left,
+    Right,
+}
 
 /// Base multiplier — adjust this to scale all tile costs.
 /// Lower = faster movement across the map.
@@ -59,6 +72,38 @@ pub fn position_along_route(
     // Completed the entire route
     let &(x, y) = route.last().unwrap_or(&(0, 0));
     (x, y, route.len().saturating_sub(1), true)
+}
+
+/// Compute the facing direction from the current route index to the next tile.
+/// If at the end of the route (or route is empty), returns the fallback or Down.
+pub fn facing_along_route(route: &[(usize, usize)], route_index: usize) -> Facing {
+    if route_index + 1 >= route.len() {
+        return Facing::Down;
+    }
+    let (cx, cy) = route[route_index];
+    let (nx, ny) = route[route_index + 1];
+    let dx = nx as i32 - cx as i32;
+    let dy = ny as i32 - cy as i32;
+    if dx.abs() > dy.abs() {
+        if dx > 0 { Facing::Right } else { Facing::Left }
+    } else if dy != 0 {
+        if dy > 0 { Facing::Down } else { Facing::Up }
+    } else {
+        Facing::Down
+    }
+}
+
+/// Compute meters consumed by tiles before `index` in the route.
+/// This is used to find how far along the current tile the player is when
+/// trimming a route (e.g. when extending a waypoint mid-walk).
+pub fn meters_consumed_before(route: &[(usize, usize)], index: usize, world: &WorldMap) -> f64 {
+    let mut total = 0.0;
+    for &(x, y) in route.iter().take(index) {
+        let cost = tile_cost(world.biome_at(x, y), world.has_road_at(x, y));
+        if cost == u32::MAX { break; }
+        total += cost as f64;
+    }
+    total
 }
 
 /// Parse a route JSON string: "[[x1,y1],[x2,y2],...]" → Vec<(usize, usize)>

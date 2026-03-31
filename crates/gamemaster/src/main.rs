@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
         .unwrap_or(42);
 
     info!("Generating world map from seed {seed}");
-    let world = WorldMap::generate(seed);
+    let world = Arc::new(WorldMap::generate(seed));
     info!(
         "World: {}x{} tiles, {} POIs, {} roads",
         world.width, world.height, world.pois.len(), world.roads.len()
@@ -110,8 +110,9 @@ async fn main() -> Result<()> {
     let server_state = state.clone();
     let server_events = shared_events.clone();
     let server_notifs = shared_notifs.clone();
+    let server_world = world.clone();
     tokio::spawn(async move {
-        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs).await {
+        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world).await {
             error!("Dev server error: {e}");
         }
     });

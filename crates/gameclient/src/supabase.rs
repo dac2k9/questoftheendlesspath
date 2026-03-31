@@ -39,6 +39,8 @@ pub struct PlayerRow {
     pub revealed_tiles: Option<String>,
     pub planned_route: Option<String>,
     pub route_meters_walked: Option<f64>,
+    #[serde(default)]
+    pub facing: questlib::route::Facing,
 }
 
 /// Polled state from Supabase, shared between async task and Bevy systems.

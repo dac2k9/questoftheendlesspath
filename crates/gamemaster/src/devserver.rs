@@ -23,6 +23,9 @@ pub struct DevPlayerState {
     pub revealed_tiles: String,
     pub planned_route: String,
     pub route_meters_walked: f64,
+    /// Direction the character is facing along the route.
+    #[serde(default)]
+    pub facing: questlib::route::Facing,
     #[serde(default)]
     pub debug_walking: bool,
 }
@@ -34,7 +37,7 @@ use crate::SharedEvents;
 /// Start the dev HTTP server on port 3001.
 pub type SharedNotifs = Arc<Mutex<Vec<String>>>;
 
-pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs) -> Result<()> {
+pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>) -> Result<()> {
     let listener = TcpListener::bind("0.0.0.0:3001").await?;
     tracing::info!("Dev server listening on http://127.0.0.1:3001");
 
@@ -43,13 +46,14 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
         let state = state.clone();
         let events = events.clone();
         let notifs = notifs.clone();
+        let world = world.clone();
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 16384];
             let n = stream.read(&mut buf).await.unwrap_or(0);
             let request = String::from_utf8_lossy(&buf[..n]);
 
-            let (status, body) = handle_request(&request, &state, &events, &notifs);
+            let (status, body) = handle_request(&request, &state, &events, &notifs, &world);
 
             let response = format!(
                 "HTTP/1.1 {}\r\n\
@@ -70,7 +74,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
     }
 }
 
-fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs) -> (&'static str, String) {
+fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap) -> (&'static str, String) {
     let first_line = request.lines().next().unwrap_or("");
 
     // CORS preflight
@@ -110,8 +114,17 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     } else {
                         &route[..]
                     };
+                    // Preserve progress within the current tile when extending a route.
+                    let old_route = questlib::route::parse_route_json(&player.planned_route)
+                        .unwrap_or_default();
+                    let remainder = if let Some(old_idx) = old_route.iter().position(|&t| t == current) {
+                        let consumed = questlib::route::meters_consumed_before(&old_route, old_idx, world);
+                        (player.route_meters_walked - consumed).max(0.0)
+                    } else {
+                        0.0
+                    };
                     player.planned_route = questlib::route::encode_route_json(trimmed);
-                    player.route_meters_walked = 0.0;
+                    player.route_meters_walked = remainder;
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
             }

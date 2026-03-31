@@ -70,12 +70,15 @@ struct DebugMenuUi;
 #[derive(Component)]
 struct LoadingText;
 
-#[derive(Clone, Copy, PartialEq)]
-enum Direction { Down, Up, Right, Left }
+use questlib::route::Facing;
 
-impl Direction {
-    fn base_row(self) -> usize {
-        match self { Direction::Down => 0, Direction::Up => 2, _ => 0 }
+/// Sprite sheet row for Katan walk animation based on facing direction.
+fn facing_base_row(facing: Facing) -> usize {
+    match facing {
+        Facing::Down => 0,
+        Facing::Up => 1,
+        Facing::Right => 2,
+        Facing::Left => 3,
     }
 }
 
@@ -83,7 +86,7 @@ impl Direction {
 struct WalkAnimation {
     timer: Timer,
     frame: usize,
-    direction: Direction,
+    facing: Facing,
     moving: bool,
 }
 
@@ -100,6 +103,7 @@ pub struct MyPlayerState {
     pub is_walking: bool,
     pub gold: i32,
     pub revealed_tiles: String,
+    pub facing: questlib::route::Facing,
     pub initialized: bool,
     pub last_poll_tile: (i32, i32),
 }
@@ -233,7 +237,7 @@ fn spawn_world(
     commands.spawn((
         Sprite { image: champion_tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
         Transform::from_xyz(0.0, 0.0, 5.0), Visibility::Hidden, PlayerSprite,
-        WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, direction: Direction::Down, moving: false },
+        WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, facing: Facing::Down, moving: false },
     ));
     commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(0.0, 12.0, 6.0), Visibility::Hidden, PlayerNameTag));
     commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 1.0)), Transform::from_xyz(0.0, 0.0, 10.0), Visibility::Hidden, TileInfoText));
@@ -289,6 +293,7 @@ fn apply_server_state(
     state.is_walking = me.is_walking;
     state.gold = me.gold;
     state.route_meters = me.route_meters_walked.unwrap_or(0.0);
+    state.facing = me.facing;
 
     // Parse route from server
     if let Some(ref route_json) = me.planned_route {
@@ -395,34 +400,27 @@ fn render_character(
     }.unwrap_or_else(|| WorldGrid::tile_to_world(state.tile_x as usize, state.tile_y as usize));
 
     for (mut tf, mut anim, mut sprite) in &mut player_q {
-        let old_x = tf.translation.x;
-        let old_y = tf.translation.y;
-
         tf.translation.x = target_pos.x;
         tf.translation.y = target_pos.y;
 
-        let dx = tf.translation.x - old_x;
-        let dy = tf.translation.y - old_y;
-        let dist = dx.abs() + dy.abs();
+        // Use server-authoritative facing direction
+        anim.facing = state.facing;
 
-        if dist > 0.1 {
-            if dx.abs() > dy.abs() { anim.direction = if dx > 0.0 { Direction::Right } else { Direction::Left }; }
-            else { anim.direction = if dy > 0.0 { Direction::Up } else { Direction::Down }; }
-        }
+        sprite.flip_x = false;
 
-        let should_animate = state.is_walking || dist > 0.1;
+        let should_animate = state.is_walking && state.speed_kmh > 0.1;
         if should_animate {
             let speed_factor = state.speed_kmh.clamp(0.5, 6.0);
             anim.timer.set_duration(std::time::Duration::from_secs_f32(0.3 / speed_factor));
             anim.timer.tick(time.delta());
-            if anim.timer.just_finished() { anim.frame = (anim.frame + 1) % 5; }
-            let row = anim.direction.base_row() + 1;
+            if anim.timer.just_finished() { anim.frame = (anim.frame % 4) + 1; }
+            let row = facing_base_row(anim.facing);
             if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6 + anim.frame; }
             anim.moving = true;
         } else if anim.moving {
             anim.moving = false;
             anim.frame = 0;
-            let row = anim.direction.base_row();
+            let row = facing_base_row(anim.facing);
             if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6; }
         }
     }
@@ -483,12 +481,16 @@ fn handle_map_click(
         let current_pos = (state.tile_x as usize, state.tile_y as usize);
 
         // Trim already-walked tiles so the route starts from current position.
-        // This prevents teleporting back to the start when adding a waypoint mid-walk.
+        // Preserve fractional progress within the current tile.
+        let mut remainder = 0.0;
         if !display_route.waypoints.is_empty() {
             if let Some(cur_idx) = display_route.waypoints.iter().position(|&t| t == current_pos) {
+                let consumed: f64 = display_route.waypoints[..cur_idx].iter().map(|&(x, y)| {
+                    world.server_tile_cost(x, y) as f64
+                }).sum();
+                remainder = (state.route_meters - consumed).max(0.0);
                 display_route.waypoints = display_route.waypoints[cur_idx..].to_vec();
             } else {
-                // Player is not on the route (completed or off-route) — start fresh
                 display_route.waypoints.clear();
             }
         }
@@ -505,9 +507,8 @@ fn handle_map_click(
             display_route.waypoints.extend(segment);
             display_route.locally_modified = true;
 
-            // Mirror to state — route now starts at current_pos, so meters = 0 is correct
             state.route = display_route.waypoints.clone();
-            state.route_meters = 0.0;
+            state.route_meters = remainder;
             predicted.0 = 0.0;
 
             // Redraw markers
@@ -551,7 +552,7 @@ fn draw_path_markers(commands: &mut Commands, waypoints: &[(usize, usize)], skip
     let gap_len = 3.0_f32;
     let line_width = 1.5_f32;
 
-    let start = (skip_until + 2).min(len);
+    let start = (skip_until + 1).min(len);
     for i in start..len {
         let p1 = WorldGrid::tile_to_world(waypoints[i - 1].0, waypoints[i - 1].1);
         let p2 = WorldGrid::tile_to_world(waypoints[i].0, waypoints[i].1);
