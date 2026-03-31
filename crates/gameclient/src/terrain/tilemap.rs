@@ -26,7 +26,9 @@ impl Plugin for TilemapPlugin {
                     handle_map_click,
                     handle_clear_route,
                     handle_pan,
-                ).run_if(in_state(AppState::InGame).and(not(crate::combat::combat_active))),
+                ).run_if(in_state(AppState::InGame)
+                    .and(not(crate::combat::combat_active))
+                    .and(not(crate::dialogue::dialogue_active))),
             )
             .add_systems(
                 Update,

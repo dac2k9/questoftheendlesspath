@@ -24,6 +24,11 @@ impl Plugin for DialoguePlugin {
     }
 }
 
+/// Returns true when dialogue is active — used as a run condition.
+pub fn dialogue_active(state: Res<DialogueState>) -> bool {
+    state.active
+}
+
 // ── Dialogue Box ──────────────────────────────────────
 
 #[derive(Resource, Default)]
