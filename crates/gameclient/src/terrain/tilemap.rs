@@ -305,9 +305,18 @@ fn apply_server_state(
     state.speed_kmh = me.current_speed_kmh;
     state.is_walking = me.is_walking;
     state.gold = me.gold;
-    state.route_meters = me.route_meters_walked.unwrap_or(0.0);
+    // Absorb prediction error before updating route_meters.
+    // Keeps the predicted position smooth instead of jumping on each poll.
+    let old_client_total = state.route_meters + predicted.0;
+    let server_meters = me.route_meters_walked.unwrap_or(0.0);
+
+    state.route_meters = server_meters;
     state.facing = me.facing;
     state.total_distance_m = me.total_distance_m;
+
+    // Carry forward any overshoot so position doesn't jump backward.
+    // If server is ahead (we under-predicted), just accept it (predicted=0).
+    predicted.0 = (old_client_total - server_meters).max(0.0);
 
     // Parse route from server
     if let Some(ref route_json) = me.planned_route {
@@ -333,8 +342,6 @@ fn apply_server_state(
         display_route.locally_modified = false;
     }
 
-    // Reset prediction on each poll (server is truth)
-    predicted.0 = 0.0;
 
     // Update fog from server
     if let Some(ref encoded) = me.revealed_tiles {
@@ -427,9 +434,9 @@ fn render_character(
 
     // Smoothly interpolate visual position toward target.
     // Uses exponential decay: lerp factor = 1 - e^(-rate * dt)
-    // Rate of 12 gives snappy but smooth movement (~80ms to close half the gap).
+    // Rate of 6 gives smooth movement (~115ms to close half the gap).
     let dt = time.delta_secs();
-    let lerp_factor = 1.0 - (-12.0_f32 * dt).exp();
+    let lerp_factor = 1.0 - (-6.0_f32 * dt).exp();
     visual.pos = visual.pos.lerp(target_pos, lerp_factor);
 
     // Snap if very close to avoid perpetual micro-drift

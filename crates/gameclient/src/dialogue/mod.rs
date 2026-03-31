@@ -260,9 +260,10 @@ fn update_notifications(
         }
     }
 
-    // Show next notification if no banner active
-    if banners.is_empty() {
-        if let Some(notif) = queue.pending.pop() {
+    // Show next notification if no banner active (FIFO order)
+    if banners.is_empty() && !queue.pending.is_empty() {
+        let notif = queue.pending.remove(0);
+        {
             commands.spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -307,3 +308,4 @@ fn update_notifications(
         }
     }
 }
+
