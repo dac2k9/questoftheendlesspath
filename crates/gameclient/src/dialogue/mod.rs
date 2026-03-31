@@ -56,6 +56,7 @@ fn update_dialogue(
     mut state: ResMut<DialogueState>,
     time: Res<Time>,
     existing: Query<Entity, With<DialogueBox>>,
+    mut text_q: Query<&mut Text, With<DialogueText>>,
 ) {
     if !state.active {
         // Remove dialogue box if it exists
@@ -77,9 +78,14 @@ fn update_dialogue(
         }
     }
 
-    // Don't rebuild UI every frame — only when needed
+    // Update typewriter text on existing dialogue box
     if !existing.is_empty() {
-        // Update text content
+        if let Ok(mut text) = text_q.get_single_mut() {
+            if state.current_line < state.lines.len() {
+                let full = &state.lines[state.current_line];
+                **text = full[..state.typewriter_index.min(full.len())].to_string();
+            }
+        }
         return;
     }
 
