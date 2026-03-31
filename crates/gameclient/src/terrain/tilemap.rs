@@ -307,18 +307,16 @@ fn apply_server_state(
     state.speed_kmh = me.current_speed_kmh;
     state.is_walking = me.is_walking;
     state.gold = me.gold;
-    // Absorb prediction error before updating route_meters.
-    // Keeps the predicted position smooth instead of jumping on each poll.
-    let old_client_total = state.route_meters + predicted.0;
-    let server_meters = me.route_meters_walked.unwrap_or(0.0);
-
-    state.route_meters = server_meters;
+    // Don't overwrite route_meters from server if we just set a new route locally.
+    // The server hasn't received it yet, so its meters are from the OLD route.
+    if !display_route.locally_modified {
+        let old_client_total = state.route_meters + predicted.0;
+        let server_meters = me.route_meters_walked.unwrap_or(0.0);
+        state.route_meters = server_meters;
+        predicted.0 = (old_client_total - server_meters).max(0.0);
+    }
     state.facing = me.facing;
     state.total_distance_m = me.total_distance_m;
-
-    // Carry forward any overshoot so position doesn't jump backward.
-    // If server is ahead (we under-predicted), just accept it (predicted=0).
-    predicted.0 = (old_client_total - server_meters).max(0.0);
 
     // Parse route from server
     if let Some(ref route_json) = me.planned_route {
@@ -530,12 +528,13 @@ fn handle_map_click(
         // Trim already-walked tiles so the route starts from current position.
         // Preserve fractional progress within the current tile.
         let mut remainder = 0.0;
+        let total_progress = state.route_meters + predicted.0;
         if !display_route.waypoints.is_empty() {
             if let Some(cur_idx) = display_route.waypoints.iter().position(|&t| t == current_pos) {
                 let consumed: f64 = display_route.waypoints[..cur_idx].iter().map(|&(x, y)| {
                     world.server_tile_cost(x, y) as f64
                 }).sum();
-                remainder = (state.route_meters - consumed).max(0.0);
+                remainder = (total_progress - consumed).max(0.0);
                 display_route.waypoints = display_route.waypoints[cur_idx..].to_vec();
             } else {
                 display_route.waypoints.clear();
