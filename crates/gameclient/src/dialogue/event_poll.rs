@@ -61,7 +61,9 @@ pub fn poll_active_events(
                     .unwrap_or("unknown");
 
                 match event_type {
-                    "npc_dialogue" | "random_encounter" => {
+                    // Boss and random_encounter are handled by the combat system
+                    "boss" | "random_encounter" => {}
+                    "npc_dialogue" => {
                         // Open dialogue box
                         if !dialogue.active {
                             let speaker = event.kind.get("speaker")

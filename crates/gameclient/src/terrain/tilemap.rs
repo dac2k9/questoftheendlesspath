@@ -26,7 +26,7 @@ impl Plugin for TilemapPlugin {
                     handle_map_click,
                     handle_clear_route,
                     handle_pan,
-                ).run_if(in_state(AppState::InGame)),
+                ).run_if(in_state(AppState::InGame).and(not(crate::combat::combat_active))),
             )
             .add_systems(
                 Update,
@@ -104,6 +104,7 @@ pub struct MyPlayerState {
     pub gold: i32,
     pub revealed_tiles: String,
     pub facing: questlib::route::Facing,
+    pub total_distance_m: i32,
     pub initialized: bool,
     pub last_poll_tile: (i32, i32),
 }
@@ -306,6 +307,7 @@ fn apply_server_state(
     state.gold = me.gold;
     state.route_meters = me.route_meters_walked.unwrap_or(0.0);
     state.facing = me.facing;
+    state.total_distance_m = me.total_distance_m;
 
     // Parse route from server
     if let Some(ref route_json) = me.planned_route {

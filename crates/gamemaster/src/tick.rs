@@ -7,6 +7,7 @@ use questlib::mapgen::WorldMap;
 use questlib::route::{self, facing_along_route, position_along_route};
 use tracing::{debug, info};
 
+use crate::combat::{self as server_combat, SharedCombat};
 use crate::devserver::{DevPlayerState, SharedState};
 use crate::{SharedEvents, SharedNotifs};
 
@@ -15,6 +16,7 @@ pub fn run_tick_dev(
     world: &WorldMap,
     shared_events: &SharedEvents,
     shared_notifs: &SharedNotifs,
+    shared_combat: &SharedCombat,
     player_fogs: &mut HashMap<String, FogBitfield>,
     player_last_distance: &mut HashMap<String, i32>,
     rng_roll: f32,
@@ -164,7 +166,41 @@ pub fn run_tick_dev(
                     p.planned_route = String::new();
                     p.route_meters_walked = 0.0;
                 }
+
+                // Check for level up
+                let old_level = questlib::leveling::level_from_meters((p.total_distance_m - delta_m) as u64);
+                let new_level = questlib::leveling::level_from_meters(p.total_distance_m as u64);
+                if new_level > old_level {
+                    info!("[{}] leveled up! {} → {}", p.name, old_level, new_level);
+                    if let Ok(mut notifs) = shared_notifs.lock() {
+                        notifs.push(format!("Level up! You are now level {}!", new_level));
+                    }
+                }
             }
+        }
+
+        // Tick active combats
+        let combat_victories = server_combat::tick_all(shared_combat, player.current_speed_kmh, 1.0);
+        for victory_event_id in &combat_victories {
+            info!("[{}] Combat victory: {}", player.name, victory_event_id);
+            // Complete the event and apply outcomes
+            if let Some(event) = events_lock.get_mut(victory_event_id) {
+                if event.transition(EventStatus::Completed).is_ok() {
+                    let fog = player_fogs.get_mut(player_id).unwrap();
+                    let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+                    if let Some(p) = lock.get_mut(player_id) {
+                        for outcome in &event.outcomes {
+                            apply_outcome(outcome, p, fog);
+                            if let EventOutcome::Notification { text } = outcome {
+                                if let Ok(mut notifs) = shared_notifs.lock() {
+                                    notifs.push(text.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            server_combat::remove_combat(shared_combat, victory_event_id);
         }
 
         // Event triggers
@@ -195,6 +231,19 @@ pub fn run_tick_dev(
             let event = events_lock.get_mut(event_id).unwrap();
             if event.transition(EventStatus::Active).is_ok() {
                 info!("[{}] Event triggered: {} ({})", player.name, event.name, event.id);
+
+                // Start combat for Boss/RandomEncounter events
+                if matches!(event.kind, questlib::events::kind::EventKind::Boss { .. }
+                    | questlib::events::kind::EventKind::RandomEncounter { .. })
+                {
+                    server_combat::start_combat(
+                        shared_combat,
+                        &event.id,
+                        &event.kind,
+                        player.total_distance_m as u64,
+                    );
+                    info!("  Combat started: {}", event.name);
+                }
 
                 if event.auto_completes() {
                     if event.transition(EventStatus::Completed).is_ok() {
@@ -237,7 +286,7 @@ fn test_player(name: &str, tile_x: i32, tile_y: i32, route: &str, distance: i32,
 }
 
 #[cfg(test)]
-fn make_test_state(players: Vec<DevPlayerState>) -> (SharedState, SharedEvents, SharedNotifs) {
+fn make_test_state(players: Vec<DevPlayerState>) -> (SharedState, SharedEvents, SharedNotifs, SharedCombat) {
     use std::sync::{Arc, Mutex};
     let mut map = HashMap::new();
     for p in players {
@@ -247,6 +296,7 @@ fn make_test_state(players: Vec<DevPlayerState>) -> (SharedState, SharedEvents, 
         Arc::new(Mutex::new(map)),
         Arc::new(Mutex::new(EventCatalog::default())),
         Arc::new(Mutex::new(Vec::new())),
+        Arc::new(Mutex::new(HashMap::new())),
     )
 }
 
@@ -302,7 +352,7 @@ mod tests {
 
     /// Run N ticks, incrementing total_distance by delta_per_tick each time.
     fn run_ticks(
-        state: &SharedState, world: &WorldMap, events: &SharedEvents, notifs: &SharedNotifs,
+        state: &SharedState, world: &WorldMap, events: &SharedEvents, notifs: &SharedNotifs, combat: &SharedCombat,
         fogs: &mut HashMap<String, FogBitfield>, last_dist: &mut HashMap<String, i32>,
         player_id: &str, n: usize, delta_per_tick: i32,
     ) {
@@ -313,7 +363,7 @@ mod tests {
                     p.total_distance_m += delta_per_tick;
                 }
             }
-            run_tick_dev(state, world, events, notifs, fogs, last_dist, 0.5).unwrap();
+            run_tick_dev(state, world, events, notifs, combat, fogs, last_dist, 0.5).unwrap();
         }
     }
 
@@ -326,11 +376,11 @@ mod tests {
         let player = test_player("idle", route[0].0 as i32, route[0].1 as i32,
             &encode_route_json(&route), 100, false);
         let pid = player.id.clone();
-        let (state, events, notifs) = make_test_state(vec![player]);
+        let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
-        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.gold, 0, "idle player should earn no gold");
@@ -342,17 +392,17 @@ mod tests {
         let w = world();
         let player = test_player("noroute", 50, 40, "", 100, true);
         let pid = player.id.clone();
-        let (state, events, notifs) = make_test_state(vec![player]);
+        let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // First tick inits last_distance, so add distance then tick again
-        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
         {
             let mut lock = state.lock().unwrap();
             lock.get_mut(&pid).unwrap().total_distance_m = 110;
         }
-        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert!(p.gold > 0, "walking without route should still earn gold");
@@ -367,12 +417,12 @@ mod tests {
         let player = test_player("walker", start.0 as i32, start.1 as i32,
             &encode_route_json(&route), 0, true);
         let pid = player.id.clone();
-        let (state, events, notifs) = make_test_state(vec![player]);
+        let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // Walk 10m per tick for 20 ticks (200m total — enough for several road tiles at 20m each)
-        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 20, 10);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 20, 10);
 
         let p = get_player(&state, &pid);
         assert!(p.route_meters_walked > 0.0, "route_meters should advance");
@@ -389,13 +439,13 @@ mod tests {
         let player = test_player("speedy", start.0 as i32, start.1 as i32,
             &encode_route_json(&route), 0, true);
         let pid = player.id.clone();
-        let (state, events, notifs) = make_test_state(vec![player]);
+        let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // Huge jump in distance (cheating or glitch)
-        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 0);
-        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 500);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 0);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 500);
 
         let p = get_player(&state, &pid);
         // Delta capped at 20, so route_meters should be <= 20
@@ -411,12 +461,12 @@ mod tests {
         let player = test_player("finisher", start.0 as i32, start.1 as i32,
             &encode_route_json(&route), 0, true);
         let pid = player.id.clone();
-        let (state, events, notifs) = make_test_state(vec![player]);
+        let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // Walk 10m/tick for 20 ticks (200m — plenty for 60m route)
-        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 20, 10);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 20, 10);
 
         let p = get_player(&state, &pid);
         assert!(p.planned_route.is_empty(), "route should be cleared after completion");
@@ -435,7 +485,7 @@ mod tests {
         let player = test_player("forward", start.0 as i32, start.1 as i32,
             &encode_route_json(&route), 0, true);
         let pid = player.id.clone();
-        let (state, events, notifs) = make_test_state(vec![player]);
+        let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
@@ -445,7 +495,7 @@ mod tests {
                 let mut lock = state.lock().unwrap();
                 lock.get_mut(&pid).unwrap().total_distance_m += 10;
             }
-            run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+            run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
 
             let p = get_player(&state, &pid);
             let pos = (p.map_tile_x as usize, p.map_tile_y as usize);
@@ -468,16 +518,16 @@ mod tests {
         let player = test_player("miner", start.0 as i32, start.1 as i32,
             &encode_route_json(&route), 0, true);
         let pid = player.id.clone();
-        let (state, events, notifs) = make_test_state(vec![player]);
+        let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // Init tick
-        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 0);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 0);
 
         let mut last_gold = 0;
         for _ in 0..5 {
-            run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 15);
+            run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 15);
             let p = get_player(&state, &pid);
             assert!(p.gold > last_gold, "gold should increase each tick: {} -> {}", last_gold, p.gold);
             last_gold = p.gold;
@@ -492,11 +542,11 @@ mod tests {
         let player = test_player("explorer", start.0 as i32, start.1 as i32,
             &encode_route_json(&route), 0, true);
         let pid = player.id.clone();
-        let (state, events, notifs) = make_test_state(vec![player]);
+        let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
-        run_ticks(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, &pid, 1, 0);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 0);
 
         let fog = fogs.get(&pid).unwrap();
         assert!(fog.is_revealed(start.0, start.1), "start tile should be revealed");
@@ -514,13 +564,13 @@ mod tests {
         let player = test_player("still", start.0 as i32, start.1 as i32,
             &encode_route_json(&route), 100, true);
         let pid = player.id.clone();
-        let (state, events, notifs) = make_test_state(vec![player]);
+        let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // Two ticks with same distance — no movement
-        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
-        run_tick_dev(&state, &w, &events, &notifs, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.route_meters_walked, 0.0);

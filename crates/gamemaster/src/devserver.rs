@@ -27,6 +27,8 @@ pub struct DevPlayerState {
     #[serde(default)]
     pub facing: questlib::route::Facing,
     #[serde(default)]
+    pub current_incline: f32,
+    #[serde(default)]
     pub debug_walking: bool,
 }
 
@@ -37,7 +39,7 @@ use crate::SharedEvents;
 /// Start the dev HTTP server on port 3001.
 pub type SharedNotifs = Arc<Mutex<Vec<String>>>;
 
-pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>) -> Result<()> {
+pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat) -> Result<()> {
     let listener = TcpListener::bind("0.0.0.0:3001").await?;
     tracing::info!("Dev server listening on http://127.0.0.1:3001");
 
@@ -47,13 +49,14 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
         let events = events.clone();
         let notifs = notifs.clone();
         let world = world.clone();
+        let combat = combat.clone();
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 16384];
             let n = stream.read(&mut buf).await.unwrap_or(0);
             let request = String::from_utf8_lossy(&buf[..n]);
 
-            let (status, body) = handle_request(&request, &state, &events, &notifs, &world);
+            let (status, body) = handle_request(&request, &state, &events, &notifs, &world, &combat);
 
             let response = format!(
                 "HTTP/1.1 {}\r\n\
@@ -74,7 +77,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
     }
 }
 
-fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap) -> (&'static str, String) {
+fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat) -> (&'static str, String) {
     let first_line = request.lines().next().unwrap_or("");
 
     // CORS preflight
@@ -143,6 +146,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 speed: f32,
                 distance: i32,
                 #[serde(default)]
+                incline: f32,
+                #[serde(default)]
                 steps: u64,
                 #[serde(default)]
                 actually_walking: bool,
@@ -154,6 +159,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     if !player.debug_walking {
                         player.current_speed_kmh = req.speed;
                         player.total_distance_m += req.distance;
+                        player.current_incline = req.incline;
                         player.is_walking = req.actually_walking;
                     }
                     return ("200 OK", r#"{"ok":true}"#.to_string());
@@ -232,6 +238,46 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     player.is_walking = true;
                     player.debug_walking = true;
                     return ("200 OK", format!("{{\"ok\":true,\"delta\":{}}}", delta));
+                }
+            }
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
+    // GET /combat — current combat state (or null)
+    if first_line.starts_with("GET /combat") {
+        if let Some(state) = crate::combat::get_active_combat(combat) {
+            let json = serde_json::to_string(&state).unwrap_or_default();
+            return ("200 OK", json);
+        }
+        return ("200 OK", "null".to_string());
+    }
+
+    // POST /combat/action — player combat action
+    if first_line.starts_with("POST /combat/action") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            let body = &request[body_start + 4..];
+            #[derive(Deserialize)]
+            struct ActionReq {
+                action: String,
+                #[serde(default)]
+                event_id: Option<String>,
+            }
+            if let Ok(req) = serde_json::from_str::<ActionReq>(body) {
+                // Get incline from first player (single-player for now)
+                let incline = {
+                    let lock = state.lock().unwrap();
+                    lock.values().next().map(|p| p.current_incline).unwrap_or(0.0)
+                };
+                // Find the active combat event_id
+                let event_id = req.event_id.or_else(|| {
+                    crate::combat::get_active_combat(combat).map(|c| c.event_id)
+                });
+                if let Some(eid) = event_id {
+                    if let Some(updated) = crate::combat::apply_action(combat, &eid, &req.action, incline) {
+                        let json = serde_json::to_string(&updated).unwrap_or_default();
+                        return ("200 OK", json);
+                    }
                 }
             }
         }

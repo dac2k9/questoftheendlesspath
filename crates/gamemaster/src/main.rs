@@ -1,3 +1,4 @@
+mod combat;
 mod devserver;
 mod tick;
 
@@ -105,14 +106,16 @@ async fn main() -> Result<()> {
     ));
 
     let shared_notifs: SharedNotifs = Arc::new(Mutex::new(Vec::new()));
+    let shared_combat: combat::SharedCombat = Arc::new(Mutex::new(HashMap::new()));
 
     // Start dev HTTP server
     let server_state = state.clone();
     let server_events = shared_events.clone();
     let server_notifs = shared_notifs.clone();
     let server_world = world.clone();
+    let server_combat = shared_combat.clone();
     tokio::spawn(async move {
-        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world).await {
+        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world, server_combat).await {
             error!("Dev server error: {e}");
         }
     });
@@ -138,6 +141,7 @@ async fn main() -> Result<()> {
             &world,
             &shared_events,
             &shared_notifs,
+            &shared_combat,
             &mut player_fogs,
             &mut player_last_distance,
             rng_roll,

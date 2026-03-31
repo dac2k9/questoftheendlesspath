@@ -80,6 +80,14 @@ impl CharacterStats {
         }
     }
 
+    /// Create stats for a given level.
+    pub fn new_at_level(level: u32) -> Self {
+        let mut s = Self::new();
+        s.level = level.max(1);
+        s.recalculate_stats();
+        s
+    }
+
     /// Update stats from total meters walked. Returns true if leveled up.
     pub fn update_from_meters(&mut self, total_meters: u64) -> bool {
         self.total_meters_walked = total_meters;

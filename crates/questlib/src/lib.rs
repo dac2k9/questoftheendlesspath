@@ -1,4 +1,5 @@
 pub mod adventure;
+pub mod combat;
 pub mod events;
 pub mod fog;
 pub mod ftms;

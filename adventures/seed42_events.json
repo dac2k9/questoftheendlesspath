@@ -259,6 +259,16 @@
       "outcomes": [{ "effect": "gold", "amount": 30 }, { "effect": "notification", "text": "Wolves defeated! +30 gold" }],
       "status": "pending",
       "requires_browser": true
+    },
+    {
+      "id": "test_combat",
+      "name": "Road Goblin",
+      "description": "A goblin blocks the path!",
+      "kind": { "type": "random_encounter", "enemy_name": "Goblin", "description": "A scrappy goblin jumps out from behind a rock!", "difficulty": 1 },
+      "trigger": { "condition": "distance_walked", "meters_min": 225000 },
+      "outcomes": [{ "effect": "gold", "amount": 100 }, { "effect": "notification", "text": "Goblin defeated! +100 gold" }],
+      "status": "pending",
+      "requires_browser": true
     }
   ]
 }

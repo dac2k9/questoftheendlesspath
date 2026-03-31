@@ -16,7 +16,7 @@ impl Plugin for HudPlugin {
         app.add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
                 Update,
-                (update_hud, detect_gold_change, update_floating_texts)
+                (update_hud, detect_gold_change, detect_level_up, update_floating_texts)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -29,6 +29,12 @@ struct HudRoot;
 struct GoldText;
 
 #[derive(Component)]
+struct LevelText;
+
+#[derive(Component)]
+struct XpBarFill;
+
+#[derive(Component)]
 struct DistanceText;
 
 #[derive(Component)]
@@ -37,8 +43,16 @@ struct SpeedText;
 #[derive(Resource, Default)]
 struct LastKnownGold(i32);
 
+#[derive(Resource)]
+struct LastKnownLevel(u32);
+
+impl Default for LastKnownLevel {
+    fn default() -> Self { Self(1) }
+}
+
 fn spawn_hud(mut commands: Commands, font: Res<GameFont>) {
     commands.insert_resource(LastKnownGold::default());
+    commands.insert_resource(LastKnownLevel::default());
 
     // Top bar container
     commands.spawn((
@@ -64,6 +78,43 @@ fn spawn_hud(mut commands: Commands, font: Res<GameFont>) {
             GoldText,
         ));
 
+        // Level + XP bar container
+        parent.spawn(Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(6.0),
+            ..default()
+        }).with_children(|level_parent| {
+            // Level text
+            level_parent.spawn((
+                Text::new("Lv 1"),
+                TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                TextColor(Color::srgb(0.6, 0.8, 1.0)),
+                LevelText,
+            ));
+
+            // XP bar background
+            level_parent.spawn((
+                Node {
+                    width: Val::Px(60.0),
+                    height: Val::Px(6.0),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.15)),
+            )).with_children(|bar_parent| {
+                // XP bar fill
+                bar_parent.spawn((
+                    Node {
+                        width: Val::Percent(0.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.4, 0.7, 1.0)),
+                    XpBarFill,
+                ));
+            });
+        });
+
         // Distance to target
         parent.spawn((
             Text::new("No route"),
@@ -87,11 +138,23 @@ fn update_hud(
     route: Res<DisplayRoute>,
     world: Option<Res<WorldGrid>>,
     mut gold_q: Query<&mut Text, With<GoldText>>,
-    mut dist_q: Query<&mut Text, (With<DistanceText>, Without<GoldText>, Without<SpeedText>)>,
-    mut speed_q: Query<&mut Text, (With<SpeedText>, Without<GoldText>, Without<DistanceText>)>,
+    mut level_q: Query<&mut Text, (With<LevelText>, Without<GoldText>, Without<DistanceText>, Without<SpeedText>)>,
+    mut xp_bar_q: Query<&mut Node, With<XpBarFill>>,
+    mut dist_q: Query<&mut Text, (With<DistanceText>, Without<GoldText>, Without<LevelText>, Without<SpeedText>)>,
+    mut speed_q: Query<&mut Text, (With<SpeedText>, Without<GoldText>, Without<LevelText>, Without<DistanceText>)>,
 ) {
     if let Ok(mut text) = gold_q.get_single_mut() {
         **text = format!("Gold: {}", state.gold);
+    }
+    // Level + XP bar
+    let total_m = state.total_distance_m as u64;
+    let level = questlib::leveling::level_from_meters(total_m);
+    let progress = questlib::leveling::level_progress(total_m);
+    if let Ok(mut text) = level_q.get_single_mut() {
+        **text = format!("Lv {}", level);
+    }
+    if let Ok(mut node) = xp_bar_q.get_single_mut() {
+        node.width = Val::Percent(progress * 100.0);
     }
     if let Ok(mut text) = speed_q.get_single_mut() {
         **text = format!("{:.1} km/h", state.speed_kmh);
@@ -135,4 +198,26 @@ fn detect_gold_change(
         }
     }
     last_gold.0 = current_gold;
+}
+
+fn detect_level_up(
+    state: Res<MyPlayerState>,
+    font: Res<GameFont>,
+    mut last_level: ResMut<LastKnownLevel>,
+    mut commands: Commands,
+    player_q: Query<&Transform, With<crate::terrain::tilemap::PlayerSprite>>,
+) {
+    let current_level = questlib::leveling::level_from_meters(state.total_distance_m as u64);
+    if current_level > last_level.0 && last_level.0 > 0 {
+        if let Ok(player_tf) = player_q.get_single() {
+            spawn_floating_text(
+                &mut commands,
+                &font.0,
+                &format!("Level {}!", current_level),
+                Color::srgb(0.4, 0.7, 1.0),
+                player_tf.translation,
+            );
+        }
+    }
+    last_level.0 = current_level;
 }

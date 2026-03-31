@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use wasm_bindgen::prelude::*;
 
+mod combat;
 mod dialogue;
 mod hud;
 mod states;
@@ -45,6 +46,7 @@ pub fn start() {
         .add_plugins(supabase::SupabasePlugin)
         .add_plugins(hud::HudPlugin)
         .add_plugins(dialogue::DialoguePlugin)
+        .add_plugins(combat::CombatPlugin)
         .run();
 }
 
