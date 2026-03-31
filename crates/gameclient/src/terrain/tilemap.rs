@@ -523,26 +523,42 @@ fn handle_map_click(
     // Click to plan route
     let is_revealed = fog.is_revealed(tx, ty) || debug.fog_disabled;
     if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() && is_revealed {
-        let current_pos = (state.tile_x as usize, state.tile_y as usize);
-
-        // Trim already-walked tiles so the route starts from current position.
-        // Preserve fractional progress within the current tile.
-        let mut remainder = 0.0;
+        // Use the predicted tile (where the character visually is), not the server tile.
+        // This prevents snap-back when prediction is ahead of the server.
         let total_progress = state.route_meters + predicted.0;
+        let predicted_tile = if !state.route.is_empty() {
+            let idx = tile_index_from_meters(&state.route, total_progress, &world);
+            state.route[idx]
+        } else {
+            (state.tile_x as usize, state.tile_y as usize)
+        };
+
+        // Trim already-walked tiles from the predicted position.
+        let mut remainder = 0.0;
         if !display_route.waypoints.is_empty() {
-            if let Some(cur_idx) = display_route.waypoints.iter().position(|&t| t == current_pos) {
+            if let Some(cur_idx) = display_route.waypoints.iter().position(|&t| t == predicted_tile) {
                 let consumed: f64 = display_route.waypoints[..cur_idx].iter().map(|&(x, y)| {
                     world.server_tile_cost(x, y) as f64
                 }).sum();
                 remainder = (total_progress - consumed).max(0.0);
                 display_route.waypoints = display_route.waypoints[cur_idx..].to_vec();
             } else {
-                display_route.waypoints.clear();
+                // Predicted tile not on route — fall back to server tile
+                let server_pos = (state.tile_x as usize, state.tile_y as usize);
+                if let Some(cur_idx) = display_route.waypoints.iter().position(|&t| t == server_pos) {
+                    let consumed: f64 = display_route.waypoints[..cur_idx].iter().map(|&(x, y)| {
+                        world.server_tile_cost(x, y) as f64
+                    }).sum();
+                    remainder = (total_progress - consumed).max(0.0);
+                    display_route.waypoints = display_route.waypoints[cur_idx..].to_vec();
+                } else {
+                    display_route.waypoints.clear();
+                }
             }
         }
 
         let start = if display_route.waypoints.is_empty() {
-            current_pos
+            predicted_tile
         } else {
             *display_route.waypoints.last().unwrap()
         };
