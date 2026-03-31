@@ -80,8 +80,9 @@ pub fn run_tick_dev(
             continue;
         }
 
-        // Blocking event check
-        let has_blocking = events_lock.active_events().iter().any(|e| e.requires_browser);
+        // Blocking event check — also block during active combat
+        let has_blocking = events_lock.active_events().iter().any(|e| e.requires_browser)
+            || server_combat::get_active_combat(shared_combat).is_some();
 
         // Parse route
         let route_tiles = if !player.planned_route.is_empty() {
