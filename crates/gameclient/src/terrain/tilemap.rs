@@ -523,55 +523,31 @@ fn handle_map_click(
     // Click to plan route
     let is_revealed = fog.is_revealed(tx, ty) || debug.fog_disabled;
     if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() && is_revealed {
-        // Use the predicted tile (where the character visually is), not the server tile.
-        // This prevents snap-back when prediction is ahead of the server.
-        let total_progress = state.route_meters + predicted.0;
-        let predicted_tile = if !state.route.is_empty() {
-            let idx = tile_index_from_meters(&state.route, total_progress, &world);
-            state.route[idx]
-        } else {
-            (state.tile_x as usize, state.tile_y as usize)
-        };
+        let current_pos = (state.tile_x as usize, state.tile_y as usize);
+        let has_active_route = !display_route.waypoints.is_empty();
 
-        // Trim already-walked tiles from the predicted position.
-        let mut remainder = 0.0;
-        if !display_route.waypoints.is_empty() {
-            if let Some(cur_idx) = display_route.waypoints.iter().position(|&t| t == predicted_tile) {
-                let consumed: f64 = display_route.waypoints[..cur_idx].iter().map(|&(x, y)| {
-                    world.server_tile_cost(x, y) as f64
-                }).sum();
-                remainder = (total_progress - consumed).max(0.0);
-                display_route.waypoints = display_route.waypoints[cur_idx..].to_vec();
-            } else {
-                // Predicted tile not on route — fall back to server tile
-                let server_pos = (state.tile_x as usize, state.tile_y as usize);
-                if let Some(cur_idx) = display_route.waypoints.iter().position(|&t| t == server_pos) {
-                    let consumed: f64 = display_route.waypoints[..cur_idx].iter().map(|&(x, y)| {
-                        world.server_tile_cost(x, y) as f64
-                    }).sum();
-                    remainder = (total_progress - consumed).max(0.0);
-                    display_route.waypoints = display_route.waypoints[cur_idx..].to_vec();
-                } else {
-                    display_route.waypoints.clear();
-                }
-            }
-        }
-
-        let start = if display_route.waypoints.is_empty() {
-            predicted_tile
-        } else {
+        // Determine pathfinding start: extend from last waypoint, or start fresh
+        let start = if has_active_route {
             *display_route.waypoints.last().unwrap()
+        } else {
+            current_pos
         };
         if start == (tx, ty) { return; }
 
         if let Some(mut segment) = find_path(&world, start, (tx, ty)) {
-            if !segment.is_empty() && !display_route.waypoints.is_empty() { segment.remove(0); }
-            display_route.waypoints.extend(segment);
+            if has_active_route {
+                // Extending: just append, don't touch meters or prediction.
+                // The existing route + meters still map to the correct position.
+                if !segment.is_empty() { segment.remove(0); }
+                display_route.waypoints.extend(segment);
+            } else {
+                // Fresh route from current position
+                display_route.waypoints = segment;
+                state.route_meters = 0.0;
+                predicted.0 = 0.0;
+            }
             display_route.locally_modified = true;
-
             state.route = display_route.waypoints.clone();
-            state.route_meters = remainder;
-            predicted.0 = 0.0;
 
             // Redraw markers
             for entity in &path_markers { commands.entity(entity).despawn(); }
