@@ -122,12 +122,7 @@
           }
         ]
       },
-      "outcomes": [
-        {
-          "effect": "notification",
-          "text": "Welcome to the Forest Town Shop!"
-        }
-      ],
+      "outcomes": [],
       "status": "pending",
       "requires_browser": true,
       "repeatable": true
@@ -161,12 +156,7 @@
         "condition": "at_poi",
         "poi_id": 1
       },
-      "outcomes": [
-        {
-          "effect": "notification",
-          "text": "Welcome to the Grassland Capital!"
-        }
-      ],
+      "outcomes": [],
       "status": "pending",
       "requires_browser": true,
       "repeatable": true
@@ -236,12 +226,7 @@
         "condition": "at_poi",
         "poi_id": 3
       },
-      "outcomes": [
-        {
-          "effect": "notification",
-          "text": "Welcome to the Crossroads!"
-        }
-      ],
+      "outcomes": [],
       "status": "pending",
       "requires_browser": true,
       "repeatable": true

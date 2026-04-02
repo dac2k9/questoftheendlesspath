@@ -295,7 +295,7 @@ fn detect_level_up(
 struct InventoryOpen(bool);
 
 #[derive(Resource)]
-struct ItemCatalogRes(questlib::items::ItemCatalog);
+pub struct ItemCatalogRes(pub questlib::items::ItemCatalog);
 
 #[derive(Component)]
 struct InventoryPanel;

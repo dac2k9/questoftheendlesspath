@@ -272,6 +272,7 @@ fn update_shop(
     font: Res<GameFont>,
     state: Res<ShopState>,
     player: Res<crate::terrain::tilemap::MyPlayerState>,
+    catalog: Res<crate::hud::ItemCatalogRes>,
     existing: Query<Entity, With<ShopPanel>>,
 ) {
     if !state.active {
@@ -289,9 +290,9 @@ fn update_shop(
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Percent(20.0),
-            left: Val::Percent(20.0),
-            right: Val::Percent(20.0),
+            top: Val::Percent(15.0),
+            left: Val::Percent(30.0),
+            right: Val::Percent(30.0),
             min_height: Val::Px(150.0),
             padding: UiRect::all(Val::Px(16.0)),
             border: UiRect::all(Val::Px(2.0)),
@@ -322,12 +323,15 @@ fn update_shop(
         for (i, item) in state.items.iter().enumerate() {
             let can_afford = player.gold >= item.cost;
             let already_has = player.inventory.iter().any(|s| s.item_id == item.item_id);
+            let def = catalog.0.get(&item.item_id);
+            let display_name = def.map(|d| d.display_name.as_str()).unwrap_or(&item.item_id);
 
             parent.spawn((
                 Button,
                 Node {
                     padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
-                    justify_content: JustifyContent::SpaceBetween,
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(2.0),
                     ..default()
                 },
                 BackgroundColor(if can_afford && !already_has {
@@ -338,25 +342,41 @@ fn update_shop(
                 BorderRadius::all(Val::Px(3.0)),
                 ShopItemButton(i),
             )).with_children(|btn| {
-                let label = if already_has {
-                    format!("{} (owned)", item.item_id)
-                } else {
-                    item.item_id.clone()
-                };
-                btn.spawn((
-                    Text::new(label),
-                    TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
-                    TextColor(if can_afford && !already_has {
-                        Color::srgb(0.9, 0.9, 0.9)
+                // Top row: name + cost
+                btn.spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    justify_content: JustifyContent::SpaceBetween,
+                    width: Val::Percent(100.0),
+                    ..default()
+                }).with_children(|row| {
+                    let label = if already_has {
+                        format!("{} (owned)", display_name)
                     } else {
-                        Color::srgb(0.5, 0.5, 0.5)
-                    }),
-                ));
-                btn.spawn((
-                    Text::new(format!("{} gold", item.cost)),
-                    TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
-                    TextColor(Color::srgb(1.0, 0.85, 0.2)),
-                ));
+                        display_name.to_string()
+                    };
+                    row.spawn((
+                        Text::new(label),
+                        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                        TextColor(if can_afford && !already_has {
+                            Color::srgb(0.9, 0.9, 0.9)
+                        } else {
+                            Color::srgb(0.5, 0.5, 0.5)
+                        }),
+                    ));
+                    row.spawn((
+                        Text::new(format!("{} gold", item.cost)),
+                        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                        TextColor(Color::srgb(1.0, 0.85, 0.2)),
+                    ));
+                });
+                // Description
+                if let Some(def) = def {
+                    btn.spawn((
+                        Text::new(&def.description),
+                        TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
+                        TextColor(Color::srgb(0.6, 0.6, 0.55)),
+                    ));
+                }
             });
         }
 
