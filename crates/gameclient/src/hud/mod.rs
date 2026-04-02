@@ -304,7 +304,7 @@ struct InventoryPanel;
 struct InventoryContent;
 
 #[derive(Component)]
-struct InventoryItemRow(String); // item_id
+pub struct InventoryItemRow(pub String); // item_id
 
 #[derive(Component)]
 struct ItemTooltip;

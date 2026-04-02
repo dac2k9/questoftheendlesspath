@@ -330,8 +330,7 @@ fn update_shop(
                 Button,
                 Node {
                     padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
-                    flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(2.0),
+                    justify_content: JustifyContent::SpaceBetween,
                     ..default()
                 },
                 BackgroundColor(if can_afford && !already_has {
@@ -341,42 +340,27 @@ fn update_shop(
                 }),
                 BorderRadius::all(Val::Px(3.0)),
                 ShopItemButton(i),
+                crate::hud::InventoryItemRow(item.item_id.clone()),
             )).with_children(|btn| {
-                // Top row: name + cost
-                btn.spawn(Node {
-                    flex_direction: FlexDirection::Row,
-                    justify_content: JustifyContent::SpaceBetween,
-                    width: Val::Percent(100.0),
-                    ..default()
-                }).with_children(|row| {
-                    let label = if already_has {
-                        format!("{} (owned)", display_name)
+                let label = if already_has {
+                    format!("{} (owned)", display_name)
+                } else {
+                    display_name.to_string()
+                };
+                btn.spawn((
+                    Text::new(label),
+                    TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                    TextColor(if can_afford && !already_has {
+                        Color::srgb(0.9, 0.9, 0.9)
                     } else {
-                        display_name.to_string()
-                    };
-                    row.spawn((
-                        Text::new(label),
-                        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
-                        TextColor(if can_afford && !already_has {
-                            Color::srgb(0.9, 0.9, 0.9)
-                        } else {
-                            Color::srgb(0.5, 0.5, 0.5)
-                        }),
-                    ));
-                    row.spawn((
-                        Text::new(format!("{} gold", item.cost)),
-                        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
-                        TextColor(Color::srgb(1.0, 0.85, 0.2)),
-                    ));
-                });
-                // Description
-                if let Some(def) = def {
-                    btn.spawn((
-                        Text::new(&def.description),
-                        TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
-                        TextColor(Color::srgb(0.6, 0.6, 0.55)),
-                    ));
-                }
+                        Color::srgb(0.5, 0.5, 0.5)
+                    }),
+                ));
+                btn.spawn((
+                    Text::new(format!("{} gold", item.cost)),
+                    TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                    TextColor(Color::srgb(1.0, 0.85, 0.2)),
+                ));
             });
         }
 
