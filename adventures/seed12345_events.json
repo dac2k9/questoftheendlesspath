@@ -1099,6 +1099,364 @@
       ],
       "status": "pending",
       "requires_browser": true
+    },
+    {
+      "id": "find_coins_1",
+      "name": "Scattered Coins",
+      "description": "Coins scattered on the path.",
+      "kind": {
+        "type": "treasure",
+        "description": "Someone dropped their coin purse!"
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 800
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 25
+        },
+        {
+          "effect": "notification",
+          "text": "Found scattered coins! +25 gold"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "find_herb_1",
+      "name": "Healing Herbs",
+      "description": "Useful herbs growing by the path.",
+      "kind": {
+        "type": "treasure",
+        "description": "You gather medicinal herbs and brew a potion."
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 1500
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "health_potion"
+        },
+        {
+          "effect": "notification",
+          "text": "Brewed a Health Potion from wild herbs!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "find_chest_1",
+      "name": "Buried Chest",
+      "description": "Something buried under a tree.",
+      "kind": {
+        "type": "treasure",
+        "description": "A weathered chest half-buried in roots."
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "distance_walked",
+            "meters_min": 3000
+          },
+          {
+            "condition": "random_in_biome",
+            "biome": "Forest",
+            "chance": 0.15
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 75
+        },
+        {
+          "effect": "notification",
+          "text": "Found a buried chest! +75 gold"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "find_traveler",
+      "name": "Lost Traveler",
+      "description": "A traveler in need.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Lost Traveler",
+        "lines": [
+          "Thank the stars! I've been wandering for days.",
+          "Please, take these coins. You saved me from starving out here.",
+          "I heard there's treasure in a hidden grotto far to the southeast."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 2000
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 60
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 76,
+          "y": 67,
+          "radius": 5
+        },
+        {
+          "effect": "notification",
+          "text": "The traveler rewards you! Hidden Grotto revealed."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "find_coins_2",
+      "name": "Old Stash",
+      "description": "A hidden stash in a hollow tree.",
+      "kind": {
+        "type": "treasure",
+        "description": "A leather pouch stuffed into a hollow tree."
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 5000
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 100
+        },
+        {
+          "effect": "notification",
+          "text": "Found a hidden stash! +100 gold"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "find_herb_2",
+      "name": "Rare Mushrooms",
+      "description": "Glowing mushrooms in the undergrowth.",
+      "kind": {
+        "type": "treasure",
+        "description": "These rare mushrooms have healing properties."
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "distance_walked",
+            "meters_min": 4000
+          },
+          {
+            "condition": "random_in_biome",
+            "biome": "DenseForest",
+            "chance": 0.2
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "health_potion"
+        },
+        {
+          "effect": "item",
+          "name": "health_potion"
+        },
+        {
+          "effect": "notification",
+          "text": "Found rare mushrooms! +2 Health Potions"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "find_map_fragment",
+      "name": "Map Fragment",
+      "description": "A torn piece of a map.",
+      "kind": {
+        "type": "treasure",
+        "description": "A map fragment reveals a large area of terrain."
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 6000
+      },
+      "outcomes": [
+        {
+          "effect": "reveal_fog",
+          "x": 50,
+          "y": 40,
+          "radius": 15
+        },
+        {
+          "effect": "notification",
+          "text": "Found a map fragment! Large area revealed!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "find_shrine_offering",
+      "name": "Roadside Shrine",
+      "description": "A small shrine with offerings.",
+      "kind": {
+        "type": "treasure",
+        "description": "Travelers left coins at this small shrine. You add one and take the rest."
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 8000
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 150
+        },
+        {
+          "effect": "notification",
+          "text": "Roadside shrine offerings! +150 gold"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "find_abandoned_cart",
+      "name": "Abandoned Cart",
+      "description": "A merchant's cart left behind.",
+      "kind": {
+        "type": "treasure",
+        "description": "A merchant's cart overturned on the road. The merchant is long gone."
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "distance_walked",
+            "meters_min": 7000
+          },
+          {
+            "condition": "random_in_biome",
+            "biome": "Grassland",
+            "chance": 0.15
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 80
+        },
+        {
+          "effect": "item",
+          "name": "health_potion"
+        },
+        {
+          "effect": "notification",
+          "text": "Looted the abandoned cart! +80 gold, +Health Potion"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "milestone_5km",
+      "name": "Seasoned Walker",
+      "description": "You've walked 5 kilometers.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "Your legs grow stronger. The path feels familiar now."
+        ]
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 5000
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 50
+        },
+        {
+          "effect": "notification",
+          "text": "5km walked! +50 gold bonus"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "milestone_10km",
+      "name": "Veteran Explorer",
+      "description": "You've walked 10 kilometers.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The world opens up before you. You are a true explorer."
+        ]
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 10000
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 100
+        },
+        {
+          "effect": "notification",
+          "text": "10km walked! +100 gold bonus"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "milestone_20km",
+      "name": "Legend of the Road",
+      "description": "You've walked 20 kilometers.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "Songs will be sung of your endurance. The road is your home."
+        ]
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 20000
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 200
+        },
+        {
+          "effect": "notification",
+          "text": "20km walked! +200 gold bonus"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
     }
   ]
 }
