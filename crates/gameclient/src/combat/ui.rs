@@ -43,6 +43,9 @@ pub(crate) struct FleeButton;
 #[derive(Component)]
 pub(crate) struct LevelInfoText;
 
+#[derive(Component)]
+pub(crate) struct EncounterDescText;
+
 // ── Colors ───────────────────────────────────────────
 
 const BG_COLOR: Color = Color::srgba(0.02, 0.02, 0.08, 0.95);
@@ -82,130 +85,133 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
     let font_8 = TextFont { font: font.clone(), font_size: 8.0, ..default() };
     let font_7 = TextFont { font: font.clone(), font_size: 7.0, ..default() };
 
+    // Main overlay — compact bar at bottom
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Percent(5.0),
-            left: Val::Percent(10.0),
-            right: Val::Percent(10.0),
-            bottom: Val::Percent(5.0),
+            left: Val::Px(0.0),
+            right: Val::Px(0.0),
+            bottom: Val::Px(0.0),
             flex_direction: FlexDirection::Column,
-            justify_content: JustifyContent::SpaceBetween,
-            padding: UiRect::all(Val::Px(16.0)),
-            border: UiRect::all(Val::Px(2.0)),
+            padding: UiRect::all(Val::Px(12.0)),
+            border: UiRect::top(Val::Px(2.0)),
             ..default()
         },
         BackgroundColor(BG_COLOR),
         BorderColor(BORDER_COLOR),
-        BorderRadius::all(Val::Px(6.0)),
         CombatOverlay,
     )).with_children(|parent| {
-        // ── Enemy Section (top) ──
+        // Encounter description (shown once at start)
+        parent.spawn((
+            Text::new(""),
+            font_8.clone(),
+            TextColor(Color::srgb(0.9, 0.8, 0.5)),
+            Node { margin: UiRect::bottom(Val::Px(6.0)), ..default() },
+            EncounterDescText,
+        ));
+
+        // ── Main row: Player (left) | Log (center) | Enemy (right) ──
         parent.spawn(Node {
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(4.0),
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(16.0),
+            align_items: AlignItems::FlexStart,
             ..default()
-        }).with_children(|enemy| {
-            enemy.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                justify_content: JustifyContent::SpaceBetween,
+        }).with_children(|row| {
+            // ── Player (left) ──
+            row.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(3.0),
+                width: Val::Percent(30.0),
                 ..default()
-            }).with_children(|row| {
-                row.spawn((
-                    Text::new("Enemy"),
-                    font_10.clone(),
-                    TextColor(GOLD_COLOR),
-                    EnemyNameText,
-                ));
-                row.spawn((
-                    Text::new("HP: 0/0"),
-                    font_8.clone(),
-                    TextColor(TEXT_COLOR),
-                    EnemyHpText,
-                ));
-            });
-
-            spawn_bar(enemy, ENEMY_HP_COLOR, EnemyHpBarFill);
-            spawn_bar(enemy, CHARGE_COLOR, EnemyChargeBarFill);
-        });
-
-        // ── Combat Log (middle) ──
-        parent.spawn(Node {
-            flex_direction: FlexDirection::Column,
-            min_height: Val::Px(60.0),
-            justify_content: JustifyContent::Center,
-            ..default()
-        }).with_children(|log| {
-            log.spawn((
-                Text::new(""),
-                font_8.clone(),
-                TextColor(LOG_COLOR),
-                CombatLogText,
-            ));
-        });
-
-        // ── Player Section (bottom) ──
-        parent.spawn(Node {
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(4.0),
-            ..default()
-        }).with_children(|player| {
-            player.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                justify_content: JustifyContent::SpaceBetween,
-                ..default()
-            }).with_children(|row| {
-                row.spawn((
+            }).with_children(|player| {
+                player.spawn((
                     Text::new("Player"),
                     font_10.clone(),
                     TextColor(GOLD_COLOR),
                     PlayerNameText,
                 ));
-                row.spawn((
+                player.spawn((
                     Text::new("HP: 0/0"),
                     font_8.clone(),
                     TextColor(TEXT_COLOR),
                     PlayerHpText,
                 ));
+                spawn_bar(player, PLAYER_HP_COLOR, PlayerHpBarFill);
+                spawn_bar(player, CHARGE_COLOR, PlayerChargeBarFill);
             });
 
-            spawn_bar(player, PLAYER_HP_COLOR, PlayerHpBarFill);
-            spawn_bar(player, CHARGE_COLOR, PlayerChargeBarFill);
-
-            // Level info + flee button row
-            player.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                justify_content: JustifyContent::SpaceBetween,
-                align_items: AlignItems::Center,
-                margin: UiRect::top(Val::Px(8.0)),
+            // ── Combat Log (center) ──
+            row.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                flex_grow: 1.0,
+                justify_content: JustifyContent::Center,
                 ..default()
-            }).with_children(|row| {
-                row.spawn((
+            }).with_children(|log| {
+                log.spawn((
                     Text::new(""),
                     font_7.clone(),
-                    TextColor(DIM_TEXT),
-                    LevelInfoText,
+                    TextColor(LOG_COLOR),
+                    CombatLogText,
                 ));
+            });
 
-                // Run away button
-                row.spawn((
-                    Button,
-                    Node {
-                        padding: UiRect::axes(Val::Px(16.0), Val::Px(6.0)),
-                        border: UiRect::all(Val::Px(1.0)),
-                        ..default()
-                    },
-                    BackgroundColor(BTN_COLOR),
-                    BorderColor(BORDER_COLOR),
-                    BorderRadius::all(Val::Px(4.0)),
-                    FleeButton,
-                )).with_children(|btn| {
-                    btn.spawn((
-                        Text::new("RUN AWAY"),
-                        TextFont { font: font.clone(), font_size: 8.0, ..default() },
-                        TextColor(TEXT_COLOR),
-                    ));
-                });
+            // ── Enemy (right) ──
+            row.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(3.0),
+                width: Val::Percent(30.0),
+                align_items: AlignItems::FlexEnd,
+                ..default()
+            }).with_children(|enemy| {
+                enemy.spawn((
+                    Text::new("Enemy"),
+                    font_10.clone(),
+                    TextColor(Color::srgb(1.0, 0.4, 0.3)),
+                    EnemyNameText,
+                ));
+                enemy.spawn((
+                    Text::new("HP: 0/0"),
+                    font_8.clone(),
+                    TextColor(TEXT_COLOR),
+                    EnemyHpText,
+                ));
+                spawn_bar(enemy, ENEMY_HP_COLOR, EnemyHpBarFill);
+                spawn_bar(enemy, CHARGE_COLOR, EnemyChargeBarFill);
+            });
+        });
+
+        // ── Bottom row: level info + flee button ──
+        parent.spawn(Node {
+            flex_direction: FlexDirection::Row,
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            margin: UiRect::top(Val::Px(6.0)),
+            ..default()
+        }).with_children(|bottom| {
+            bottom.spawn((
+                Text::new(""),
+                font_7.clone(),
+                TextColor(DIM_TEXT),
+                LevelInfoText,
+            ));
+
+            bottom.spawn((
+                Button,
+                Node {
+                    padding: UiRect::axes(Val::Px(16.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(BTN_COLOR),
+                BorderColor(BORDER_COLOR),
+                BorderRadius::all(Val::Px(4.0)),
+                FleeButton,
+            )).with_children(|btn| {
+                btn.spawn((
+                    Text::new("RUN AWAY"),
+                    font_8.clone(),
+                    TextColor(TEXT_COLOR),
+                ));
             });
         });
     });
@@ -247,7 +253,8 @@ pub fn update_combat_ui(
     mut player_hp_bar: Query<&mut Node, (With<PlayerHpBarFill>, Without<EnemyHpBarFill>, Without<EnemyChargeBarFill>, Without<PlayerChargeBarFill>)>,
     mut player_charge_bar: Query<&mut Node, (With<PlayerChargeBarFill>, Without<EnemyHpBarFill>, Without<EnemyChargeBarFill>, Without<PlayerHpBarFill>)>,
     mut log_q: Query<&mut Text, (With<CombatLogText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<LevelInfoText>)>,
-    mut level_info_q: Query<&mut Text, (With<LevelInfoText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<CombatLogText>)>,
+    mut level_info_q: Query<&mut Text, (With<LevelInfoText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<CombatLogText>, Without<EncounterDescText>)>,
+    mut desc_q: Query<&mut Text, (With<EncounterDescText>, Without<EnemyNameText>, Without<EnemyHpText>, Without<PlayerNameText>, Without<PlayerHpText>, Without<CombatLogText>, Without<LevelInfoText>)>,
     mut flee_btn_q: Query<(&Interaction, &mut BackgroundColor), With<FleeButton>>,
 ) {
     let Some(ref cs) = combat.state else { return };
@@ -292,6 +299,11 @@ pub fn update_combat_ui(
     // Level info
     if let Ok(mut text) = level_info_q.get_single_mut() {
         **text = format!("Min Lv {} / Rec Lv {}", cs.min_level, cs.recommended_level);
+    }
+
+    // Encounter description
+    if let Ok(mut text) = desc_q.get_single_mut() {
+        **text = cs.description.clone();
     }
 
     // Flee button hover

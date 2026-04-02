@@ -36,6 +36,9 @@ pub struct CombatLogEntry {
 pub struct CombatState {
     pub event_id: String,
     pub status: CombatStatus,
+    /// Encounter description shown at combat start.
+    #[serde(default)]
+    pub description: String,
 
     // Player
     pub player_hp: i32,
@@ -137,6 +140,16 @@ pub fn enemy_name_from_event(kind: &EventKind) -> String {
     }
 }
 
+pub fn encounter_description(kind: &EventKind) -> String {
+    match kind {
+        EventKind::RandomEncounter { description, .. } => description.clone(),
+        EventKind::Boss { dialogue_intro, boss_name, .. } => {
+            dialogue_intro.first().cloned().unwrap_or_else(|| format!("{} appears!", boss_name))
+        }
+        _ => String::new(),
+    }
+}
+
 // ── Encounter Balancing ──────────────────────────────
 
 /// Simulate a fight at a given level and speed. Returns true if player wins.
@@ -195,12 +208,14 @@ pub fn init_combat(event_id: &str, kind: &EventKind, total_distance_m: u64) -> C
     let stats = leveling::CharacterStats::new_at_level(player_level);
     let enemy = enemy_stats_from_event(kind, player_level);
     let name = enemy_name_from_event(kind);
+    let desc = encounter_description(kind);
     let min_lvl = min_level(kind);
     let rec_lvl = recommended_level(kind);
 
     CombatState {
         event_id: event_id.to_string(),
         status: CombatStatus::Fighting,
+        description: desc,
         player_hp: stats.max_hp,
         player_max_hp: stats.max_hp,
         player_attack: stats.attack,
