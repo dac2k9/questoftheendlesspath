@@ -13,11 +13,15 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
+        let catalog = questlib::items::ItemCatalog::from_json(
+            include_str!("../../../../adventures/items.json")
+        ).unwrap_or_default();
         app.insert_resource(InventoryOpen(false))
+            .insert_resource(ItemCatalogRes(catalog))
             .add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
                 Update,
-                (update_hud, detect_gold_change, detect_level_up, update_floating_texts, toggle_inventory, update_inventory)
+                (update_hud, detect_gold_change, detect_level_up, update_floating_texts, toggle_inventory, update_inventory, show_item_tooltip)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -281,11 +285,20 @@ fn detect_level_up(
 #[derive(Resource)]
 struct InventoryOpen(bool);
 
+#[derive(Resource)]
+struct ItemCatalogRes(questlib::items::ItemCatalog);
+
 #[derive(Component)]
 struct InventoryPanel;
 
 #[derive(Component)]
 struct InventoryContent;
+
+#[derive(Component)]
+struct InventoryItemRow(String); // item_id
+
+#[derive(Component)]
+struct ItemTooltip;
 
 fn toggle_inventory(
     keys: Res<ButtonInput<KeyCode>>,
@@ -296,7 +309,7 @@ fn toggle_inventory(
     }
 }
 
-fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font: &GameFont) {
+fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font: &GameFont, catalog: &questlib::items::ItemCatalog) {
     if state.inventory.is_empty() {
         parent.spawn((
             Text::new("(empty)"),
@@ -306,16 +319,35 @@ fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font:
         return;
     }
     for slot in &state.inventory {
+        let def = catalog.get(&slot.item_id);
+        let name = def.map(|d| d.display_name.as_str()).unwrap_or(&slot.item_id);
         let text = if slot.quantity > 1 {
-            format!("{} x{}", slot.item_id, slot.quantity)
+            format!("{} x{}", name, slot.quantity)
         } else {
-            slot.item_id.clone()
+            name.to_string()
         };
+        // Category color
+        let color = def.map(|d| match d.category {
+            questlib::items::ItemCategory::Consumable => Color::srgb(0.6, 0.9, 0.6),
+            questlib::items::ItemCategory::Equipment => Color::srgb(0.6, 0.7, 1.0),
+            questlib::items::ItemCategory::KeyItem => Color::srgb(1.0, 0.85, 0.4),
+        }).unwrap_or(Color::srgb(0.9, 0.9, 0.9));
+
         parent.spawn((
-            Text::new(text),
-            TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
-            TextColor(Color::srgb(0.9, 0.9, 0.9)),
-        ));
+            Button,
+            Node {
+                padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            InventoryItemRow(slot.item_id.clone()),
+        )).with_children(|row| {
+            row.spawn((
+                Text::new(text),
+                TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
+                TextColor(color),
+            ));
+        });
     }
 }
 
@@ -324,6 +356,7 @@ fn update_inventory(
     open: Res<InventoryOpen>,
     state: Res<MyPlayerState>,
     font: Res<GameFont>,
+    catalog: Res<ItemCatalogRes>,
     panel_q: Query<Entity, With<InventoryPanel>>,
     content_q: Query<Entity, With<InventoryContent>>,
 ) {
@@ -341,7 +374,7 @@ fn update_inventory(
                 position_type: PositionType::Absolute,
                 top: Val::Px(40.0),
                 right: Val::Px(12.0),
-                width: Val::Px(220.0),
+                width: Val::Px(440.0),
                 min_height: Val::Px(100.0),
                 max_height: Val::Px(400.0),
                 padding: UiRect::all(Val::Px(12.0)),
@@ -368,7 +401,7 @@ fn update_inventory(
                 },
                 InventoryContent,
             )).with_children(|content| {
-                build_inventory_items(content, &state, &font);
+                build_inventory_items(content, &state, &font, &catalog.0);
             });
         });
         return;
@@ -378,6 +411,71 @@ fn update_inventory(
     let Ok(content_entity) = content_q.get_single() else { return; };
     commands.entity(content_entity).despawn_descendants();
     commands.entity(content_entity).with_children(|content| {
-        build_inventory_items(content, &state, &font);
+        build_inventory_items(content, &state, &font, &catalog.0);
+    });
+}
+
+fn show_item_tooltip(
+    mut commands: Commands,
+    font: Res<GameFont>,
+    catalog: Res<ItemCatalogRes>,
+    item_q: Query<(&Interaction, &InventoryItemRow, &GlobalTransform)>,
+    tooltip_q: Query<Entity, With<ItemTooltip>>,
+) {
+    // Find hovered item
+    let hovered = item_q.iter().find(|(i, _, _)| **i == Interaction::Hovered);
+
+    // Remove old tooltip
+    for entity in &tooltip_q {
+        commands.entity(entity).despawn_recursive();
+    }
+
+    let Some((_, row, gtf)) = hovered else { return };
+    let Some(def) = catalog.0.get(&row.0) else { return };
+
+    let pos = gtf.translation();
+    let category = match def.category {
+        questlib::items::ItemCategory::Consumable => "Consumable",
+        questlib::items::ItemCategory::Equipment => "Equipment",
+        questlib::items::ItemCategory::KeyItem => "Key Item",
+    };
+
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(pos.y + 20.0),
+            left: Val::Px((pos.x - 100.0).max(10.0)),
+            width: Val::Px(280.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            border: UiRect::all(Val::Px(1.0)),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(4.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.05, 0.05, 0.12, 0.95)),
+        BorderColor(Color::srgb(0.5, 0.45, 0.3)),
+        BorderRadius::all(Val::Px(4.0)),
+        ItemTooltip,
+        // High z-index so it appears on top
+        ZIndex(100),
+    )).with_children(|parent| {
+        // Item name
+        parent.spawn((
+            Text::new(&def.display_name),
+            TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+            TextColor(Color::srgb(1.0, 0.9, 0.5)),
+        ));
+        // Category
+        parent.spawn((
+            Text::new(category),
+            TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+            TextColor(Color::srgb(0.6, 0.6, 0.6)),
+        ));
+        // Description
+        parent.spawn((
+            Text::new(&def.description),
+            TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
+            TextColor(Color::srgb(0.85, 0.85, 0.85)),
+        ));
     });
 }
