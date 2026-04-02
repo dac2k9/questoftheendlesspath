@@ -322,8 +322,13 @@ fn update_shop(
         // Items
         for (i, item) in state.items.iter().enumerate() {
             let can_afford = player.gold >= item.cost;
-            let already_has = player.inventory.iter().any(|s| s.item_id == item.item_id);
             let def = catalog.0.get(&item.item_id);
+            let is_full = player.inventory.iter()
+                .find(|s| s.item_id == item.item_id)
+                .map_or(false, |slot| {
+                    let max = def.filter(|d| d.stackable).map(|d| d.max_stack).unwrap_or(1);
+                    slot.quantity >= max
+                });
             let display_name = def.map(|d| d.display_name.as_str()).unwrap_or(&item.item_id);
 
             parent.spawn((
@@ -333,7 +338,7 @@ fn update_shop(
                     justify_content: JustifyContent::SpaceBetween,
                     ..default()
                 },
-                BackgroundColor(if can_afford && !already_has {
+                BackgroundColor(if can_afford && !is_full {
                     Color::srgba(0.15, 0.15, 0.3, 0.8)
                 } else {
                     Color::srgba(0.1, 0.1, 0.1, 0.5)
@@ -342,15 +347,15 @@ fn update_shop(
                 ShopItemButton(i),
                 crate::hud::InventoryItemRow(item.item_id.clone()),
             )).with_children(|btn| {
-                let label = if already_has {
-                    format!("{} (owned)", display_name)
+                let label = if is_full {
+                    format!("{} (full)", display_name)
                 } else {
                     display_name.to_string()
                 };
                 btn.spawn((
                     Text::new(label),
                     TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
-                    TextColor(if can_afford && !already_has {
+                    TextColor(if can_afford && !is_full {
                         Color::srgb(0.9, 0.9, 0.9)
                     } else {
                         Color::srgb(0.5, 0.5, 0.5)
