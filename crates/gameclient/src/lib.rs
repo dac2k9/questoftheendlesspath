@@ -47,8 +47,22 @@ pub fn start() {
         .add_plugins(hud::HudPlugin)
         .add_plugins(dialogue::DialoguePlugin)
         .add_plugins(combat::CombatPlugin)
-        .add_systems(Update, update_cursor)
+        .insert_resource(UiHovered(false))
+        .add_systems(Update, (detect_ui_hover, update_cursor))
         .run();
+}
+
+/// True when the mouse is over any UI element with Interaction.
+/// Map clicks should be suppressed when this is true.
+#[derive(Resource)]
+pub struct UiHovered(pub bool);
+
+/// Detect if any UI node is hovered — runs before other systems.
+fn detect_ui_hover(
+    mut ui_hovered: ResMut<UiHovered>,
+    interactions: Query<&Interaction>,
+) {
+    ui_hovered.0 = interactions.iter().any(|i| matches!(i, Interaction::Hovered | Interaction::Pressed));
 }
 
 /// Set canvas cursor to pointer when hovering any Button.

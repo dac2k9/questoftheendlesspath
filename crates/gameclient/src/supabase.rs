@@ -125,7 +125,6 @@ fn check_long_poll(
 /// Write the planned route — uses dev server in dev mode.
 /// When `meters` is Some, preserves walked progress (used when extending a route).
 pub fn write_planned_route(
-    _config: &SupabaseConfig,
     player_id: &str,
     route_json: &str,
     meters: Option<f64>,

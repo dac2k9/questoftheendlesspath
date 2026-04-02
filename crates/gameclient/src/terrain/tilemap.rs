@@ -520,7 +520,6 @@ fn handle_map_click(
     world: Res<WorldGrid>,
     fog: Res<FogOfWar>,
     debug: Res<DebugOptions>,
-    config: Res<SupabaseConfig>,
     session: Res<GameSession>,
     mut state: ResMut<MyPlayerState>,
     mut display_route: ResMut<DisplayRoute>,
@@ -529,6 +528,7 @@ fn handle_map_click(
     path_markers: Query<Entity, With<PathMarker>>,
     mut info_q: Query<(&mut Text2d, &mut Transform), (With<TileInfoText>, Without<PlayerSprite>)>,
     mut notifications: ResMut<crate::dialogue::NotificationQueue>,
+    ui_hover: Res<crate::UiHovered>,
 ) {
     let Ok(window) = windows.get_single() else { return };
     let Ok((camera, cam_tf)) = camera_q.get_single() else { return };
@@ -550,9 +550,10 @@ fn handle_map_click(
         } else { *text = Text2d::new(""); }
     }
 
-    // Click to plan route
+    // Click to plan route — skip if UI is hovered
     let is_revealed = fog.is_revealed(tx, ty) || debug.fog_disabled;
-    if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() && is_revealed {
+    let ui_hovered = ui_hover.0;
+    if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() && is_revealed && !ui_hovered {
         let current_pos = (state.tile_x as usize, state.tile_y as usize);
         let has_active_route = !display_route.waypoints.is_empty();
 
@@ -616,14 +617,13 @@ fn handle_map_click(
 
             // Send to server (with meters when extending, so server preserves progress)
             let route_json = questlib::route::encode_route_json(&display_route.waypoints);
-            supabase::write_planned_route(&config, &session.player_id, &route_json, send_meters);
+            supabase::write_planned_route(&session.player_id, &route_json, send_meters);
         }
     }
 }
 
 fn handle_clear_route(
     keys: Res<ButtonInput<KeyCode>>,
-    config: Res<SupabaseConfig>,
     session: Res<GameSession>,
     mut state: ResMut<MyPlayerState>,
     mut display_route: ResMut<DisplayRoute>,
@@ -653,7 +653,7 @@ fn handle_clear_route(
         interp.elapsed = 0.0;
         interp.duration = 0.0;
         for entity in &path_markers { commands.entity(entity).despawn(); }
-        supabase::write_planned_route(&config, &session.player_id, "", None);
+        supabase::write_planned_route(&session.player_id, "", None);
     }
 }
 
