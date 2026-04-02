@@ -38,6 +38,8 @@ pub struct DevPlayerState {
     pub debug_walking: bool,
     #[serde(default)]
     pub inventory: Vec<questlib::items::InventorySlot>,
+    #[serde(default)]
+    pub equipment: questlib::items::EquipmentLoadout,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
@@ -244,6 +246,137 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                         return ("200 OK", r#"{"ok":true}"#.to_string());
                     } else {
                         return ("400 Bad Request", r#"{"error":"inventory full or already owned"}"#.to_string());
+                    }
+                }
+            }
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
+    // POST /use_item — use a consumable item
+    if first_line.starts_with("POST /use_item") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            let body = &request[body_start + 4..];
+            #[derive(Deserialize)]
+            struct UseReq { player_id: String, item_id: String }
+            if let Ok(req) = serde_json::from_str::<UseReq>(body) {
+                let catalog = questlib::items::ItemCatalog::from_json(
+                    include_str!("../../../adventures/items.json")
+                ).ok();
+                let cat = catalog.as_ref();
+                let mut lock = state.lock().unwrap();
+                if let Some(player) = lock.get_mut(&req.player_id) {
+                    if !questlib::items::has_item(&player.inventory, &req.item_id) {
+                        return ("400 Bad Request", r#"{"error":"item not found"}"#.to_string());
+                    }
+                    let def = cat.and_then(|c| c.get(&req.item_id));
+                    if def.map_or(true, |d| d.category != questlib::items::ItemCategory::Consumable) {
+                        return ("400 Bad Request", r#"{"error":"not consumable"}"#.to_string());
+                    }
+                    let effects = def.map(|d| d.effects.clone()).unwrap_or_default();
+                    questlib::items::remove_item(&mut player.inventory, &req.item_id);
+
+                    // Apply effects
+                    let mut messages = Vec::new();
+                    for effect in &effects {
+                        match effect {
+                            questlib::items::ItemEffect::Heal { amount } => {
+                                // Apply heal to active combat if any
+                                if let Ok(mut combat_lock) = combat.lock() {
+                                    if let Some(cs) = combat_lock.values_mut().next() {
+                                        let old_hp = cs.player_hp;
+                                        cs.player_hp = (cs.player_hp + amount).min(cs.player_max_hp);
+                                        let healed = cs.player_hp - old_hp;
+                                        cs.turn_log.push(questlib::combat::CombatLogEntry {
+                                            actor: "Player".to_string(),
+                                            action: "heal".to_string(),
+                                            damage: 0,
+                                            message: format!("Used {}! +{} HP", def.map(|d| d.display_name.as_str()).unwrap_or("potion"), healed),
+                                        });
+                                        messages.push(format!("+{} HP", healed));
+                                    }
+                                }
+                            }
+                            questlib::items::ItemEffect::StatBonus { stat, amount } => {
+                                // Apply to active combat as a temporary boost
+                                if let Ok(mut combat_lock) = combat.lock() {
+                                    if let Some(cs) = combat_lock.values_mut().next() {
+                                        match stat {
+                                            questlib::items::StatType::Attack => { cs.player_attack += amount; messages.push(format!("+{} ATK", amount)); }
+                                            questlib::items::StatType::Defense => { cs.player_defense += amount; messages.push(format!("+{} DEF", amount)); }
+                                            questlib::items::StatType::MaxHp => { cs.player_max_hp += amount; cs.player_hp += amount; messages.push(format!("+{} HP", amount)); }
+                                        }
+                                    }
+                                }
+                            }
+                            questlib::items::ItemEffect::RevealFog { radius } => {
+                                let px = player.map_tile_x as usize;
+                                let py = player.map_tile_y as usize;
+                                // Fog reveal handled via notification — tick loop will pick it up
+                                messages.push(format!("Revealed area (radius {})", radius));
+                                // Store for fog update
+                                drop(lock);
+                                // Can't easily access fog here — push a notification instead
+                                if let Ok(mut n) = notifs.lock() {
+                                    n.push(format!("Used {}! Area revealed.", def.map(|d| d.display_name.as_str()).unwrap_or("item")));
+                                }
+                                return ("200 OK", serde_json::to_string(&serde_json::json!({"ok": true, "reveal_fog": {"x": px, "y": py, "radius": radius}})).unwrap());
+                            }
+                        }
+                    }
+                    if let Ok(mut n) = notifs.lock() {
+                        let item_name = def.map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
+                        n.push(format!("Used {}! {}", item_name, messages.join(", ")));
+                    }
+                    return ("200 OK", r#"{"ok":true}"#.to_string());
+                }
+            }
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
+    // POST /equip_item — equip a piece of gear
+    if first_line.starts_with("POST /equip_item") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            let body = &request[body_start + 4..];
+            #[derive(Deserialize)]
+            struct EquipReq { player_id: String, item_id: String }
+            if let Ok(req) = serde_json::from_str::<EquipReq>(body) {
+                let catalog = questlib::items::ItemCatalog::from_json(
+                    include_str!("../../../adventures/items.json")
+                ).unwrap();
+                let mut lock = state.lock().unwrap();
+                if let Some(player) = lock.get_mut(&req.player_id) {
+                    match questlib::items::equip_item(&mut player.equipment, &mut player.inventory, &req.item_id, &catalog) {
+                        Ok(_old) => {
+                            if let Ok(mut n) = notifs.lock() {
+                                let name = catalog.get(&req.item_id).map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
+                                n.push(format!("Equipped {}!", name));
+                            }
+                            return ("200 OK", r#"{"ok":true}"#.to_string());
+                        }
+                        Err(e) => return ("400 Bad Request", format!(r#"{{"error":"{}"}}"#, e)),
+                    }
+                }
+            }
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
+    // POST /unequip_item — unequip gear from a slot
+    if first_line.starts_with("POST /unequip_item") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            let body = &request[body_start + 4..];
+            #[derive(Deserialize)]
+            struct UnequipReq { player_id: String, slot: questlib::items::EquipmentSlot }
+            if let Ok(req) = serde_json::from_str::<UnequipReq>(body) {
+                let catalog = questlib::items::ItemCatalog::from_json(
+                    include_str!("../../../adventures/items.json")
+                ).unwrap();
+                let mut lock = state.lock().unwrap();
+                if let Some(player) = lock.get_mut(&req.player_id) {
+                    if questlib::items::unequip_item(&mut player.equipment, &mut player.inventory, req.slot, &catalog) {
+                        return ("200 OK", r#"{"ok":true}"#.to_string());
                     }
                 }
             }

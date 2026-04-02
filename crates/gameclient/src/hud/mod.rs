@@ -21,7 +21,7 @@ impl Plugin for HudPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
                 Update,
-                (update_hud, detect_gold_change, detect_level_up, update_floating_texts, toggle_inventory, update_inventory, show_item_tooltip, update_shop_button)
+                (update_hud, detect_gold_change, detect_level_up, update_floating_texts, toggle_inventory, update_inventory, show_item_tooltip, update_shop_button, handle_inventory_click)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -319,6 +319,42 @@ fn toggle_inventory(
 }
 
 fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font: &GameFont, catalog: &questlib::items::ItemCatalog) {
+    // Equipment section
+    parent.spawn((
+        Text::new("-- Equipment --"),
+        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+        TextColor(Color::srgb(0.6, 0.6, 0.5)),
+    ));
+    for (label, slot) in [("Weapon", questlib::items::EquipmentSlot::Weapon), ("Armor", questlib::items::EquipmentSlot::Armor), ("Accessory", questlib::items::EquipmentSlot::Accessory)] {
+        let equipped_id = state.equipment.get_slot(slot);
+        let name = equipped_id
+            .and_then(|id| catalog.get(id))
+            .map(|d| d.display_name.as_str())
+            .unwrap_or("(none)");
+        let color = if equipped_id.is_some() { Color::srgb(0.7, 0.85, 1.0) } else { Color::srgb(0.4, 0.4, 0.4) };
+
+        parent.spawn((
+            Button,
+            Node { padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)), ..default() },
+            BackgroundColor(Color::NONE),
+            InventoryItemRow(equipped_id.unwrap_or("").to_string()),
+        )).with_children(|row| {
+            row.spawn((
+                Text::new(format!("{}: {}", label, name)),
+                TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                TextColor(color),
+            ));
+        });
+    }
+
+    // Items section
+    parent.spawn((
+        Text::new("-- Items --"),
+        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+        TextColor(Color::srgb(0.6, 0.6, 0.5)),
+        Node { margin: UiRect::top(Val::Px(6.0)), ..default() },
+    ));
+
     if state.inventory.is_empty() {
         parent.spawn((
             Text::new("(empty)"),
@@ -335,7 +371,6 @@ fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font:
         } else {
             name.to_string()
         };
-        // Category color
         let color = def.map(|d| match d.category {
             questlib::items::ItemCategory::Consumable => Color::srgb(0.6, 0.9, 0.6),
             questlib::items::ItemCategory::Equipment => Color::srgb(0.6, 0.7, 1.0),
@@ -344,10 +379,7 @@ fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font:
 
         parent.spawn((
             Button,
-            Node {
-                padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
-                ..default()
-            },
+            Node { padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)), ..default() },
             BackgroundColor(Color::NONE),
             InventoryItemRow(slot.item_id.clone()),
         )).with_children(|row| {
@@ -545,6 +577,51 @@ fn update_shop_button(
     } else if !should_show && !existing.is_empty() {
         for entity in &existing {
             commands.entity(entity).despawn_recursive();
+        }
+    }
+}
+
+// ── Inventory Click Handler ─────────────────────────
+
+fn handle_inventory_click(
+    mouse: Res<ButtonInput<MouseButton>>,
+    catalog: Res<ItemCatalogRes>,
+    session: Res<GameSession>,
+    open: Res<InventoryOpen>,
+    item_q: Query<(&Interaction, &InventoryItemRow)>,
+) {
+    if !open.0 || !mouse.just_pressed(MouseButton::Left) { return; }
+
+    for (interaction, row) in &item_q {
+        if !matches!(interaction, Interaction::Hovered | Interaction::Pressed) { continue; }
+        if row.0.is_empty() { continue; } // empty equipment slot
+
+        let Some(def) = catalog.0.get(&row.0) else { continue };
+        let player_id = session.player_id.clone();
+        let item_id = row.0.clone();
+
+        match def.category {
+            questlib::items::ItemCategory::Consumable => {
+                // Use the item
+                wasm_bindgen_futures::spawn_local(async move {
+                    let client = reqwest::Client::new();
+                    let _ = client.post("http://localhost:3001/use_item")
+                        .json(&serde_json::json!({"player_id": player_id, "item_id": item_id}))
+                        .send().await;
+                });
+            }
+            questlib::items::ItemCategory::Equipment => {
+                // Equip the item
+                wasm_bindgen_futures::spawn_local(async move {
+                    let client = reqwest::Client::new();
+                    let _ = client.post("http://localhost:3001/equip_item")
+                        .json(&serde_json::json!({"player_id": player_id, "item_id": item_id}))
+                        .send().await;
+                });
+            }
+            questlib::items::ItemCategory::KeyItem => {
+                // Key items can't be used or equipped
+            }
         }
     }
 }

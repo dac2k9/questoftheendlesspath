@@ -47,6 +47,8 @@ pub struct PlayerRow {
     pub interp_duration_secs: Option<f32>,
     #[serde(default)]
     pub inventory: Vec<questlib::items::InventorySlot>,
+    #[serde(default)]
+    pub equipment: questlib::items::EquipmentLoadout,
 }
 
 /// Long-poll response wrapper from server.

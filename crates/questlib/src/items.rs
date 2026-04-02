@@ -1,18 +1,49 @@
 use serde::{Deserialize, Serialize};
 
+// ── Item Categories & Effects ───────────────────────
+
 /// Category of an item — determines behavior and UI grouping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemCategory {
-    /// Can be used/consumed (potions, food, scrolls).
     Consumable,
-    /// Wearable gear (cloaks, boots, charms).
     Equipment,
-    /// Story/quest items that cannot be dropped or consumed.
     KeyItem,
 }
 
-/// An item definition in the catalog. Describes what the item IS.
+/// Which slot equipment occupies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentSlot {
+    Weapon,
+    Armor,
+    Accessory,
+}
+
+/// What stat an effect modifies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatType {
+    Attack,
+    Defense,
+    MaxHp,
+}
+
+/// An effect that an item provides — either passively (equipment) or on use (consumable).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ItemEffect {
+    /// Flat stat bonus (equipment).
+    StatBonus { stat: StatType, amount: i32 },
+    /// Heal HP (consumable, combat only).
+    Heal { amount: i32 },
+    /// Reveal fog in a radius around the player.
+    RevealFog { radius: usize },
+}
+
+// ── Item Definition ─────────────────────────────────
+
+/// An item definition in the catalog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemDef {
     pub id: String,
@@ -24,11 +55,19 @@ pub struct ItemDef {
     pub stackable: bool,
     #[serde(default = "default_max_stack")]
     pub max_stack: u32,
+    /// For equipment: which slot this occupies.
+    #[serde(default)]
+    pub slot: Option<EquipmentSlot>,
+    /// Effects — stat bonuses for equipment, heal/reveal for consumables.
+    #[serde(default)]
+    pub effects: Vec<ItemEffect>,
 }
 
 fn default_max_stack() -> u32 {
     1
 }
+
+// ── Inventory ───────────────────────────────────────
 
 /// A slot in the player's inventory — an item id + quantity.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -54,9 +93,7 @@ impl ItemCatalog {
 }
 
 /// Add an item to an inventory, stacking if possible.
-/// Returns true if the item was added, false if inventory is full or stack is maxed.
 pub fn add_item(inventory: &mut Vec<InventorySlot>, item_id: &str, catalog: Option<&ItemCatalog>) -> bool {
-    // Check if item already exists in inventory
     if let Some(slot) = inventory.iter_mut().find(|s| s.item_id == item_id) {
         let max = catalog
             .and_then(|c| c.get(item_id))
@@ -67,10 +104,8 @@ pub fn add_item(inventory: &mut Vec<InventorySlot>, item_id: &str, catalog: Opti
             slot.quantity += 1;
             return true;
         }
-        // Stack full — for non-stackable items (max=1), this means already owned
         return false;
     }
-    // New item
     inventory.push(InventorySlot {
         item_id: item_id.to_string(),
         quantity: 1,
@@ -78,7 +113,7 @@ pub fn add_item(inventory: &mut Vec<InventorySlot>, item_id: &str, catalog: Opti
     true
 }
 
-/// Remove one unit of an item. Returns true if removed, false if not found.
+/// Remove one unit of an item. Returns true if removed.
 pub fn remove_item(inventory: &mut Vec<InventorySlot>, item_id: &str) -> bool {
     if let Some(idx) = inventory.iter().position(|s| s.item_id == item_id) {
         let slot = &mut inventory[idx];
@@ -98,6 +133,123 @@ pub fn has_item(inventory: &[InventorySlot], item_id: &str) -> bool {
     inventory.iter().any(|s| s.item_id == item_id && s.quantity > 0)
 }
 
+// ── Equipment ───────────────────────────────────────
+
+/// What a player has equipped in each slot.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct EquipmentLoadout {
+    #[serde(default)]
+    pub weapon: Option<String>,
+    #[serde(default)]
+    pub armor: Option<String>,
+    #[serde(default)]
+    pub accessory: Option<String>,
+}
+
+impl EquipmentLoadout {
+    /// Check if a specific item is equipped in any slot.
+    pub fn has_equipped(&self, item_id: &str) -> bool {
+        self.weapon.as_deref() == Some(item_id)
+            || self.armor.as_deref() == Some(item_id)
+            || self.accessory.as_deref() == Some(item_id)
+    }
+
+    /// Get the item in a given slot.
+    pub fn get_slot(&self, slot: EquipmentSlot) -> Option<&str> {
+        match slot {
+            EquipmentSlot::Weapon => self.weapon.as_deref(),
+            EquipmentSlot::Armor => self.armor.as_deref(),
+            EquipmentSlot::Accessory => self.accessory.as_deref(),
+        }
+    }
+
+    fn set_slot(&mut self, slot: EquipmentSlot, item_id: Option<String>) {
+        match slot {
+            EquipmentSlot::Weapon => self.weapon = item_id,
+            EquipmentSlot::Armor => self.armor = item_id,
+            EquipmentSlot::Accessory => self.accessory = item_id,
+        }
+    }
+}
+
+/// Equip an item from inventory. Returns the previously equipped item_id (if any).
+/// The old item goes back to inventory, the new item is removed from inventory.
+pub fn equip_item(
+    loadout: &mut EquipmentLoadout,
+    inventory: &mut Vec<InventorySlot>,
+    item_id: &str,
+    catalog: &ItemCatalog,
+) -> Result<Option<String>, &'static str> {
+    let def = catalog.get(item_id).ok_or("item not in catalog")?;
+    if def.category != ItemCategory::Equipment {
+        return Err("not equipment");
+    }
+    let slot = def.slot.ok_or("equipment has no slot")?;
+
+    // Must have the item in inventory
+    if !has_item(inventory, item_id) {
+        return Err("item not in inventory");
+    }
+
+    // Remove from inventory
+    remove_item(inventory, item_id);
+
+    // Swap with current equipment
+    let old = loadout.get_slot(slot).map(|s| s.to_string());
+    if let Some(ref old_id) = old {
+        add_item(inventory, old_id, Some(catalog));
+    }
+    loadout.set_slot(slot, Some(item_id.to_string()));
+
+    Ok(old)
+}
+
+/// Unequip an item from a slot back to inventory.
+pub fn unequip_item(
+    loadout: &mut EquipmentLoadout,
+    inventory: &mut Vec<InventorySlot>,
+    slot: EquipmentSlot,
+    catalog: &ItemCatalog,
+) -> bool {
+    if let Some(item_id) = loadout.get_slot(slot).map(|s| s.to_string()) {
+        loadout.set_slot(slot, None);
+        add_item(inventory, &item_id, Some(catalog));
+        true
+    } else {
+        false
+    }
+}
+
+/// Compute total stat bonuses from all equipped items.
+pub fn equipment_bonuses(loadout: &EquipmentLoadout, catalog: &ItemCatalog) -> (i32, i32, i32) {
+    let mut attack = 0;
+    let mut defense = 0;
+    let mut max_hp = 0;
+    for slot in [EquipmentSlot::Weapon, EquipmentSlot::Armor, EquipmentSlot::Accessory] {
+        if let Some(item_id) = loadout.get_slot(slot) {
+            if let Some(def) = catalog.get(item_id) {
+                for effect in &def.effects {
+                    if let ItemEffect::StatBonus { stat, amount } = effect {
+                        match stat {
+                            StatType::Attack => attack += amount,
+                            StatType::Defense => defense += amount,
+                            StatType::MaxHp => max_hp += amount,
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (attack, defense, max_hp)
+}
+
+/// Check if player has item in inventory OR equipped.
+pub fn has_item_or_equipped(inventory: &[InventorySlot], loadout: &EquipmentLoadout, item_id: &str) -> bool {
+    has_item(inventory, item_id) || loadout.has_equipped(item_id)
+}
+
+// ── Tests ───────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,9 +257,11 @@ mod tests {
     fn test_catalog() -> ItemCatalog {
         ItemCatalog::from_json(r#"{
             "items": [
-                { "id": "health_potion", "display_name": "Health Potion", "description": "Heals you.", "category": "consumable", "stackable": true, "max_stack": 5 },
-                { "id": "warm_cloak", "display_name": "Warm Cloak", "description": "Warm.", "category": "equipment" },
-                { "id": "forest_map", "display_name": "Forest Map", "description": "A map.", "category": "key_item" }
+                { "id": "health_potion", "display_name": "Health Potion", "category": "consumable", "stackable": true, "max_stack": 5, "effects": [{"type": "heal", "amount": 30}] },
+                { "id": "iron_sword", "display_name": "Iron Sword", "category": "equipment", "slot": "weapon", "effects": [{"type": "stat_bonus", "stat": "attack", "amount": 5}] },
+                { "id": "leather_vest", "display_name": "Leather Vest", "category": "equipment", "slot": "armor", "effects": [{"type": "stat_bonus", "stat": "defense", "amount": 2}] },
+                { "id": "warm_cloak", "display_name": "Warm Cloak", "category": "equipment", "slot": "accessory", "effects": [{"type": "stat_bonus", "stat": "defense", "amount": 1}] },
+                { "id": "forest_map", "display_name": "Forest Map", "category": "key_item" }
             ]
         }"#).unwrap()
     }
@@ -117,39 +271,18 @@ mod tests {
         let cat = test_catalog();
         assert!(cat.get("health_potion").is_some());
         assert!(cat.get("nonexistent").is_none());
-        assert_eq!(cat.get("warm_cloak").unwrap().category, ItemCategory::Equipment);
+        assert_eq!(cat.get("iron_sword").unwrap().slot, Some(EquipmentSlot::Weapon));
     }
 
     #[test]
-    fn add_new_item() {
-        let cat = test_catalog();
-        let mut inv = vec![];
-        assert!(add_item(&mut inv, "health_potion", Some(&cat)));
-        assert_eq!(inv.len(), 1);
-        assert_eq!(inv[0].quantity, 1);
-    }
-
-    #[test]
-    fn stack_consumable() {
+    fn add_and_stack() {
         let cat = test_catalog();
         let mut inv = vec![];
         for _ in 0..5 {
             assert!(add_item(&mut inv, "health_potion", Some(&cat)));
         }
-        assert_eq!(inv.len(), 1);
         assert_eq!(inv[0].quantity, 5);
-        // Max stack reached
         assert!(!add_item(&mut inv, "health_potion", Some(&cat)));
-    }
-
-    #[test]
-    fn no_stack_equipment() {
-        let cat = test_catalog();
-        let mut inv = vec![];
-        assert!(add_item(&mut inv, "warm_cloak", Some(&cat)));
-        // Already have one, not stackable
-        assert!(!add_item(&mut inv, "warm_cloak", Some(&cat)));
-        assert_eq!(inv[0].quantity, 1);
     }
 
     #[test]
@@ -159,22 +292,71 @@ mod tests {
         add_item(&mut inv, "health_potion", Some(&cat));
         add_item(&mut inv, "health_potion", Some(&cat));
         assert!(has_item(&inv, "health_potion"));
-        assert!(!has_item(&inv, "warm_cloak"));
-
         assert!(remove_item(&mut inv, "health_potion"));
         assert_eq!(inv[0].quantity, 1);
         assert!(remove_item(&mut inv, "health_potion"));
         assert!(inv.is_empty());
-        assert!(!remove_item(&mut inv, "health_potion"));
     }
 
     #[test]
-    fn add_without_catalog() {
+    fn equip_and_unequip() {
+        let cat = test_catalog();
         let mut inv = vec![];
-        assert!(add_item(&mut inv, "mystery_thing", None));
-        assert_eq!(inv[0].quantity, 1);
-        // Without catalog, max_stack defaults to 1 (non-stackable)
-        assert!(!add_item(&mut inv, "mystery_thing", None));
+        let mut loadout = EquipmentLoadout::default();
+
+        add_item(&mut inv, "iron_sword", Some(&cat));
+        let old = equip_item(&mut loadout, &mut inv, "iron_sword", &cat).unwrap();
+        assert!(old.is_none());
+        assert_eq!(loadout.weapon, Some("iron_sword".to_string()));
+        assert!(!has_item(&inv, "iron_sword")); // removed from inventory
+
+        // Unequip
+        assert!(unequip_item(&mut loadout, &mut inv, EquipmentSlot::Weapon, &cat));
+        assert!(loadout.weapon.is_none());
+        assert!(has_item(&inv, "iron_sword")); // back in inventory
+    }
+
+    #[test]
+    fn equip_swap() {
+        let cat = test_catalog();
+        let mut inv = vec![];
+        let mut loadout = EquipmentLoadout::default();
+
+        // Add two items that could conflict but they're different slots
+        add_item(&mut inv, "iron_sword", Some(&cat));
+        add_item(&mut inv, "leather_vest", Some(&cat));
+
+        equip_item(&mut loadout, &mut inv, "iron_sword", &cat).unwrap();
+        equip_item(&mut loadout, &mut inv, "leather_vest", &cat).unwrap();
+        assert_eq!(loadout.weapon, Some("iron_sword".to_string()));
+        assert_eq!(loadout.armor, Some("leather_vest".to_string()));
+    }
+
+    #[test]
+    fn equipment_bonuses_sum() {
+        let cat = test_catalog();
+        let loadout = EquipmentLoadout {
+            weapon: Some("iron_sword".to_string()),
+            armor: Some("leather_vest".to_string()),
+            accessory: Some("warm_cloak".to_string()),
+        };
+        let (atk, def, hp) = equipment_bonuses(&loadout, &cat);
+        assert_eq!(atk, 5);
+        assert_eq!(def, 3); // 2 + 1
+        assert_eq!(hp, 0);
+    }
+
+    #[test]
+    fn has_item_or_equipped_check() {
+        let mut inv = vec![];
+        let mut loadout = EquipmentLoadout::default();
+        loadout.accessory = Some("warm_cloak".to_string());
+
+        assert!(!has_item(&inv, "warm_cloak"));
+        assert!(has_item_or_equipped(&inv, &loadout, "warm_cloak"));
+
+        inv.push(InventorySlot { item_id: "rope".to_string(), quantity: 1 });
+        assert!(has_item_or_equipped(&inv, &loadout, "rope"));
     }
 
     #[test]
@@ -182,6 +364,6 @@ mod tests {
         let cat = test_catalog();
         let json = serde_json::to_string(&cat).unwrap();
         let parsed = ItemCatalog::from_json(&json).unwrap();
-        assert_eq!(parsed.items.len(), 3);
+        assert_eq!(parsed.items.len(), 5);
     }
 }

@@ -1,30 +1,86 @@
 {
   "items": [
     {
-      "id": "warm_cloak",
-      "display_name": "Warm Cloak",
-      "description": "A thick woolen cloak that protects against mountain cold.",
-      "category": "equipment"
+      "id": "health_potion",
+      "display_name": "Health Potion",
+      "description": "Restores 30 HP during combat.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 10,
+      "effects": [
+        {
+          "type": "heal",
+          "amount": 30
+        }
+      ]
     },
     {
-      "id": "bog_charm",
-      "display_name": "Bog Charm",
-      "description": "A strange talisman that wards off swamp curses.",
-      "category": "equipment"
+      "id": "greater_health_potion",
+      "display_name": "Greater Health Potion",
+      "description": "Restores 60 HP during combat.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 5,
+      "effects": [
+        {
+          "type": "heal",
+          "amount": 60
+        }
+      ]
     },
     {
-      "id": "forest_map",
-      "display_name": "Forest Map",
-      "description": "A detailed map of hidden forest paths.",
-      "category": "key_item"
+      "id": "speed_potion",
+      "display_name": "Speed Potion",
+      "description": "Boosts attack power by 3 for the current fight.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 5,
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 3
+        }
+      ]
     },
     {
       "id": "mystery_potion",
       "display_name": "Mystery Potion",
-      "description": "A bubbling concoction of unknown effect.",
+      "description": "A bubbling concoction. Heals 20 HP and boosts defense by 2.",
       "category": "consumable",
       "stackable": true,
-      "max_stack": 5
+      "max_stack": 5,
+      "effects": [
+        {
+          "type": "heal",
+          "amount": 20
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 2
+        }
+      ]
+    },
+    {
+      "id": "battle_elixir",
+      "display_name": "Battle Elixir",
+      "description": "Boosts attack by 5 and defense by 3. Rare.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 3,
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 5
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 3
+        }
+      ]
     },
     {
       "id": "explorers_map",
@@ -32,31 +88,27 @@
       "description": "Reveals a large area of the fog of war.",
       "category": "consumable",
       "stackable": true,
-      "max_stack": 3
-    },
-    {
-      "id": "speed_potion",
-      "display_name": "Speed Potion",
-      "description": "Temporarily increases movement speed.",
-      "category": "consumable",
-      "stackable": true,
-      "max_stack": 5
-    },
-    {
-      "id": "health_potion",
-      "display_name": "Health Potion",
-      "description": "Restores health during combat.",
-      "category": "consumable",
-      "stackable": true,
-      "max_stack": 10
+      "max_stack": 3,
+      "effects": [
+        {
+          "type": "reveal_fog",
+          "radius": 15
+        }
+      ]
     },
     {
       "id": "compass",
       "display_name": "Compass",
-      "description": "Reveals nearby points of interest.",
+      "description": "Reveals nearby area around you.",
       "category": "consumable",
       "stackable": true,
-      "max_stack": 3
+      "max_stack": 3,
+      "effects": [
+        {
+          "type": "reveal_fog",
+          "radius": 8
+        }
+      ]
     },
     {
       "id": "torch",
@@ -64,30 +116,216 @@
       "description": "Expands your vision through the fog.",
       "category": "consumable",
       "stackable": true,
-      "max_stack": 5
+      "max_stack": 5,
+      "effects": [
+        {
+          "type": "reveal_fog",
+          "radius": 5
+        }
+      ]
     },
     {
-      "id": "rope",
-      "display_name": "Rope",
-      "description": "Useful for accessing hidden dungeon areas.",
-      "category": "key_item"
+      "id": "wooden_club",
+      "display_name": "Wooden Club",
+      "description": "A crude but effective weapon. ATK +2",
+      "category": "equipment",
+      "slot": "weapon",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 2
+        }
+      ]
+    },
+    {
+      "id": "iron_sword",
+      "display_name": "Iron Sword",
+      "description": "A reliable blade. ATK +5",
+      "category": "equipment",
+      "slot": "weapon",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 5
+        }
+      ]
+    },
+    {
+      "id": "fire_blade",
+      "display_name": "Fire Blade",
+      "description": "A sword wreathed in flame. ATK +8",
+      "category": "equipment",
+      "slot": "weapon",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 8
+        }
+      ]
+    },
+    {
+      "id": "frost_axe",
+      "display_name": "Frost Axe",
+      "description": "Forged in eternal ice. ATK +6, DEF +2",
+      "category": "equipment",
+      "slot": "weapon",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 6
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 2
+        }
+      ]
+    },
+    {
+      "id": "leather_vest",
+      "display_name": "Leather Vest",
+      "description": "Basic protection. DEF +2",
+      "category": "equipment",
+      "slot": "armor",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 2
+        }
+      ]
+    },
+    {
+      "id": "chainmail",
+      "display_name": "Chainmail",
+      "description": "Solid protection. DEF +4, HP +15",
+      "category": "equipment",
+      "slot": "armor",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 4
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "max_hp",
+          "amount": 15
+        }
+      ]
+    },
+    {
+      "id": "dragonscale_armor",
+      "display_name": "Dragonscale Armor",
+      "description": "Legendary armor. DEF +7, HP +30",
+      "category": "equipment",
+      "slot": "armor",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 7
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "max_hp",
+          "amount": 30
+        }
+      ]
+    },
+    {
+      "id": "warm_cloak",
+      "display_name": "Warm Cloak",
+      "description": "Protects against mountain cold. DEF +1",
+      "category": "equipment",
+      "slot": "accessory",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 1
+        }
+      ]
+    },
+    {
+      "id": "bog_charm",
+      "display_name": "Bog Charm",
+      "description": "Wards off swamp curses. ATK +1",
+      "category": "equipment",
+      "slot": "accessory",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 1
+        }
+      ]
+    },
+    {
+      "id": "ring_of_vigor",
+      "display_name": "Ring of Vigor",
+      "description": "Pulses with life energy. HP +20",
+      "category": "equipment",
+      "slot": "accessory",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "max_hp",
+          "amount": 20
+        }
+      ]
+    },
+    {
+      "id": "berserker_pendant",
+      "display_name": "Berserker Pendant",
+      "description": "Power at a cost. ATK +4, DEF -1",
+      "category": "equipment",
+      "slot": "accessory",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 4
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": -1
+        }
+      ]
     },
     {
       "id": "starstone",
       "display_name": "The Starstone",
-      "description": "A mysterious glowing stone. The Town Elder said it must reach the Frozen Spire.",
+      "description": "A mysterious glowing stone. Must reach the Frozen Spire.",
       "category": "key_item"
     },
     {
       "id": "frost_key",
       "display_name": "Frost Key",
-      "description": "A crystalline key found deep in The Dark Descent. Opens sealed doors in icy places.",
+      "description": "A crystalline key from The Dark Descent.",
       "category": "key_item"
     },
     {
       "id": "tower_key",
       "display_name": "Tower Key",
-      "description": "An ancient key recovered from the Forgotten Crypt. Opens the Frozen Spire.",
+      "description": "An ancient key from the Forgotten Crypt. Opens the Frozen Spire.",
+      "category": "key_item"
+    },
+    {
+      "id": "forest_map",
+      "display_name": "Forest Map",
+      "description": "Shows hidden paths through the forest.",
+      "category": "key_item"
+    },
+    {
+      "id": "rope",
+      "display_name": "Rope",
+      "description": "Essential for accessing dungeons and deep caves.",
       "category": "key_item"
     }
   ]

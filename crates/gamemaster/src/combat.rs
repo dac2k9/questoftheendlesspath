@@ -16,8 +16,9 @@ pub fn start_combat(
     event_id: &str,
     kind: &EventKind,
     total_distance_m: u64,
+    equipment_bonuses: (i32, i32, i32),
 ) {
-    let state = combat::init_combat(event_id, kind, total_distance_m);
+    let state = combat::init_combat(event_id, kind, total_distance_m, equipment_bonuses);
     let mut lock = shared.lock().unwrap();
     lock.insert(event_id.to_string(), state);
 }

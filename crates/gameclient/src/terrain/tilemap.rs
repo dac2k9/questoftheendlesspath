@@ -111,6 +111,7 @@ pub struct MyPlayerState {
     pub initialized: bool,
     pub last_poll_tile: (i32, i32),
     pub inventory: Vec<questlib::items::InventorySlot>,
+    pub equipment: questlib::items::EquipmentLoadout,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -313,6 +314,7 @@ fn apply_server_state(
     state.facing = me.facing;
     state.total_distance_m = me.total_distance_m;
     state.inventory = me.inventory.clone();
+    state.equipment = me.equipment.clone();
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {
@@ -562,7 +564,13 @@ fn handle_map_click(
         };
         if start == (tx, ty) { return; }
 
-        let inv_ids: Vec<String> = state.inventory.iter().map(|s| s.item_id.clone()).collect();
+        let mut inv_ids: Vec<String> = state.inventory.iter().map(|s| s.item_id.clone()).collect();
+        // Include equipped items for biome gate checks
+        for slot in [questlib::items::EquipmentSlot::Weapon, questlib::items::EquipmentSlot::Armor, questlib::items::EquipmentSlot::Accessory] {
+            if let Some(id) = state.equipment.get_slot(slot) {
+                inv_ids.push(id.to_string());
+            }
+        }
         let path_result = find_path_with_items(&world, start, (tx, ty), &inv_ids);
         if path_result.is_none() {
             // Path blocked — check why and tell the player

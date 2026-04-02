@@ -139,7 +139,7 @@ pub fn run_tick_dev(
             // Block movement into biomes that require items the player doesn't have
             let target_biome = world.biome_at(tile_x, tile_y);
             let has_required_item = target_biome.required_item().map_or(true, |req| {
-                player.inventory.iter().any(|s| s.item_id == req)
+                questlib::items::has_item_or_equipped(&player.inventory, &player.equipment, req)
             });
 
             if should_move && has_required_item {
@@ -265,11 +265,16 @@ pub fn run_tick_dev(
                     | questlib::events::kind::EventKind::RandomEncounter { .. })
                 {
                     if !player.planned_route.is_empty() {
+                        let catalog = questlib::items::ItemCatalog::from_json(
+                            include_str!("../../../adventures/items.json")
+                        ).unwrap_or_default();
+                        let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog);
                         server_combat::start_combat(
                             shared_combat,
                             &event.id,
                             &event.kind,
                             player.total_distance_m as u64,
+                            eq_bonus,
                         );
                         info!("  Combat started: {}", event.name);
                     } else {

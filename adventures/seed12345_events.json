@@ -106,6 +106,16 @@
             "name": "torch",
             "cost": 20,
             "effect": "fog_radius"
+          },
+          {
+            "name": "wooden_club",
+            "cost": 40,
+            "effect": "equip"
+          },
+          {
+            "name": "leather_vest",
+            "cost": 50,
+            "effect": "equip"
           }
         ]
       },
@@ -259,19 +269,19 @@
             "effect": "dungeon_access"
           },
           {
-            "name": "compass",
-            "cost": 75,
-            "effect": "reveal_fog"
-          },
-          {
-            "name": "torch",
-            "cost": 25,
-            "effect": "fog_radius"
+            "name": "iron_sword",
+            "cost": 120,
+            "effect": "equip"
           },
           {
             "name": "health_potion",
             "cost": 35,
             "effect": "heal"
+          },
+          {
+            "name": "torch",
+            "cost": 25,
+            "effect": "fog_radius"
           }
         ]
       },
@@ -304,8 +314,12 @@
           "amount": 70
         },
         {
+          "effect": "item",
+          "name": "wooden_club"
+        },
+        {
           "effect": "notification",
-          "text": "Cleared the bandit camp! +70 gold"
+          "text": "Cleared the bandit camp! +70 gold Dropped: Wooden Club!"
         }
       ],
       "status": "pending",
@@ -403,8 +417,12 @@
           "amount": 100
         },
         {
+          "effect": "item",
+          "name": "iron_sword"
+        },
+        {
           "effect": "notification",
-          "text": "Defeated the Guardian! +100 gold"
+          "text": "Defeated the Guardian! +100 gold Dropped: Iron Sword!"
         }
       ],
       "status": "pending",
@@ -529,8 +547,12 @@
           "amount": 150
         },
         {
+          "effect": "item",
+          "name": "ring_of_vigor"
+        },
+        {
           "effect": "notification",
-          "text": "Defeated the Cavern Wyrm! Found the Frost Key!"
+          "text": "Defeated the Cavern Wyrm! Found the Frost Key! Dropped: Ring Of Vigor!"
         }
       ],
       "status": "pending",
@@ -684,14 +706,24 @@
             "effect": "heal"
           },
           {
+            "name": "greater_health_potion",
+            "cost": 60,
+            "effect": "heal"
+          },
+          {
+            "name": "chainmail",
+            "cost": 150,
+            "effect": "equip"
+          },
+          {
             "name": "speed_potion",
-            "cost": 100,
+            "cost": 80,
             "effect": "speed_boost"
           },
           {
-            "name": "explorers_map",
-            "cost": 180,
-            "effect": "reveal_fog"
+            "name": "battle_elixir",
+            "cost": 120,
+            "effect": "buff"
           }
         ]
       },
@@ -771,8 +803,12 @@
           "amount": 200
         },
         {
+          "effect": "item",
+          "name": "chainmail"
+        },
+        {
           "effect": "notification",
-          "text": "Defeated the Crypt Guardian! Found the Tower Key!"
+          "text": "Defeated the Crypt Guardian! Found the Tower Key! Dropped: Chainmail!"
         }
       ],
       "status": "pending",
@@ -998,8 +1034,16 @@
           "amount": 500
         },
         {
+          "effect": "item",
+          "name": "frost_axe"
+        },
+        {
+          "effect": "item",
+          "name": "dragonscale_armor"
+        },
+        {
           "effect": "notification",
-          "text": "The Frost Lord falls! The Starstone glows with blinding light!"
+          "text": "The Frost Lord falls! The Starstone glows with blinding light! Dropped: Frost Axe, Dragonscale Armor!"
         }
       ],
       "status": "pending",
