@@ -154,7 +154,7 @@ fn biome_to_ground(biome: Biome) -> Ground {
         Biome::Grassland => Ground::Grass,
         Biome::Forest => Ground::Grass,        // grass base, trees as overlay
         Biome::DenseForest => Ground::Grass,    // grass base, dense trees as overlay
-        Biome::Mountain => Ground::Sand,        // rocky/sandy ground
+        Biome::Mountain => Ground::Stone,        // grey rocky ground
         Biome::Desert => Ground::Sand,
         Biome::Snow => Ground::Snow,
         Biome::Swamp => Ground::Swamp,

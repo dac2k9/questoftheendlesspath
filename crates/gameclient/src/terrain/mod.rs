@@ -11,6 +11,7 @@ pub enum Ground {
     Road,      // textured/dead grass as path
     Water,
     Sand,
+    Stone,     // grey rocky mountain ground
     Snow,
     Swamp,
 }
@@ -75,6 +76,7 @@ impl Ground {
             Ground::Grass => 40,
             Ground::Sand => 50,
             Ground::Snow => 70,
+            Ground::Stone => 80,
             Ground::Swamp => 100,
             Ground::Water => u32::MAX,
         }
@@ -90,6 +92,7 @@ impl Ground {
             Ground::Road => "Road",
             Ground::Water => "Water",
             Ground::Sand => "Sand",
+            Ground::Stone => "Stone",
             Ground::Snow => "Snow",
             Ground::Swamp => "Swamp",
         }
@@ -105,6 +108,7 @@ impl Ground {
             Ground::Road => 3,       // light sandy (shore tile — matches original road look)
             Ground::Water => 19,     // blue water
             Ground::Sand => 11,      // sandy
+            Ground::Stone => 13,     // grey stone/rock
             Ground::Snow => 22,      // white snow
             Ground::Swamp => 15,     // dark muddy
         }
@@ -118,6 +122,7 @@ impl Ground {
             Ground::Road => [3, 4][h % 2],                    // light sandy road variants
             Ground::Water => 20,                             // solid blue water (no variation)
             Ground::Sand => [11, 12][h % 2],
+            Ground::Stone => [13, 17][h % 2],               // grey stone variants
             Ground::Snow => [22, 23, 24, 25][h % 4],       // snow variants
             Ground::Swamp => [14, 15, 16][h % 3],
         }

@@ -59,9 +59,10 @@ struct JoinCodeText;
 #[derive(Component)]
 struct StatusText;
 
-fn setup_font(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup_font(mut commands: Commands, mut fonts: ResMut<Assets<Font>>) {
     commands.spawn(Camera2d);
-    let font = asset_server.load("fonts/PressStart2P.ttf");
+    let font_bytes = include_bytes!("../../assets/fonts/PressStart2P.ttf");
+    let font = fonts.add(Font::try_from_bytes(font_bytes.to_vec()).expect("valid font"));
     commands.insert_resource(GameFont(font));
 }
 
