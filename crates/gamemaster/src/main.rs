@@ -124,7 +124,7 @@ async fn main() -> Result<()> {
 
     // Track per-player state
     let mut player_fogs: HashMap<String, questlib::fog::FogBitfield> = HashMap::new();
-    let mut player_last_distance: HashMap<String, i32> = HashMap::new();
+    let mut player_last_distance: HashMap<String, f64> = HashMap::new();
 
     info!("Game Master running (dev mode). Tick interval: 3s. Dev server on :3001");
     let mut interval = tokio::time::interval(Duration::from_secs(1));

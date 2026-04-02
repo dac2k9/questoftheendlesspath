@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
         }
 
         // Mark as not walking
-        send_update(&player_id, 0.0, 0, 0, false).await;
+        send_update(&player_id, 0.0, 0.0, 0, false).await;
 
         info!("Reconnecting in 5 seconds...");
         time::sleep(Duration::from_secs(5)).await;
@@ -164,7 +164,7 @@ async fn run_session(player_id: &str, device_name: &str) -> Result<()> {
 
     let mut notification_stream = peripheral.notifications().await?;
     let mut last_write = Instant::now();
-    let mut last_sent_distance: Option<i32> = None;
+    let mut last_sent_distance: Option<f64> = None;
     let mut step_tracker = StepTracker::new();
     let mut activity = ActivityTracker::new();
 
@@ -196,7 +196,8 @@ async fn run_session(player_id: &str, device_name: &str) -> Result<()> {
         }
 
         // Rate-limit writes to every 2 seconds
-        if last_write.elapsed() < Duration::from_millis(2000) {
+        let write_elapsed = last_write.elapsed();
+        if write_elapsed < Duration::from_millis(2000) {
             continue;
         }
         last_write = Instant::now();
@@ -204,26 +205,29 @@ async fn run_session(player_id: &str, device_name: &str) -> Result<()> {
         // Check if user is actually walking (steps increasing)
         let actually_walking = activity.update(current_steps, treadmill_running, has_urevo);
 
-        // Distance from FTMS
-        let raw_distance = parse_treadmill_data(&notification.value)
+        // Distance: prefer FTMS total_distance if available, otherwise compute from speed.
+        let ftms_distance = parse_treadmill_data(&notification.value)
             .and_then(|d| d.total_distance_m)
-            .map(|d| d as i32)
-            .unwrap_or(0);
+            .map(|d| d as f64);
 
-        // First reading — set baseline
-        if last_sent_distance.is_none() {
+        let delta: f64 = if let Some(raw_distance) = ftms_distance {
+            // FTMS reports cumulative distance — compute delta from baseline
+            if last_sent_distance.is_none() {
+                last_sent_distance = Some(raw_distance);
+                info!("Distance baseline: {:.1}m | Steps: {} | UREVO: {}", raw_distance, current_steps, has_urevo);
+                continue;
+            }
+            let d = (raw_distance - last_sent_distance.unwrap_or(0.0)).max(0.0);
             last_sent_distance = Some(raw_distance);
-            info!("Distance baseline: {}m | Steps: {} | UREVO: {}", raw_distance, current_steps, has_urevo);
-            continue;
-        }
-
-        // Send delta
-        let delta = (raw_distance - last_sent_distance.unwrap_or(0)).max(0);
-        last_sent_distance = Some(raw_distance);
+            d
+        } else {
+            // No FTMS distance (e.g. UREVO) — compute from speed × elapsed time
+            current_speed_kmh as f64 / 3.6 * write_elapsed.as_secs_f64()
+        };
 
         // If idle (belt running but no steps), report 0 speed
         let reported_speed = if actually_walking { current_speed_kmh } else { 0.0 };
-        let reported_delta = if actually_walking { delta } else { 0 };
+        let reported_delta = if actually_walking { delta } else { 0.0 };
 
         send_update(
             player_id,
@@ -235,7 +239,7 @@ async fn run_session(player_id: &str, device_name: &str) -> Result<()> {
 
         let walking_str = if actually_walking { "WALKING" } else { "IDLE (belt only)" };
         info!(
-            "Speed: {:.1} km/h | Delta: {}m | Steps: {} | {}",
+            "Speed: {:.1} km/h | Delta: {:.2}m | Steps: {} | {}",
             current_speed_kmh, delta, current_steps, walking_str
         );
     }
@@ -243,7 +247,7 @@ async fn run_session(player_id: &str, device_name: &str) -> Result<()> {
     Ok(())
 }
 
-async fn send_update(player_id: &str, speed: f32, distance_delta: i32, steps: u64, actually_walking: bool) {
+async fn send_update(player_id: &str, speed: f32, distance_delta: f64, steps: u64, actually_walking: bool) {
     let body = serde_json::json!({
         "player_id": player_id,
         "speed": speed,

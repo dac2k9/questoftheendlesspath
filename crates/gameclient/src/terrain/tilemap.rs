@@ -106,7 +106,7 @@ pub struct MyPlayerState {
     pub gold: i32,
     pub revealed_tiles: String,
     pub facing: questlib::route::Facing,
-    pub total_distance_m: i32,
+    pub total_distance_m: f64,
     pub initialized: bool,
     pub last_poll_tile: (i32, i32),
 }

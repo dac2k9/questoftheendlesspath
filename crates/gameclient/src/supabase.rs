@@ -31,7 +31,7 @@ pub struct PlayerRow {
     pub id: String,
     pub name: String,
     pub current_speed_kmh: f32,
-    pub total_distance_m: i32,
+    pub total_distance_m: f64,
     pub is_walking: bool,
     pub map_tile_x: Option<i32>,
     pub map_tile_y: Option<i32>,

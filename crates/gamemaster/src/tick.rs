@@ -18,7 +18,7 @@ pub fn run_tick_dev(
     shared_notifs: &SharedNotifs,
     shared_combat: &SharedCombat,
     player_fogs: &mut HashMap<String, FogBitfield>,
-    player_last_distance: &mut HashMap<String, i32>,
+    player_last_distance: &mut HashMap<String, f64>,
     rng_roll: f32,
 ) -> Result<()> {
     // Snapshot player state — release lock so walker/debug can write
@@ -65,20 +65,19 @@ pub fn run_tick_dev(
             player.total_distance_m, player.gold, player.route_meters_walked
         );
 
-        // Distance delta — use f64 for sub-meter precision.
-        // Debug walking computes delta from speed directly (no integer accumulator).
+        // Distance delta — f64 throughout for sub-meter precision.
+        // Debug walking computes delta from speed directly.
         let delta: f64 = if player.debug_walking {
-            // Meters per tick (1s) from speed, capped at 20m
             (player.current_speed_kmh as f64 / 3.6).min(20.0)
         } else {
             let last_dist = *player_last_distance.get(player_id).unwrap_or(&player.total_distance_m);
-            let raw_delta = (player.total_distance_m - last_dist).max(0);
-            let capped = raw_delta.min(20);
+            let raw_delta = (player.total_distance_m - last_dist).max(0.0);
+            let capped = raw_delta.min(20.0);
             player_last_distance.insert(player_id.clone(), player.total_distance_m);
-            if raw_delta != capped {
-                info!("[{}] delta capped: {}m → {}m", player.name, raw_delta, capped);
+            if (raw_delta - capped).abs() > 0.01 {
+                info!("[{}] delta capped: {:.1}m → {:.1}m", player.name, raw_delta, capped);
             }
-            capped as f64
+            capped
         };
         info!("[{}] delta={:.2}m (speed={:.1}km/h)", player.name, delta, player.current_speed_kmh);
 
@@ -164,11 +163,11 @@ pub fn run_tick_dev(
             if let Some(p) = lock.get_mut(player_id) {
                 // Debug walking: tick manages total_distance since handler only sets speed
                 if p.debug_walking {
-                    p.total_distance_m += delta as i32;
+                    p.total_distance_m += delta;
                 }
                 // Gold: 1 gold per 10 meters walked (based on distance milestones)
-                let old_gold_milestone = (p.total_distance_m - delta as i32) / 10;
-                let new_gold_milestone = p.total_distance_m / 10;
+                let old_gold_milestone = ((p.total_distance_m - delta) / 10.0) as i32;
+                let new_gold_milestone = (p.total_distance_m / 10.0) as i32;
                 gold_delta = (new_gold_milestone - old_gold_milestone).max(0);
                 p.gold += gold_delta;
                 p.route_meters_walked = new_route_meters;
@@ -207,7 +206,7 @@ pub fn run_tick_dev(
                 }
 
                 // Check for level up
-                let old_level = questlib::leveling::level_from_meters(p.total_distance_m.saturating_sub(delta as i32) as u64);
+                let old_level = questlib::leveling::level_from_meters((p.total_distance_m - delta).max(0.0) as u64);
                 let new_level = questlib::leveling::level_from_meters(p.total_distance_m as u64);
                 if new_level > old_level {
                     info!("[{}] leveled up! {} → {}", p.name, old_level, new_level);
@@ -337,7 +336,7 @@ pub fn run_tick_dev(
 
 /// Create a test player with the given parameters.
 #[cfg(test)]
-fn test_player(name: &str, tile_x: i32, tile_y: i32, route: &str, distance: i32, walking: bool) -> DevPlayerState {
+fn test_player(name: &str, tile_x: i32, tile_y: i32, route: &str, distance: f64, walking: bool) -> DevPlayerState {
     DevPlayerState {
         id: format!("test-{name}"),
         name: name.to_string(),
@@ -419,8 +418,8 @@ mod tests {
     /// Run N ticks, incrementing total_distance by delta_per_tick each time.
     fn run_ticks(
         state: &SharedState, world: &WorldMap, events: &SharedEvents, notifs: &SharedNotifs, combat: &SharedCombat,
-        fogs: &mut HashMap<String, FogBitfield>, last_dist: &mut HashMap<String, i32>,
-        player_id: &str, n: usize, delta_per_tick: i32,
+        fogs: &mut HashMap<String, FogBitfield>, last_dist: &mut HashMap<String, f64>,
+        player_id: &str, n: usize, delta_per_tick: f64,
     ) {
         for _ in 0..n {
             {
@@ -440,7 +439,7 @@ mod tests {
         let w = world();
         let route = road_route(&w, 5);
         let player = test_player("idle", route[0].0 as i32, route[0].1 as i32,
-            &encode_route_json(&route), 100, false);
+            &encode_route_json(&route), 100.0, false);
         let pid = player.id.clone();
         let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
@@ -456,7 +455,7 @@ mod tests {
     #[test]
     fn walking_no_route_earns_gold() {
         let w = world();
-        let player = test_player("noroute", 50, 40, "", 100, true);
+        let player = test_player("noroute", 50, 40, "", 100.0, true);
         let pid = player.id.clone();
         let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
@@ -466,7 +465,7 @@ mod tests {
         run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
         {
             let mut lock = state.lock().unwrap();
-            lock.get_mut(&pid).unwrap().total_distance_m = 110;
+            lock.get_mut(&pid).unwrap().total_distance_m = 110.0;
         }
         run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
 
@@ -481,14 +480,14 @@ mod tests {
         let route = road_route(&w, 10);
         let start = route[0];
         let player = test_player("walker", start.0 as i32, start.1 as i32,
-            &encode_route_json(&route), 0, true);
+            &encode_route_json(&route), 0.0, true);
         let pid = player.id.clone();
         let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // Walk 10m per tick for 20 ticks (200m total — enough for several road tiles at 20m each)
-        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 20, 10);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 20, 10.0);
 
         let p = get_player(&state, &pid);
         assert!(p.route_meters_walked > 0.0, "route_meters should advance");
@@ -503,15 +502,15 @@ mod tests {
         let route = road_route(&w, 10);
         let start = route[0];
         let player = test_player("speedy", start.0 as i32, start.1 as i32,
-            &encode_route_json(&route), 0, true);
+            &encode_route_json(&route), 0.0, true);
         let pid = player.id.clone();
         let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // Huge jump in distance (cheating or glitch)
-        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 0);
-        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 500);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 0.0);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 500.0);
 
         let p = get_player(&state, &pid);
         // Delta capped at 20, so route_meters should be <= 20
@@ -525,14 +524,14 @@ mod tests {
         let route = road_route(&w, 3); // short route: 3 road tiles = 60m
         let start = route[0];
         let player = test_player("finisher", start.0 as i32, start.1 as i32,
-            &encode_route_json(&route), 0, true);
+            &encode_route_json(&route), 0.0, true);
         let pid = player.id.clone();
         let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // Walk 10m/tick for 20 ticks (200m — plenty for 60m route)
-        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 20, 10);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 20, 10.0);
 
         let p = get_player(&state, &pid);
         assert!(p.planned_route.is_empty(), "route should be cleared after completion");
@@ -549,7 +548,7 @@ mod tests {
         let route = road_route(&w, 15);
         let start = route[0];
         let player = test_player("forward", start.0 as i32, start.1 as i32,
-            &encode_route_json(&route), 0, true);
+            &encode_route_json(&route), 0.0, true);
         let pid = player.id.clone();
         let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
@@ -559,7 +558,7 @@ mod tests {
         for tick in 0..30 {
             {
                 let mut lock = state.lock().unwrap();
-                lock.get_mut(&pid).unwrap().total_distance_m += 10;
+                lock.get_mut(&pid).unwrap().total_distance_m += 10.0;
             }
             run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
 
@@ -582,18 +581,18 @@ mod tests {
         let route = road_route(&w, 10);
         let start = route[0];
         let player = test_player("miner", start.0 as i32, start.1 as i32,
-            &encode_route_json(&route), 0, true);
+            &encode_route_json(&route), 0.0, true);
         let pid = player.id.clone();
         let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
         // Init tick
-        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 0);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 0.0);
 
         let mut last_gold = 0;
         for _ in 0..5 {
-            run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 15);
+            run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 15.0);
             let p = get_player(&state, &pid);
             assert!(p.gold > last_gold, "gold should increase each tick: {} -> {}", last_gold, p.gold);
             last_gold = p.gold;
@@ -606,13 +605,13 @@ mod tests {
         let route = road_route(&w, 5);
         let start = route[0];
         let player = test_player("explorer", start.0 as i32, start.1 as i32,
-            &encode_route_json(&route), 0, true);
+            &encode_route_json(&route), 0.0, true);
         let pid = player.id.clone();
         let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
-        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 0);
+        run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 1, 0.0);
 
         let fog = fogs.get(&pid).unwrap();
         assert!(fog.is_revealed(start.0, start.1), "start tile should be revealed");
@@ -628,7 +627,7 @@ mod tests {
         let route = road_route(&w, 5);
         let start = route[0];
         let player = test_player("still", start.0 as i32, start.1 as i32,
-            &encode_route_json(&route), 100, true);
+            &encode_route_json(&route), 100.0, true);
         let pid = player.id.clone();
         let (state, events, notifs, combat) = make_test_state(vec![player]);
         let mut fogs = HashMap::new();
