@@ -526,6 +526,7 @@ fn handle_map_click(
     mut commands: Commands,
     path_markers: Query<Entity, With<PathMarker>>,
     mut info_q: Query<(&mut Text2d, &mut Transform), (With<TileInfoText>, Without<PlayerSprite>)>,
+    mut notifications: ResMut<crate::dialogue::NotificationQueue>,
 ) {
     let Ok(window) = windows.get_single() else { return };
     let Ok((camera, cam_tf)) = camera_q.get_single() else { return };
@@ -562,7 +563,21 @@ fn handle_map_click(
         if start == (tx, ty) { return; }
 
         let inv_ids: Vec<String> = state.inventory.iter().map(|s| s.item_id.clone()).collect();
-        if let Some(mut segment) = find_path_with_items(&world, start, (tx, ty), &inv_ids) {
+        let path_result = find_path_with_items(&world, start, (tx, ty), &inv_ids);
+        if path_result.is_none() {
+            // Path blocked — check why and tell the player
+            let target_biome = world.map.biome_at(tx, ty);
+            if let Some(req) = target_biome.required_item() {
+                let msg = match req {
+                    "warm_cloak" => "It's too cold! You need a Warm Cloak to enter the mountains.",
+                    "bog_charm" => "The swamp is cursed! You need a Bog Charm to enter.",
+                    _ => "You need a special item to go there.",
+                };
+                notifications.pending.push(crate::dialogue::NotificationData { text: msg.to_string(), duration: 4.0 });
+            }
+            return;
+        }
+        if let Some(mut segment) = path_result {
             let send_meters;
             let marker_skip;
 

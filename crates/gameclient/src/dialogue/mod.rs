@@ -557,7 +557,7 @@ fn update_notifications(
         )).with_children(|parent| {
             parent.spawn((
                 Text::new(""),
-                TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
+                TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
                 TextColor(Color::srgb(0.8, 0.8, 0.7)),
                 MessageLogText,
             ));
