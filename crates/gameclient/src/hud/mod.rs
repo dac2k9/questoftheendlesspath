@@ -13,10 +13,11 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), spawn_hud)
+        app.insert_resource(InventoryOpen(false))
+            .add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
                 Update,
-                (update_hud, detect_gold_change, detect_level_up, update_floating_texts)
+                (update_hud, detect_gold_change, detect_level_up, update_floating_texts, toggle_inventory, update_inventory)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -220,4 +221,116 @@ fn detect_level_up(
         }
     }
     last_level.0 = current_level;
+}
+
+// ── Inventory Panel ──────────────────────────────────
+
+#[derive(Resource)]
+struct InventoryOpen(bool);
+
+#[derive(Component)]
+struct InventoryPanel;
+
+#[derive(Component)]
+struct InventoryContent;
+
+fn toggle_inventory(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut open: ResMut<InventoryOpen>,
+    mut commands: Commands,
+    panel_q: Query<Entity, With<InventoryPanel>>,
+    font: Res<GameFont>,
+    state: Res<MyPlayerState>,
+) {
+    if !keys.just_pressed(KeyCode::KeyI) {
+        return;
+    }
+    open.0 = !open.0;
+
+    if !open.0 {
+        for entity in &panel_q {
+            commands.entity(entity).despawn_recursive();
+        }
+        return;
+    }
+
+    // Spawn panel
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(40.0),
+            right: Val::Px(12.0),
+            width: Val::Px(220.0),
+            min_height: Val::Px(100.0),
+            max_height: Val::Px(400.0),
+            padding: UiRect::all(Val::Px(12.0)),
+            border: UiRect::all(Val::Px(2.0)),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(4.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.02, 0.02, 0.08, 0.92)),
+        BorderColor(Color::srgb(0.4, 0.35, 0.2)),
+        BorderRadius::all(Val::Px(6.0)),
+        InventoryPanel,
+    )).with_children(|parent| {
+        // Title
+        parent.spawn((
+            Text::new("Inventory"),
+            TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+            TextColor(Color::srgb(1.0, 0.85, 0.3)),
+        ));
+
+        // Content container — will be updated each frame
+        parent.spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(2.0),
+                ..default()
+            },
+            InventoryContent,
+        )).with_children(|content| {
+            build_inventory_items(content, &state, &font);
+        });
+    });
+}
+
+fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font: &GameFont) {
+    if state.inventory.is_empty() {
+        parent.spawn((
+            Text::new("(empty)"),
+            TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+            TextColor(Color::srgb(0.5, 0.5, 0.5)),
+        ));
+        return;
+    }
+    for slot in &state.inventory {
+        let text = if slot.quantity > 1 {
+            format!("{} x{}", slot.item_id, slot.quantity)
+        } else {
+            slot.item_id.clone()
+        };
+        parent.spawn((
+            Text::new(text),
+            TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+        ));
+    }
+}
+
+fn update_inventory(
+    mut commands: Commands,
+    open: Res<InventoryOpen>,
+    state: Res<MyPlayerState>,
+    font: Res<GameFont>,
+    content_q: Query<Entity, With<InventoryContent>>,
+) {
+    if !open.0 { return; }
+    let Ok(content_entity) = content_q.get_single() else { return; };
+
+    // Rebuild children every frame the inventory is open
+    commands.entity(content_entity).despawn_descendants();
+    commands.entity(content_entity).with_children(|content| {
+        build_inventory_items(content, &state, &font);
+    });
 }

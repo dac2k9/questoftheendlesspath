@@ -28,7 +28,8 @@ impl Plugin for TilemapPlugin {
                     handle_pan,
                 ).run_if(in_state(AppState::InGame)
                     .and(not(crate::combat::combat_active))
-                    .and(not(crate::dialogue::dialogue_active))),
+                    .and(not(crate::dialogue::dialogue_active))
+                    .and(not(crate::dialogue::shop_active))),
             )
             .add_systems(
                 Update,
@@ -109,6 +110,7 @@ pub struct MyPlayerState {
     pub total_distance_m: f64,
     pub initialized: bool,
     pub last_poll_tile: (i32, i32),
+    pub inventory: Vec<questlib::items::InventorySlot>,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -309,6 +311,7 @@ fn apply_server_state(
     state.gold = me.gold;
     state.facing = me.facing;
     state.total_distance_m = me.total_distance_m;
+    state.inventory = me.inventory.clone();
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {

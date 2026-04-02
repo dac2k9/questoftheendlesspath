@@ -11,6 +11,7 @@ impl Plugin for DialoguePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(DialogueState::default())
             .insert_resource(NotificationQueue::default())
+            .insert_resource(ShopState::default())
             .add_systems(
                 Update,
                 (
@@ -18,6 +19,8 @@ impl Plugin for DialoguePlugin {
                     update_dialogue,
                     update_notifications,
                     handle_dialogue_input,
+                    update_shop,
+                    handle_shop_input,
                 )
                     .run_if(in_state(AppState::InGame).and(not(crate::combat::combat_active))),
             );
@@ -209,6 +212,204 @@ fn handle_dialogue_input(
         // Rebuild UI for new line
         for entity in &existing {
             commands.entity(entity).despawn_recursive();
+        }
+    }
+}
+
+// ── Shop UI ──────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct ShopItem {
+    pub item_id: String,
+    pub cost: i32,
+}
+
+#[derive(Resource, Default)]
+pub struct ShopState {
+    pub active: bool,
+    pub event_id: String,
+    pub merchant_name: String,
+    pub items: Vec<ShopItem>,
+}
+
+/// Returns true when shop is active — used as a run condition.
+pub fn shop_active(state: Res<ShopState>) -> bool {
+    state.active
+}
+
+#[derive(Component)]
+struct ShopPanel;
+
+#[derive(Component)]
+struct ShopItemButton(usize); // index into ShopState.items
+
+fn update_shop(
+    mut commands: Commands,
+    font: Res<GameFont>,
+    state: Res<ShopState>,
+    player: Res<crate::terrain::tilemap::MyPlayerState>,
+    existing: Query<Entity, With<ShopPanel>>,
+) {
+    if !state.active {
+        for entity in &existing {
+            commands.entity(entity).despawn_recursive();
+        }
+        return;
+    }
+
+    // Rebuild every frame to keep gold amounts current
+    for entity in &existing {
+        commands.entity(entity).despawn_recursive();
+    }
+
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Percent(20.0),
+            left: Val::Percent(20.0),
+            right: Val::Percent(20.0),
+            min_height: Val::Px(150.0),
+            padding: UiRect::all(Val::Px(16.0)),
+            border: UiRect::all(Val::Px(2.0)),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(8.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.02, 0.02, 0.08, 0.95)),
+        BorderColor(Color::srgb(0.4, 0.35, 0.2)),
+        BorderRadius::all(Val::Px(6.0)),
+        ShopPanel,
+    )).with_children(|parent| {
+        // Merchant name
+        parent.spawn((
+            Text::new(format!("{}", state.merchant_name)),
+            TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+            TextColor(Color::srgb(1.0, 0.85, 0.3)),
+        ));
+
+        // Gold display
+        parent.spawn((
+            Text::new(format!("Your gold: {}", player.gold)),
+            TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+            TextColor(Color::srgb(1.0, 0.85, 0.2)),
+        ));
+
+        // Items
+        for (i, item) in state.items.iter().enumerate() {
+            let can_afford = player.gold >= item.cost;
+            let already_has = player.inventory.iter().any(|s| s.item_id == item.item_id);
+
+            parent.spawn((
+                Button,
+                Node {
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                    justify_content: JustifyContent::SpaceBetween,
+                    ..default()
+                },
+                BackgroundColor(if can_afford && !already_has {
+                    Color::srgba(0.15, 0.15, 0.3, 0.8)
+                } else {
+                    Color::srgba(0.1, 0.1, 0.1, 0.5)
+                }),
+                BorderRadius::all(Val::Px(3.0)),
+                ShopItemButton(i),
+            )).with_children(|btn| {
+                let label = if already_has {
+                    format!("{} (owned)", item.item_id)
+                } else {
+                    item.item_id.clone()
+                };
+                btn.spawn((
+                    Text::new(label),
+                    TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                    TextColor(if can_afford && !already_has {
+                        Color::srgb(0.9, 0.9, 0.9)
+                    } else {
+                        Color::srgb(0.5, 0.5, 0.5)
+                    }),
+                ));
+                btn.spawn((
+                    Text::new(format!("{} gold", item.cost)),
+                    TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                    TextColor(Color::srgb(1.0, 0.85, 0.2)),
+                ));
+            });
+        }
+
+        // Close button
+        parent.spawn((
+            Button,
+            Node {
+                padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                align_self: AlignSelf::Center,
+                margin: UiRect::top(Val::Px(8.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.3, 0.15, 0.15, 0.8)),
+            BorderRadius::all(Val::Px(3.0)),
+            ShopItemButton(usize::MAX), // sentinel for close
+        )).with_children(|btn| {
+            btn.spawn((
+                Text::new("[ESC] Leave Shop"),
+                TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                TextColor(Color::srgb(0.9, 0.7, 0.7)),
+            ));
+        });
+    });
+}
+
+fn handle_shop_input(
+    mut shop: ResMut<ShopState>,
+    keys: Res<ButtonInput<KeyCode>>,
+    player: Res<crate::terrain::tilemap::MyPlayerState>,
+    session: Res<crate::GameSession>,
+    btn_q: Query<(&Interaction, &ShopItemButton), Changed<Interaction>>,
+) {
+    // ESC to close
+    if keys.just_pressed(KeyCode::Escape) && shop.active {
+        let event_id = shop.event_id.clone();
+        shop.active = false;
+        // Complete the event
+        let url = format!("http://localhost:3001/events/{}/complete", event_id);
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = reqwest::Client::new();
+            let _ = client.post(&url).send().await;
+        });
+        return;
+    }
+
+    for (interaction, btn) in &btn_q {
+        if *interaction != Interaction::Pressed { continue; }
+
+        if btn.0 == usize::MAX {
+            // Close button
+            let event_id = shop.event_id.clone();
+            shop.active = false;
+            let url = format!("http://localhost:3001/events/{}/complete", event_id);
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(&url).send().await;
+            });
+            return;
+        }
+
+        if let Some(item) = shop.items.get(btn.0) {
+            if player.gold >= item.cost {
+                let player_id = session.player_id.clone();
+                let item_id = item.item_id.clone();
+                let cost = item.cost;
+                wasm_bindgen_futures::spawn_local(async move {
+                    let client = reqwest::Client::new();
+                    let _ = client.post("http://localhost:3001/buy_item")
+                        .json(&serde_json::json!({
+                            "player_id": player_id,
+                            "item_id": item_id,
+                            "cost": cost,
+                        }))
+                        .send()
+                        .await;
+                });
+            }
         }
     }
 }

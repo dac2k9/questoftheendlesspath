@@ -1,0 +1,76 @@
+{
+  "items": [
+    {
+      "id": "warm_cloak",
+      "display_name": "Warm Cloak",
+      "description": "A thick woolen cloak that protects against mountain cold.",
+      "category": "equipment"
+    },
+    {
+      "id": "bog_charm",
+      "display_name": "Bog Charm",
+      "description": "A strange talisman that wards off swamp curses.",
+      "category": "equipment"
+    },
+    {
+      "id": "forest_map",
+      "display_name": "Forest Map",
+      "description": "A detailed map of hidden forest paths.",
+      "category": "key_item"
+    },
+    {
+      "id": "mystery_potion",
+      "display_name": "Mystery Potion",
+      "description": "A bubbling concoction of unknown effect.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 5
+    },
+    {
+      "id": "explorers_map",
+      "display_name": "Explorer's Map",
+      "description": "Reveals a large area of the fog of war.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 3
+    },
+    {
+      "id": "speed_potion",
+      "display_name": "Speed Potion",
+      "description": "Temporarily increases movement speed.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 5
+    },
+    {
+      "id": "health_potion",
+      "display_name": "Health Potion",
+      "description": "Restores health during combat.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 10
+    },
+    {
+      "id": "compass",
+      "display_name": "Compass",
+      "description": "Reveals nearby points of interest.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 3
+    },
+    {
+      "id": "torch",
+      "display_name": "Torch",
+      "description": "Expands your vision through the fog.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 5
+    },
+    {
+      "id": "rope",
+      "display_name": "Rope",
+      "description": "Useful for accessing hidden dungeon areas.",
+      "category": "key_item"
+    }
+  ]
+}

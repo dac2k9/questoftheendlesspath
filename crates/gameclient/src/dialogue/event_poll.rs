@@ -29,6 +29,7 @@ pub fn poll_active_events(
     mut poll: Local<EventPollState>,
     mut dialogue: ResMut<DialogueState>,
     mut notifications: ResMut<NotificationQueue>,
+    mut shop: ResMut<super::ShopState>,
 ) {
     // Initialize timer
     if poll.timer.is_none() {
@@ -116,33 +117,25 @@ pub fn poll_active_events(
                         });
                     }
                     "shop" => {
-                        // Open dialogue-style shop display
-                        if !dialogue.active {
+                        if !shop.active && !dialogue.active {
                             let merchant = event.kind.get("merchant_name")
                                 .and_then(|s| s.as_str())
                                 .unwrap_or("Merchant")
                                 .to_string();
 
-                            let items: Vec<String> = event.kind.get("items")
+                            let items: Vec<super::ShopItem> = event.kind.get("items")
                                 .and_then(|i| i.as_array())
-                                .map(|arr| arr.iter().map(|item| {
-                                    let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-                                    let cost = item.get("cost").and_then(|c| c.as_i64()).unwrap_or(0);
-                                    format!("  {} - {} gold", name, cost)
+                                .map(|arr| arr.iter().filter_map(|item| {
+                                    let name = item.get("name").and_then(|n| n.as_str())?;
+                                    let cost = item.get("cost").and_then(|c| c.as_i64())? as i32;
+                                    Some(super::ShopItem { item_id: name.to_string(), cost })
                                 }).collect())
                                 .unwrap_or_default();
 
-                            let mut lines = vec!["Welcome to my shop!".to_string()];
-                            lines.extend(items);
-                            lines.push("(Shopping coming soon!)".to_string());
-
-                            dialogue.active = true;
-                            dialogue.event_id = event.id.clone();
-                            dialogue.speaker = merchant;
-                            dialogue.lines = lines;
-                            dialogue.current_line = 0;
-                            dialogue.typewriter_index = 0;
-                            dialogue.typewriter_timer = 0.0;
+                            shop.active = true;
+                            shop.event_id = event.id.clone();
+                            shop.merchant_name = merchant;
+                            shop.items = items;
                         }
                     }
                     _ => {

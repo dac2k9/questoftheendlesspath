@@ -36,6 +36,8 @@ pub struct DevPlayerState {
     pub current_incline: f32,
     #[serde(default)]
     pub debug_walking: bool,
+    #[serde(default)]
+    pub inventory: Vec<questlib::items::InventorySlot>,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
@@ -212,6 +214,34 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                         player.is_walking = req.actually_walking;
                     }
                     return ("200 OK", r#"{"ok":true}"#.to_string());
+                }
+            }
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
+    // POST /buy_item — buy an item from a shop
+    if first_line.starts_with("POST /buy_item") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            let body = &request[body_start + 4..];
+            #[derive(Deserialize)]
+            struct BuyReq {
+                player_id: String,
+                item_id: String,
+                cost: i32,
+            }
+            if let Ok(req) = serde_json::from_str::<BuyReq>(body) {
+                let mut lock = state.lock().unwrap();
+                if let Some(player) = lock.get_mut(&req.player_id) {
+                    if player.gold < req.cost {
+                        return ("400 Bad Request", r#"{"error":"not enough gold"}"#.to_string());
+                    }
+                    if questlib::items::add_item(&mut player.inventory, &req.item_id, None) {
+                        player.gold -= req.cost;
+                        return ("200 OK", r#"{"ok":true}"#.to_string());
+                    } else {
+                        return ("400 Bad Request", r#"{"error":"inventory full or already owned"}"#.to_string());
+                    }
                 }
             }
         }

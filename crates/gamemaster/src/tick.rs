@@ -230,7 +230,7 @@ pub fn run_tick_dev(
             nearby_poi_ids: nearby_pois,
             player_biome: biome,
             total_distance_m: player.total_distance_m as u32,
-            inventory: vec![],
+            inventory: player.inventory.iter().map(|s| s.item_id.clone()).collect(),
             completed_events: events_lock.completed_ids(),
             rng_roll,
         };
@@ -372,6 +372,7 @@ fn apply_outcome(outcome: &EventOutcome, player: &mut DevPlayerState, fog: &mut 
             info!("  +{} gold", amount);
         }
         EventOutcome::Item { name } => {
+            questlib::items::add_item(&mut player.inventory, name, None);
             info!("  +item: {}", name);
         }
         EventOutcome::RevealFog { x, y, radius } => {
