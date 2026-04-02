@@ -67,11 +67,10 @@ fn detect_ui_hover(
 
 /// Set canvas cursor to pointer when hovering any Button.
 fn update_cursor(
-    buttons: Query<&Interaction, (With<Button>, Changed<Interaction>)>,
+    ui_hovered: Res<UiHovered>,
     mut last_cursor: Local<bool>,
 ) {
-    if buttons.is_empty() { return; } // no changes this frame
-    let hovering = buttons.iter().any(|i| matches!(i, Interaction::Hovered | Interaction::Pressed));
+    let hovering = ui_hovered.0;
     if hovering == *last_cursor { return; }
     *last_cursor = hovering;
     let cursor = if hovering { "pointer" } else { "default" };

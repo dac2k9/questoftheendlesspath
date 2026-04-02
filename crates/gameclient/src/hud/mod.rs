@@ -309,12 +309,24 @@ pub struct InventoryItemRow(pub String); // item_id
 #[derive(Component)]
 struct ItemTooltip;
 
+#[derive(Component)]
+struct InventoryCloseButton;
+
 fn toggle_inventory(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut open: ResMut<InventoryOpen>,
+    close_btn: Query<&Interaction, With<InventoryCloseButton>>,
 ) {
     if keys.just_pressed(KeyCode::KeyI) {
         open.0 = !open.0;
+    }
+    if mouse.just_pressed(MouseButton::Left) {
+        for interaction in &close_btn {
+            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+                open.0 = false;
+            }
+        }
     }
 }
 
@@ -429,11 +441,33 @@ fn update_inventory(
             BorderRadius::all(Val::Px(6.0)),
             InventoryPanel,
         )).with_children(|parent| {
-            parent.spawn((
-                Text::new("Inventory"),
-                TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
-                TextColor(Color::srgb(1.0, 0.85, 0.3)),
-            ));
+            // Header row: title + close button
+            parent.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                margin: UiRect::bottom(Val::Px(4.0)),
+                ..default()
+            }).with_children(|header| {
+                header.spawn((
+                    Text::new("Inventory"),
+                    TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                    TextColor(Color::srgb(1.0, 0.85, 0.3)),
+                ));
+                header.spawn((
+                    Button,
+                    Node { padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)), ..default() },
+                    BackgroundColor(Color::srgba(0.4, 0.2, 0.2, 0.6)),
+                    BorderRadius::all(Val::Px(3.0)),
+                    InventoryCloseButton,
+                )).with_children(|btn| {
+                    btn.spawn((
+                        Text::new("X"),
+                        TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
+                        TextColor(Color::srgb(1.0, 0.6, 0.6)),
+                    ));
+                });
+            });
             parent.spawn((
                 Node {
                     flex_direction: FlexDirection::Column,
