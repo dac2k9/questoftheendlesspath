@@ -136,9 +136,18 @@ pub fn run_tick_dev(
                 }
             };
 
-            if should_move {
+            // Block movement into biomes that require items the player doesn't have
+            let target_biome = world.biome_at(tile_x, tile_y);
+            let has_required_item = target_biome.required_item().map_or(true, |req| {
+                player.inventory.iter().any(|s| s.item_id == req)
+            });
+
+            if should_move && has_required_item {
                 info!("[{}] moved ({},{}) → ({},{})", player.name, player.map_tile_x, player.map_tile_y, tile_x, tile_y);
                 new_tile = Some((tile_x as i32, tile_y as i32));
+            } else if should_move && !has_required_item {
+                info!("[{}] blocked at ({},{}) — needs {:?}", player.name, tile_x, tile_y, target_biome.required_item());
+                clear_route = true;
             }
 
             // Fog

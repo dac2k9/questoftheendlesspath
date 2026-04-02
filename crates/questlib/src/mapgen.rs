@@ -37,6 +37,16 @@ impl Biome {
             Self::DeepWater => "Deep Water",
         }
     }
+
+    /// Item required to enter this biome. Returns None if no item needed.
+    pub fn required_item(self) -> Option<&'static str> {
+        match self {
+            Self::Mountain => Some("warm_cloak"),
+            Self::Snow => Some("warm_cloak"),
+            Self::Swamp => Some("bog_charm"),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

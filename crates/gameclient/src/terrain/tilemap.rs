@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use super::world::{WorldGrid, WORLD_W, WORLD_H, TILE_PX};
-use super::path::{DisplayRoute, InterpolationState, find_path, position_and_index_from_route_meters, position_from_route_meters, tile_index_from_meters};
+use super::path::{DisplayRoute, InterpolationState, find_path_with_items, position_and_index_from_route_meters, position_from_route_meters, tile_index_from_meters};
 use crate::states::AppState;
 use crate::supabase::{self, PolledPlayerState, SupabaseConfig};
 use crate::{GameFont, GameSession};
@@ -553,7 +553,8 @@ fn handle_map_click(
         };
         if start == (tx, ty) { return; }
 
-        if let Some(mut segment) = find_path(&world, start, (tx, ty)) {
+        let inv_ids: Vec<String> = state.inventory.iter().map(|s| s.item_id.clone()).collect();
+        if let Some(mut segment) = find_path_with_items(&world, start, (tx, ty), &inv_ids) {
             let send_meters;
             let marker_skip;
 
