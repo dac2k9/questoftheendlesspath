@@ -308,7 +308,8 @@ pub fn update_combat_ui(
 pub fn handle_combat_input(
     mut combat: ResMut<CombatUiState>,
     keys: Res<ButtonInput<KeyCode>>,
-    flee_btn: Query<&Interaction, (With<FleeButton>, Changed<Interaction>)>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    flee_btn: Query<&Interaction, With<FleeButton>>,
 ) {
     let Some(ref cs) = combat.state else { return };
     if cs.status != questlib::combat::CombatStatus::Fighting || combat.action_pending {
@@ -323,9 +324,11 @@ pub fn handle_combat_input(
     }
 
     // Click flee button
-    if let Ok(interaction) = flee_btn.get_single() {
-        if *interaction == Interaction::Pressed {
-            should_flee = true;
+    if mouse.just_pressed(MouseButton::Left) {
+        if let Ok(interaction) = flee_btn.get_single() {
+            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+                should_flee = true;
+            }
         }
     }
 

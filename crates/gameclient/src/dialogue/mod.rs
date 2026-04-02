@@ -169,25 +169,21 @@ fn handle_dialogue_input(
     mut state: ResMut<DialogueState>,
     mut commands: Commands,
     existing: Query<Entity, With<DialogueBox>>,
-    continue_q: Query<&Interaction, With<DialogueContinue>>,
+    time: Res<Time>,
+    mut debounce: Local<f32>,
 ) {
     if !state.active {
+        *debounce = 0.0;
         return;
     }
 
-    // Advance via Continue button or Enter/Space key.
-    // Use mouse.just_released — the Pressed state is set while mouse is held,
-    // but just_released fires once on the frame the click completes.
-    let mut advance = keys.just_pressed(KeyCode::Enter)
-        || keys.just_pressed(KeyCode::Space);
-    if mouse.just_released(MouseButton::Left) {
-        for interaction in &continue_q {
-            // After release, Bevy sets interaction back to Hovered
-            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
-                advance = true;
-            }
-        }
-    }
+    // Debounce: ignore clicks for 0.3s after dialogue appears or advances
+    // (prevents accidental dismiss when focusing browser window)
+    *debounce += time.delta_secs();
+    let advance = (*debounce > 0.3)
+        && (mouse.just_pressed(MouseButton::Left)
+            || keys.just_pressed(KeyCode::Enter)
+            || keys.just_pressed(KeyCode::Space));
 
     if !advance {
         return;
@@ -198,6 +194,7 @@ fn handle_dialogue_input(
         let full_len = state.lines[state.current_line].len();
         if state.typewriter_index < full_len {
             state.typewriter_index = full_len;
+            *debounce = 0.0; // reset debounce for next click
             // Rebuild UI to show full text
             for entity in &existing {
                 commands.entity(entity).despawn_recursive();
@@ -207,6 +204,7 @@ fn handle_dialogue_input(
     }
 
     // Advance to next line
+    *debounce = 0.0; // reset debounce for next line
     state.current_line += 1;
     state.typewriter_index = 0;
 
@@ -383,15 +381,15 @@ fn update_shop(
 fn handle_shop_input(
     mut shop: ResMut<ShopState>,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     player: Res<crate::terrain::tilemap::MyPlayerState>,
     session: Res<crate::GameSession>,
-    btn_q: Query<(&Interaction, &ShopItemButton), Changed<Interaction>>,
+    btn_q: Query<(&Interaction, &ShopItemButton)>,
 ) {
     // ESC to close
     if keys.just_pressed(KeyCode::Escape) && shop.active {
         let event_id = shop.event_id.clone();
         shop.active = false;
-        // Complete the event
         let url = format!("http://localhost:3001/events/{}/complete", event_id);
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
@@ -400,8 +398,10 @@ fn handle_shop_input(
         return;
     }
 
+    if !mouse.just_pressed(MouseButton::Left) { return; }
+
     for (interaction, btn) in &btn_q {
-        if *interaction != Interaction::Pressed { continue; }
+        if !matches!(interaction, Interaction::Hovered | Interaction::Pressed) { continue; }
 
         if btn.0 == usize::MAX {
             // Close button
@@ -468,9 +468,11 @@ fn update_notifications(
 ) {
     // Dismiss on X key or clicking the X button
     let mut dismiss = keys.just_pressed(KeyCode::KeyX);
-    for interaction in &dismiss_q {
-        if *interaction == Interaction::Pressed {
-            dismiss = true;
+    if mouse.just_pressed(MouseButton::Left) {
+        for interaction in &dismiss_q {
+            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+                dismiss = true;
+            }
         }
     }
     if dismiss {

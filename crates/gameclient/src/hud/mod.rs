@@ -186,7 +186,8 @@ fn update_hud(
     mut speed_q: Query<&mut Text, (With<SpeedText>, Without<GoldText>, Without<LevelText>, Without<DistanceText>, Without<BiomeText>)>,
     mut biome_q: Query<&mut Text, (With<BiomeText>, Without<GoldText>, Without<LevelText>, Without<DistanceText>, Without<SpeedText>)>,
     mut open: ResMut<InventoryOpen>,
-    inv_btn_q: Query<&Interaction, (With<InventoryButton>, Changed<Interaction>)>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    inv_btn_q: Query<&Interaction, With<InventoryButton>>,
 ) {
     if let Ok(mut text) = gold_q.get_single_mut() {
         **text = format!("Gold: {}", state.gold);
@@ -226,9 +227,11 @@ fn update_hud(
         }
     }
     // Inventory button
-    for interaction in &inv_btn_q {
-        if *interaction == Interaction::Pressed {
-            open.0 = !open.0;
+    if mouse.just_pressed(MouseButton::Left) {
+        for interaction in &inv_btn_q {
+            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+                open.0 = !open.0;
+            }
         }
     }
 }
