@@ -251,8 +251,15 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
     // GET /events — all events
     if first_line.starts_with("GET /events/active") {
         let lock = events.lock().unwrap();
-        let active: Vec<_> = lock.active_events();
-        let json = serde_json::to_string(&active).unwrap_or_default();
+        let mut result: Vec<_> = lock.active_events().into_iter().cloned().collect();
+        // Include pending repeatable events (shops, wells, etc.) — they're
+        // permanent POI features not triggered as blocking events.
+        for event in &lock.events {
+            if event.repeatable && event.status == questlib::events::EventStatus::Pending {
+                result.push(event.clone());
+            }
+        }
+        let json = serde_json::to_string(&result).unwrap_or_default();
         return ("200 OK", json);
     }
 

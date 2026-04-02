@@ -19,7 +19,9 @@ pub struct ActiveEvent {
     pub name: String,
     #[serde(default)]
     pub description: String,
-    pub kind: serde_json::Value, // we'll parse the type field
+    pub kind: serde_json::Value,
+    #[serde(default)]
+    pub trigger: serde_json::Value,
     #[serde(default)]
     pub outcomes: Vec<serde_json::Value>,
 }
@@ -30,6 +32,8 @@ pub fn poll_active_events(
     mut dialogue: ResMut<DialogueState>,
     mut notifications: ResMut<NotificationQueue>,
     mut shop: ResMut<super::ShopState>,
+    player: Res<crate::terrain::tilemap::MyPlayerState>,
+    world: Option<Res<crate::terrain::world::WorldGrid>>,
 ) {
     // Initialize timer
     if poll.timer.is_none() {
@@ -61,30 +65,38 @@ pub fn poll_active_events(
                     .and_then(|t| t.as_str())
                     .unwrap_or("unknown");
 
-                // Shops: always update availability even if already known
+                // Shops: check if player is at the shop's POI
                 if event_type == "shop" {
                     if !shop.active {
-                        let merchant = event.kind.get("merchant_name")
-                            .and_then(|s| s.as_str())
-                            .unwrap_or("Merchant")
-                            .to_string();
+                        // Extract poi_id from trigger (supports at_poi or all with at_poi)
+                        let poi_id = extract_poi_id(&event.trigger);
+                        let player_at_poi = poi_id.map_or(false, |pid| {
+                            world.as_ref().map_or(false, |w| {
+                                w.map.poi_at(player.tile_x as usize, player.tile_y as usize)
+                                    .map_or(false, |p| p.id == pid)
+                            })
+                        });
 
-                        let items: Vec<super::ShopItem> = event.kind.get("items")
-                            .and_then(|i| i.as_array())
-                            .map(|arr| arr.iter().filter_map(|item| {
-                                let name = item.get("name").and_then(|n| n.as_str())?;
-                                let cost = item.get("cost").and_then(|c| c.as_i64())? as i32;
-                                Some(super::ShopItem { item_id: name.to_string(), cost })
-                            }).collect())
-                            .unwrap_or_default();
+                        if player_at_poi {
+                            let merchant = event.kind.get("merchant_name")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("Merchant")
+                                .to_string();
 
-                        shop.available = true;
-                        shop.event_id = event.id.clone();
-                        shop.merchant_name = merchant;
-                        shop.items = items;
-                    }
-                    if !poll.known_active_ids.contains(&event.id) {
-                        poll.known_active_ids.push(event.id.clone());
+                            let items: Vec<super::ShopItem> = event.kind.get("items")
+                                .and_then(|i| i.as_array())
+                                .map(|arr| arr.iter().filter_map(|item| {
+                                    let name = item.get("name").and_then(|n| n.as_str())?;
+                                    let cost = item.get("cost").and_then(|c| c.as_i64())? as i32;
+                                    Some(super::ShopItem { item_id: name.to_string(), cost })
+                                }).collect())
+                                .unwrap_or_default();
+
+                            shop.available = true;
+                            shop.event_id = event.id.clone();
+                            shop.merchant_name = merchant;
+                            shop.items = items;
+                        }
                     }
                     continue;
                 }
@@ -206,4 +218,21 @@ pub fn poll_active_events(
             }
         });
     }
+}
+
+/// Extract poi_id from a trigger JSON value.
+/// Handles both `{"condition": "at_poi", "poi_id": N}` and
+/// `{"condition": "all", "conditions": [{"condition": "at_poi", "poi_id": N}, ...]}`.
+fn extract_poi_id(trigger: &serde_json::Value) -> Option<usize> {
+    if let Some(pid) = trigger.get("poi_id").and_then(|v| v.as_u64()) {
+        return Some(pid as usize);
+    }
+    if let Some(conditions) = trigger.get("conditions").and_then(|c| c.as_array()) {
+        for cond in conditions {
+            if let Some(pid) = cond.get("poi_id").and_then(|v| v.as_u64()) {
+                return Some(pid as usize);
+            }
+        }
+    }
+    None
 }

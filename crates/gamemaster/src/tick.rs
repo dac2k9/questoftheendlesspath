@@ -252,6 +252,11 @@ pub fn run_tick_dev(
 
         for event_id in &triggered_ids {
             let event = events_lock.get_mut(event_id).unwrap();
+            // Repeatable events (shops, wells, etc.) are permanent POI features.
+            // They're not triggered as blocking events — the client handles them.
+            if event.repeatable {
+                continue;
+            }
             if event.transition(EventStatus::Active).is_ok() {
                 info!("[{}] Event triggered: {} ({})", player.name, event.name, event.id);
 
