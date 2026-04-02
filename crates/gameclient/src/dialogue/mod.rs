@@ -271,11 +271,15 @@ struct ShopItemButton(usize); // index into ShopState.items
 fn update_shop(
     mut commands: Commands,
     font: Res<GameFont>,
-    state: Res<ShopState>,
+    mut state: ResMut<ShopState>,
     player: Res<crate::terrain::tilemap::MyPlayerState>,
     catalog: Res<crate::hud::ItemCatalogRes>,
     existing: Query<Entity, With<ShopPanel>>,
 ) {
+    // Auto-close when player leaves the shop POI
+    if state.active && !state.available {
+        state.active = false;
+    }
     if !state.active {
         for entity in &existing {
             commands.entity(entity).despawn_recursive();
