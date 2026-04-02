@@ -241,6 +241,10 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     let catalog = questlib::items::ItemCatalog::from_json(
                         include_str!("../../../adventures/items.json")
                     ).ok();
+                    // Can't buy equipment that's already equipped
+                    if player.equipment.has_equipped(&req.item_id) {
+                        return ("400 Bad Request", r#"{"error":"already equipped"}"#.to_string());
+                    }
                     if questlib::items::add_item(&mut player.inventory, &req.item_id, catalog.as_ref()) {
                         player.gold -= req.cost;
                         return ("200 OK", r#"{"ok":true}"#.to_string());

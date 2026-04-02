@@ -328,12 +328,17 @@ fn update_shop(
         for (i, item) in state.items.iter().enumerate() {
             let can_afford = player.gold >= item.cost;
             let def = catalog.0.get(&item.item_id);
-            let is_full = player.inventory.iter()
-                .find(|s| s.item_id == item.item_id)
-                .map_or(false, |slot| {
+            let in_inventory = player.inventory.iter().find(|s| s.item_id == item.item_id);
+            let is_equipped = player.equipment.has_equipped(&item.item_id);
+            let is_full = if is_equipped {
+                // Equipment already equipped — can't buy another
+                true
+            } else {
+                in_inventory.map_or(false, |slot| {
                     let max = def.filter(|d| d.stackable).map(|d| d.max_stack).unwrap_or(1);
                     slot.quantity >= max
-                });
+                })
+            };
             let display_name = def.map(|d| d.display_name.as_str()).unwrap_or(&item.item_id);
 
             parent.spawn((
