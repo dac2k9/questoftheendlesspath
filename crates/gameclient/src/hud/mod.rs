@@ -495,8 +495,7 @@ fn update_shop_button(
     mut commands: Commands,
     font: Res<GameFont>,
     mouse: Res<ButtonInput<MouseButton>>,
-    shop: Res<crate::dialogue::ShopState>,
-    mut shop_mut: ResMut<crate::dialogue::ShopState>,
+    mut shop: ResMut<crate::dialogue::ShopState>,
     existing: Query<Entity, With<ShopButtonRoot>>,
     btn_q: Query<&Interaction, With<ShopButton>>,
 ) {
@@ -504,7 +503,7 @@ fn update_shop_button(
     if mouse.just_pressed(MouseButton::Left) {
         for interaction in &btn_q {
             if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
-                shop_mut.active = true;
+                shop.active = true;
             }
         }
     }
