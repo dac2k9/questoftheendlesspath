@@ -262,21 +262,42 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", json);
     }
 
-    // POST /events/{id}/complete — mark event as completed
+    // POST /events/{id}/complete — mark event as completed and apply outcomes
     if first_line.contains("/events/") && first_line.contains("/complete") {
         // Extract event id from URL: POST /events/some_id/complete
         let parts: Vec<&str> = first_line.split('/').collect();
         if parts.len() >= 3 {
-            // parts: ["POST ", "events", "some_id", "complete", ...]
             let event_id = parts.iter()
                 .position(|&p| p == "events")
                 .and_then(|i| parts.get(i + 1))
                 .map(|s| s.split_whitespace().next().unwrap_or(s));
 
             if let Some(event_id) = event_id {
-                let mut lock = events.lock().unwrap();
-                if let Some(event) = lock.get_mut(event_id) {
+                let mut events_lock = events.lock().unwrap();
+                if let Some(event) = events_lock.get_mut(event_id) {
                     if event.transition(questlib::events::EventStatus::Completed).is_ok() {
+                        // Apply outcomes to the first player (dev mode simplification)
+                        let outcomes = event.outcomes.clone();
+                        drop(events_lock);
+                        let mut state_lock = state.lock().unwrap();
+                        if let Some(player) = state_lock.values_mut().next() {
+                            for outcome in &outcomes {
+                                match outcome {
+                                    questlib::events::EventOutcome::Gold { amount } => {
+                                        player.gold += amount;
+                                    }
+                                    questlib::events::EventOutcome::Item { name } => {
+                                        questlib::items::add_item(&mut player.inventory, name, None);
+                                    }
+                                    questlib::events::EventOutcome::Notification { text } => {
+                                        if let Ok(mut n) = notifs.lock() {
+                                            n.push(text.clone());
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                         return ("200 OK", r#"{"ok":true}"#.to_string());
                     }
                 }
