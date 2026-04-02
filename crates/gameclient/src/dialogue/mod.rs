@@ -106,15 +106,15 @@ fn update_dialogue(
         String::new()
     };
 
-    // Container centered on screen
+    // Container centered on screen — narrower and taller
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Percent(30.0),
-            left: Val::Percent(15.0),
-            right: Val::Percent(15.0),
-            min_height: Val::Px(120.0),
-            padding: UiRect::all(Val::Px(16.0)),
+            bottom: Val::Percent(10.0),
+            left: Val::Percent(25.0),
+            right: Val::Percent(25.0),
+            min_height: Val::Px(160.0),
+            padding: UiRect::all(Val::Px(20.0)),
             border: UiRect::all(Val::Px(2.0)),
             flex_direction: FlexDirection::Column,
             ..default()
@@ -127,7 +127,7 @@ fn update_dialogue(
         // Speaker name
         parent.spawn((
             Text::new(speaker),
-            TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+            TextFont { font: font.0.clone(), font_size: 14.0, ..default() },
             TextColor(Color::srgb(1.0, 0.85, 0.3)),
             DialogueSpeaker,
         ));
@@ -135,37 +135,53 @@ fn update_dialogue(
         // Dialogue text
         parent.spawn((
             Text::new(line_text),
-            TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+            TextFont { font: font.0.clone(), font_size: 12.0, ..default() },
             TextColor(Color::srgb(0.9, 0.9, 0.9)),
-            Node { margin: UiRect::top(Val::Px(8.0)), ..default() },
+            Node { margin: UiRect::top(Val::Px(12.0)), ..default() },
             DialogueText,
         ));
 
-        // Continue prompt
+        // Continue button — bottom right
         parent.spawn((
-            Text::new("[Enter / Click to continue]"),
-            TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
-            TextColor(Color::srgb(0.5, 0.5, 0.5)),
-            Node { margin: UiRect::top(Val::Px(12.0)), ..default() },
+            Button,
+            Node {
+                padding: UiRect::axes(Val::Px(14.0), Val::Px(6.0)),
+                align_self: AlignSelf::FlexEnd,
+                margin: UiRect::top(Val::Px(16.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.2, 0.2, 0.4, 0.8)),
+            BorderRadius::all(Val::Px(4.0)),
             DialogueContinue,
-        ));
+        )).with_children(|btn| {
+            btn.spawn((
+                Text::new("Continue"),
+                TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                TextColor(Color::srgb(0.8, 0.8, 0.9)),
+            ));
+        });
     });
 }
 
 fn handle_dialogue_input(
     keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
     mut state: ResMut<DialogueState>,
     mut commands: Commands,
     existing: Query<Entity, With<DialogueBox>>,
+    continue_q: Query<&Interaction, With<DialogueContinue>>,
 ) {
     if !state.active {
         return;
     }
 
-    let advance = keys.just_pressed(KeyCode::Enter)
-        || keys.just_pressed(KeyCode::Space)
-        || mouse.just_pressed(MouseButton::Left);
+    // Only advance via Continue button or Enter/Space key
+    let mut advance = keys.just_pressed(KeyCode::Enter)
+        || keys.just_pressed(KeyCode::Space);
+    for interaction in &continue_q {
+        if *interaction == Interaction::Pressed {
+            advance = true;
+        }
+    }
 
     if !advance {
         return;

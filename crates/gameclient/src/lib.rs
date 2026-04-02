@@ -47,7 +47,21 @@ pub fn start() {
         .add_plugins(hud::HudPlugin)
         .add_plugins(dialogue::DialoguePlugin)
         .add_plugins(combat::CombatPlugin)
+        .add_systems(Update, update_cursor)
         .run();
+}
+
+/// Set canvas cursor to pointer when hovering any Button.
+fn update_cursor(buttons: Query<&Interaction, With<Button>>) {
+    let hovering = buttons.iter().any(|i| matches!(i, Interaction::Hovered | Interaction::Pressed));
+    let cursor = if hovering { "pointer" } else { "default" };
+    if let Some(window) = web_sys::window() {
+        if let Some(doc) = window.document() {
+            if let Some(canvas) = doc.get_element_by_id("game-canvas") {
+                let _ = canvas.unchecked_ref::<web_sys::HtmlElement>().style().set_property("cursor", cursor);
+            }
+        }
+    }
 }
 
 /// Shared font resource.
