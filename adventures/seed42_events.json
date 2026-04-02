@@ -24,9 +24,9 @@
       "id": "town_0",
       "name": "Forest Town",
       "description": "A bustling town nestled among the trees.",
-      "kind": { "type": "npc_dialogue", "speaker": "Town Elder", "lines": ["Welcome to our humble town, traveler!", "We've been expecting someone brave enough to explore these lands.", "Rest here as long as you need. The road ahead is long."], "choices": [] },
+      "kind": { "type": "npc_dialogue", "speaker": "Town Elder", "lines": ["Welcome to our humble town, traveler!", "We've been expecting someone brave enough to explore these lands.", "Take this health potion — you'll need it out there."], "choices": [] },
       "trigger": { "condition": "at_poi", "poi_id": 0 },
-      "outcomes": [{ "effect": "gold", "amount": 30 }, { "effect": "notification", "text": "Visited Forest Town! +30 gold" }],
+      "outcomes": [{ "effect": "gold", "amount": 30 }, { "effect": "item", "name": "health_potion" }, { "effect": "notification", "text": "Forest Town: +30 gold, received Health Potion" }],
       "status": "pending",
       "requires_browser": true
     },

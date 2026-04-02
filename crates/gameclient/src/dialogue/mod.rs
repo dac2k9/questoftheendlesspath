@@ -165,6 +165,7 @@ fn update_dialogue(
 
 fn handle_dialogue_input(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut state: ResMut<DialogueState>,
     mut commands: Commands,
     existing: Query<Entity, With<DialogueBox>>,
@@ -174,12 +175,15 @@ fn handle_dialogue_input(
         return;
     }
 
-    // Only advance via Continue button or Enter/Space key
+    // Advance via Continue button click or Enter/Space key
     let mut advance = keys.just_pressed(KeyCode::Enter)
         || keys.just_pressed(KeyCode::Space);
-    for interaction in &continue_q {
-        if *interaction == Interaction::Pressed {
-            advance = true;
+    // Check if mouse was just clicked while hovering the Continue button
+    if mouse.just_pressed(MouseButton::Left) {
+        for interaction in &continue_q {
+            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+                advance = true;
+            }
         }
     }
 
