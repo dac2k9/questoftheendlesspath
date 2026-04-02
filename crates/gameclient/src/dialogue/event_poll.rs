@@ -5,12 +5,21 @@ use serde::Deserialize;
 
 use super::{DialogueState, NotificationData, NotificationQueue};
 
+#[derive(Debug, Clone)]
+pub struct CachedShop {
+    pub event_id: String,
+    pub poi_id: Option<usize>,
+    pub merchant_name: String,
+    pub items: Vec<super::ShopItem>,
+}
+
 #[derive(Resource, Default)]
 pub struct EventPollState {
     pub timer: Option<Timer>,
     pub known_active_ids: Vec<String>,
     pub fetched: Arc<Mutex<Option<Vec<ActiveEvent>>>>,
     pub fetched_notifs: Arc<Mutex<Vec<String>>>,
+    pub known_shops: Vec<CachedShop>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -54,9 +63,33 @@ pub fn poll_active_events(
 
     if let Some(events) = fetched_events {
         {
-            // Clear shop availability — will be re-set if a shop event is active
-            if !shop.active {
-                shop.available = false;
+            // Rebuild cached shop list from poll data
+            poll.known_shops.clear();
+            for event in &events {
+                let event_type = event.kind.get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown");
+                if event_type == "shop" {
+                    let poi_id = extract_poi_id(&event.trigger);
+                    let merchant = event.kind.get("merchant_name")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("Merchant")
+                        .to_string();
+                    let items: Vec<super::ShopItem> = event.kind.get("items")
+                        .and_then(|i| i.as_array())
+                        .map(|arr| arr.iter().filter_map(|item| {
+                            let name = item.get("name").and_then(|n| n.as_str())?;
+                            let cost = item.get("cost").and_then(|c| c.as_i64())? as i32;
+                            Some(super::ShopItem { item_id: name.to_string(), cost })
+                        }).collect())
+                        .unwrap_or_default();
+                    poll.known_shops.push(CachedShop {
+                        event_id: event.id.clone(),
+                        poi_id,
+                        merchant_name: merchant,
+                        items,
+                    });
+                }
             }
 
             // Find newly active events (not in known list)
@@ -65,41 +98,8 @@ pub fn poll_active_events(
                     .and_then(|t| t.as_str())
                     .unwrap_or("unknown");
 
-                // Shops: check if player is at the shop's POI
-                if event_type == "shop" {
-                    if !shop.active {
-                        // Extract poi_id from trigger (supports at_poi or all with at_poi)
-                        let poi_id = extract_poi_id(&event.trigger);
-                        let player_at_poi = poi_id.map_or(false, |pid| {
-                            world.as_ref().map_or(false, |w| {
-                                w.map.poi_at(player.tile_x as usize, player.tile_y as usize)
-                                    .map_or(false, |p| p.id == pid)
-                            })
-                        });
-
-                        if player_at_poi {
-                            let merchant = event.kind.get("merchant_name")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("Merchant")
-                                .to_string();
-
-                            let items: Vec<super::ShopItem> = event.kind.get("items")
-                                .and_then(|i| i.as_array())
-                                .map(|arr| arr.iter().filter_map(|item| {
-                                    let name = item.get("name").and_then(|n| n.as_str())?;
-                                    let cost = item.get("cost").and_then(|c| c.as_i64())? as i32;
-                                    Some(super::ShopItem { item_id: name.to_string(), cost })
-                                }).collect())
-                                .unwrap_or_default();
-
-                            shop.available = true;
-                            shop.event_id = event.id.clone();
-                            shop.merchant_name = merchant;
-                            shop.items = items;
-                        }
-                    }
-                    continue;
-                }
+                // Shops handled above via cache
+                if event_type == "shop" { continue; }
 
                 if poll.known_active_ids.contains(&event.id) {
                     continue;
@@ -193,6 +193,25 @@ pub fn poll_active_events(
                 }
             }
         });
+    }
+
+    // Check shop availability every frame (not just on poll) using cached data
+    if !shop.active {
+        shop.available = false;
+        let player_poi = world.as_ref().and_then(|w| {
+            w.map.poi_at(player.tile_x as usize, player.tile_y as usize).map(|p| p.id)
+        });
+        if let Some(pid) = player_poi {
+            for cached in &poll.known_shops {
+                if cached.poi_id == Some(pid) {
+                    shop.available = true;
+                    shop.event_id = cached.event_id.clone();
+                    shop.merchant_name = cached.merchant_name.clone();
+                    shop.items = cached.items.clone();
+                    break;
+                }
+            }
+        }
     }
 
     // Check for server-side notifications
