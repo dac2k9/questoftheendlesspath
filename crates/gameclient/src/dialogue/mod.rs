@@ -12,6 +12,7 @@ impl Plugin for DialoguePlugin {
         app.insert_resource(DialogueState::default())
             .insert_resource(NotificationQueue::default())
             .insert_resource(ShopState::default())
+            .insert_resource(MessageLog::default())
             .add_systems(
                 Update,
                 (
@@ -436,7 +437,10 @@ fn handle_shop_input(
     }
 }
 
-// ── Notification Banners ──────────────────────────────
+// ── Message Log (bottom-left panel) ──────────────────
+
+const MAX_LOG_LINES: usize = 8;
+const LOG_TYPEWRITER_SPEED: f32 = 0.02; // seconds per character
 
 #[derive(Resource, Default)]
 pub struct NotificationQueue {
@@ -448,94 +452,112 @@ pub struct NotificationData {
     pub duration: f32,
 }
 
-#[derive(Component)]
-struct NotificationBanner {
-    timer: Timer,
+#[derive(Resource)]
+struct MessageLog {
+    /// Completed lines (fully typed out).
+    lines: Vec<String>,
+    /// Currently typing line.
+    current_text: Option<String>,
+    /// Characters revealed so far in current line.
+    typewriter_index: usize,
+    typewriter_timer: f32,
+}
+
+impl Default for MessageLog {
+    fn default() -> Self {
+        Self { lines: Vec::new(), current_text: None, typewriter_index: 0, typewriter_timer: 0.0 }
+    }
 }
 
 #[derive(Component)]
-struct NotificationDismiss;
+struct MessageLogPanel;
+
+#[derive(Component)]
+struct MessageLogText;
 
 fn update_notifications(
     mut commands: Commands,
     font: Res<GameFont>,
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
     mut queue: ResMut<NotificationQueue>,
-    mut banners: Query<(Entity, &mut NotificationBanner)>,
-    dismiss_q: Query<&Interaction, With<NotificationDismiss>>,
+    mut log: ResMut<MessageLog>,
+    panel_q: Query<Entity, With<MessageLogPanel>>,
+    mut text_q: Query<&mut Text, With<MessageLogText>>,
 ) {
-    // Dismiss on X key or clicking the X button
-    let mut dismiss = keys.just_pressed(KeyCode::KeyX);
-    if mouse.just_pressed(MouseButton::Left) {
-        for interaction in &dismiss_q {
-            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
-                dismiss = true;
-            }
+    // Advance typewriter on current line
+    let mut finished_line: Option<String> = None;
+    if let Some(current) = &log.current_text {
+        let char_count = current.chars().count();
+        if log.typewriter_index >= char_count {
+            finished_line = Some(current.clone());
         }
     }
-    if dismiss {
-        for (entity, _) in &banners {
-            commands.entity(entity).despawn_recursive();
+    if let Some(line) = finished_line {
+        log.lines.push(line);
+        if log.lines.len() > MAX_LOG_LINES {
+            log.lines.remove(0);
         }
+        log.current_text = None;
+    } else if log.current_text.is_some() {
+        log.typewriter_timer += time.delta_secs();
+        while log.typewriter_timer > LOG_TYPEWRITER_SPEED {
+            log.typewriter_timer -= LOG_TYPEWRITER_SPEED;
+            log.typewriter_index += 1;
+        }
+    }
+
+    // Start next pending message if no line is currently typing
+    if log.current_text.is_none() && !queue.pending.is_empty() {
+        let notif = queue.pending.remove(0);
+        log.current_text = Some(notif.text);
+        log.typewriter_index = 0;
+        log.typewriter_timer = 0.0;
+    }
+
+    // Build display text
+    let mut display = String::new();
+    for line in &log.lines {
+        if !display.is_empty() { display.push('\n'); }
+        display.push_str(line);
+    }
+    if let Some(current) = &log.current_text {
+        if !display.is_empty() { display.push('\n'); }
+        let visible: String = current.chars().take(log.typewriter_index).collect();
+        display.push_str(&visible);
+    }
+
+    // Update existing panel text
+    if let Ok(mut text) = text_q.get_single_mut() {
+        **text = display;
         return;
     }
 
-    // Update existing banners
-    for (entity, mut banner) in &mut banners {
-        banner.timer.tick(time.delta());
-        if banner.timer.finished() {
-            commands.entity(entity).despawn_recursive();
-        }
-    }
-
-    // Show next notification if no banner active (FIFO order)
-    if banners.is_empty() && !queue.pending.is_empty() {
-        let notif = queue.pending.remove(0);
-        {
-            commands.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    top: Val::Px(40.0),
-                    left: Val::Percent(10.0),
-                    right: Val::Percent(10.0),
-                    padding: UiRect::all(Val::Px(12.0)),
-                    justify_content: JustifyContent::SpaceBetween,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.05, 0.05, 0.15, 0.9)),
-                BorderColor(Color::srgb(0.4, 0.35, 0.2)),
-                BorderRadius::all(Val::Px(4.0)),
-                NotificationBanner {
-                    timer: Timer::from_seconds(999.0, TimerMode::Once), // stays until dismissed
-                },
-            )).with_children(|parent| {
-                parent.spawn((
-                    Text::new(notif.text),
-                    TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
-                    TextColor(Color::srgb(1.0, 0.95, 0.7)),
-                ));
-                // Dismiss button — clickable
-                parent.spawn((
-                    Button,
-                    Node {
-                        padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.4, 0.2, 0.2, 0.5)),
-                    BorderRadius::all(Val::Px(3.0)),
-                    NotificationDismiss,
-                )).with_children(|btn| {
-                    btn.spawn((
-                        Text::new("X"),
-                        TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
-                        TextColor(Color::srgb(1.0, 0.6, 0.6)),
-                    ));
-                });
-            });
-        }
+    // Spawn panel if it doesn't exist
+    if panel_q.is_empty() {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(8.0),
+                left: Val::Px(8.0),
+                width: Val::Px(350.0),
+                max_height: Val::Px(200.0),
+                padding: UiRect::all(Val::Px(10.0)),
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::FlexEnd,
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.4)),
+            BorderRadius::all(Val::Px(4.0)),
+            MessageLogPanel,
+        )).with_children(|parent| {
+            parent.spawn((
+                Text::new(""),
+                TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
+                TextColor(Color::srgb(0.8, 0.8, 0.7)),
+                MessageLogText,
+            ));
+        });
     }
 }
 
