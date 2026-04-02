@@ -236,7 +236,10 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     if player.gold < req.cost {
                         return ("400 Bad Request", r#"{"error":"not enough gold"}"#.to_string());
                     }
-                    if questlib::items::add_item(&mut player.inventory, &req.item_id, None) {
+                    let catalog = questlib::items::ItemCatalog::from_json(
+                        include_str!("../../../adventures/items.json")
+                    ).ok();
+                    if questlib::items::add_item(&mut player.inventory, &req.item_id, catalog.as_ref()) {
                         player.gold -= req.cost;
                         return ("200 OK", r#"{"ok":true}"#.to_string());
                     } else {
@@ -299,7 +302,10 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                         player.gold += amount;
                                     }
                                     questlib::events::EventOutcome::Item { name } => {
-                                        questlib::items::add_item(&mut player.inventory, name, None);
+                                        let cat = questlib::items::ItemCatalog::from_json(
+                                            include_str!("../../../adventures/items.json")
+                                        ).ok();
+                                        questlib::items::add_item(&mut player.inventory, name, cat.as_ref());
                                     }
                                     questlib::events::EventOutcome::Notification { text } => {
                                         if let Ok(mut n) = notifs.lock() {

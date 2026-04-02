@@ -386,7 +386,10 @@ fn apply_outcome(outcome: &EventOutcome, player: &mut DevPlayerState, fog: &mut 
             info!("  +{} gold", amount);
         }
         EventOutcome::Item { name } => {
-            questlib::items::add_item(&mut player.inventory, name, None);
+            let catalog = questlib::items::ItemCatalog::from_json(
+                include_str!("../../../adventures/items.json")
+            ).ok();
+            questlib::items::add_item(&mut player.inventory, name, catalog.as_ref());
             info!("  +item: {}", name);
         }
         EventOutcome::RevealFog { x, y, radius } => {
