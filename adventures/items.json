@@ -71,6 +71,24 @@
       "display_name": "Rope",
       "description": "Useful for accessing hidden dungeon areas.",
       "category": "key_item"
+    },
+    {
+      "id": "starstone",
+      "display_name": "The Starstone",
+      "description": "A mysterious glowing stone. The Town Elder said it must reach the Frozen Spire.",
+      "category": "key_item"
+    },
+    {
+      "id": "frost_key",
+      "display_name": "Frost Key",
+      "description": "A crystalline key found deep in The Dark Descent. Opens sealed doors in icy places.",
+      "category": "key_item"
+    },
+    {
+      "id": "tower_key",
+      "display_name": "Tower Key",
+      "description": "An ancient key recovered from the Forgotten Crypt. Opens the Frozen Spire.",
+      "category": "key_item"
     }
   ]
 }
