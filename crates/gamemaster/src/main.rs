@@ -34,9 +34,9 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     let seed: u64 = std::env::var("MAP_SEED")
-        .unwrap_or_else(|_| "42".to_string())
+        .unwrap_or_else(|_| "12345".to_string())
         .parse()
-        .unwrap_or(42);
+        .unwrap_or(12345);
 
     info!("Generating world map from seed {seed}");
     let world = Arc::new(WorldMap::generate(seed));
@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
 
     // Load events — try saved state first, then events file
     let events_path = std::env::var("EVENTS_PATH")
-        .unwrap_or_else(|_| "adventures/seed42_events.json".to_string());
+        .unwrap_or_else(|_| "adventures/seed12345_events.json".to_string());
 
     let saved_events = std::fs::read_to_string(save_path)
         .ok()

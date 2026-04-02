@@ -1,0 +1,1104 @@
+{
+  "events": [
+    {
+      "id": "welcome",
+      "name": "A New Journey",
+      "description": "The world stretches before you.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The world stretches before you, vast and unexplored.",
+          "Your legs carry you forward. The journey begins."
+        ]
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 10
+      },
+      "outcomes": [
+        {
+          "effect": "notification",
+          "text": "Journey begun! Walk to explore."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "first_treasure",
+      "name": "Roadside Find",
+      "description": "Something glints in the grass.",
+      "kind": {
+        "type": "treasure",
+        "description": "A small pouch of coins half-buried in the dirt."
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 100
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 50
+        },
+        {
+          "effect": "notification",
+          "text": "Found 50 gold!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "town_0",
+      "name": "Forest Town",
+      "description": "A bustling town nestled in the grasslands.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Town Elder",
+        "lines": [
+          "Welcome, traveler. I have waited long for someone like you.",
+          "This is the Starstone. It was entrusted to our village generations ago.",
+          "It must be taken to the Frozen Spire far to the northeast.",
+          "Take this potion for the road. The Riverside Hamlet to the east may help."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 0
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 50
+        },
+        {
+          "effect": "item",
+          "name": "starstone"
+        },
+        {
+          "effect": "item",
+          "name": "health_potion"
+        },
+        {
+          "effect": "notification",
+          "text": "Received the Starstone and a Health Potion!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "town_0_shop",
+      "name": "Forest Town Shop",
+      "description": "A small shop.",
+      "kind": {
+        "type": "shop",
+        "merchant_name": "Town Shopkeeper",
+        "items": [
+          {
+            "name": "health_potion",
+            "cost": 30,
+            "effect": "heal"
+          },
+          {
+            "name": "torch",
+            "cost": 20,
+            "effect": "fog_radius"
+          }
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 0
+          },
+          {
+            "condition": "event_completed",
+            "event_id": "town_0"
+          }
+        ]
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "village_7",
+      "name": "Riverside Hamlet",
+      "description": "A quiet hamlet by the river.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Fisherman Aldric",
+        "lines": [
+          "The Starstone! I heard tales of it as a child.",
+          "You'll need supplies to cross the wilds. Head northwest to the Ranger's Lodge.",
+          "She knows the safe paths through the forest. And watch for bandits!"
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 7
+          },
+          {
+            "condition": "has_item",
+            "item": "starstone"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 20
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 19,
+          "y": 46,
+          "radius": 5
+        },
+        {
+          "effect": "notification",
+          "text": "Ranger's Lodge location revealed!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "cabin_17",
+      "name": "Abandoned Farmstead",
+      "description": "A crumbling farmhouse.",
+      "kind": {
+        "type": "treasure",
+        "description": "Coins hidden under the floorboards."
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 17
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 80
+        },
+        {
+          "effect": "notification",
+          "text": "Found 80 gold in the abandoned farmstead!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "cabin_15",
+      "name": "Ranger's Lodge",
+      "description": "A well-kept cabin in the forest.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Ranger Elara",
+        "lines": [
+          "A Starstone bearer! I knew this day would come.",
+          "Head north to Midland Village. The merchant sells what you need.",
+          "You'll need a Bog Charm for the swamp, and Rope for the dungeons.",
+          "Take this map - it shows shortcuts through the forest."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 15
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "forest_map"
+        },
+        {
+          "effect": "gold",
+          "amount": 20
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 33,
+          "y": 44,
+          "radius": 6
+        },
+        {
+          "effect": "notification",
+          "text": "Received Forest Map! Midland Village revealed."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_3",
+      "name": "Midland Village",
+      "description": "A crossroads village.",
+      "kind": {
+        "type": "shop",
+        "merchant_name": "Merchant Thalia",
+        "items": [
+          {
+            "name": "bog_charm",
+            "cost": 60,
+            "effect": "swamp_access"
+          },
+          {
+            "name": "rope",
+            "cost": 80,
+            "effect": "dungeon_access"
+          },
+          {
+            "name": "compass",
+            "cost": 75,
+            "effect": "reveal_fog"
+          },
+          {
+            "name": "torch",
+            "cost": 25,
+            "effect": "fog_radius"
+          },
+          {
+            "name": "health_potion",
+            "cost": 35,
+            "effect": "heal"
+          }
+        ]
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 3
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "camp_21",
+      "name": "Bandit Camp",
+      "description": "A rough camp with smoldering fires.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Bandit Raiders",
+        "description": "Bandits emerge from their tents!",
+        "difficulty": 2
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 21
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 70
+        },
+        {
+          "effect": "notification",
+          "text": "Cleared the bandit camp! +70 gold"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "ruins_8",
+      "name": "Ancient Ruins",
+      "description": "Crumbling stone walls covered in vines.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Weathered Inscription",
+        "lines": [
+          "These ruins predate the kingdoms of men.",
+          "Here, the Starstone was first discovered by the ancient mages.",
+          "They carried it northeast, to the peak they called the Frozen Spire.",
+          "The swamp witch to the west may know more..."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 8
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 50
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 14,
+          "y": 29,
+          "radius": 5
+        },
+        {
+          "effect": "notification",
+          "text": "Learned the Starstone's history! Swamp Village revealed."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "town_1",
+      "name": "Coastal Town",
+      "description": "A grand town by the sea.",
+      "kind": {
+        "type": "shop",
+        "merchant_name": "Coastal Merchant",
+        "items": [
+          {
+            "name": "health_potion",
+            "cost": 25,
+            "effect": "heal"
+          },
+          {
+            "name": "compass",
+            "cost": 60,
+            "effect": "reveal_fog"
+          },
+          {
+            "name": "explorers_map",
+            "cost": 200,
+            "effect": "reveal_fog"
+          }
+        ]
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "ruins_9",
+      "name": "Crumbling Fortress",
+      "description": "An overgrown fortress.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Fortress Guardian",
+        "description": "A stone golem stirs to life!",
+        "difficulty": 3
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 9
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 100
+        },
+        {
+          "effect": "notification",
+          "text": "Defeated the Guardian! +100 gold"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_6",
+      "name": "Swamp Village",
+      "description": "A village on stilts above murky water.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Swamp Witch Nyx",
+        "lines": [
+          "Your charm protects you well from my swamp.",
+          "I sense the Starstone. It calls out to the mountains.",
+          "Seek the Hermit's Hut north of here. He knows the old paths.",
+          "And bring rope - The Dark Descent holds the Frost Key you'll need."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 6
+          },
+          {
+            "condition": "has_item",
+            "item": "bog_charm"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 40
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 33,
+          "y": 24,
+          "radius": 5
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 35,
+          "y": 30,
+          "radius": 5
+        },
+        {
+          "effect": "notification",
+          "text": "Hermit's Hut and Dark Descent revealed!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "cabin_14",
+      "name": "Hermit's Hut",
+      "description": "A tiny hut at the forest edge.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Old Hermit Varn",
+        "lines": [
+          "I have studied the Starstone for decades.",
+          "Two keys are needed to enter the Frozen Spire.",
+          "The Frost Key lies in the Dark Descent below.",
+          "The Tower Key rests in the Forgotten Crypt far to the east.",
+          "You'll need the Warm Cloak to survive the mountain paths."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 14
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 30
+        },
+        {
+          "effect": "notification",
+          "text": "The Hermit reveals the path forward!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "dungeon_10",
+      "name": "The Dark Descent",
+      "description": "A yawning chasm into darkness.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Cavern Wyrm",
+        "description": "A massive wyrm coils in the depths, guarding something that glows!",
+        "difficulty": 4
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 10
+          },
+          {
+            "condition": "has_item",
+            "item": "rope"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "frost_key"
+        },
+        {
+          "effect": "gold",
+          "amount": 150
+        },
+        {
+          "effect": "notification",
+          "text": "Defeated the Cavern Wyrm! Found the Frost Key!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_5",
+      "name": "Deep Forest Settlement",
+      "description": "A settlement in the dense woods.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Elder Maren",
+        "lines": [
+          "The mountains ahead will freeze an unprotected traveler.",
+          "Prove your worth - defeat the Fortress Guardian to the south.",
+          "Return with proof and I will give you our warmest cloak."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 5
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 20
+        },
+        {
+          "effect": "notification",
+          "text": "The Elder will give a cloak once you prove your worth."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_5_cloak",
+      "name": "Warm Cloak Reward",
+      "description": "The elder honors your strength.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Elder Maren",
+        "lines": [
+          "You defeated the Fortress Guardian! Impressive.",
+          "Take this cloak. It will protect you from the mountain cold.",
+          "The Shrine of Winds to the south will guide your path further."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 5
+          },
+          {
+            "condition": "event_completed",
+            "event_id": "ruins_9"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "warm_cloak"
+        },
+        {
+          "effect": "gold",
+          "amount": 50
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 53,
+          "y": 24,
+          "radius": 6
+        },
+        {
+          "effect": "notification",
+          "text": "Received Warm Cloak! Shrine of Winds revealed."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "shrine_19",
+      "name": "Shrine of Winds",
+      "description": "A windswept shrine on a peak.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Wind Spirit",
+        "lines": [
+          "The Starstone pulses with power here in the mountains.",
+          "The Forgotten Crypt to the east holds the Tower Key.",
+          "The Highland Crossing beyond it has the finest supplies.",
+          "Prepare well. The Frozen Spire is the final challenge."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 19
+          },
+          {
+            "condition": "has_item",
+            "item": "warm_cloak"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 30
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 64,
+          "y": 27,
+          "radius": 8
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 67,
+          "y": 18,
+          "radius": 5
+        },
+        {
+          "effect": "notification",
+          "text": "Forgotten Crypt and Highland Crossing revealed!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_4",
+      "name": "Highland Crossing",
+      "description": "A fortified village in the highlands.",
+      "kind": {
+        "type": "shop",
+        "merchant_name": "Highland Quartermaster",
+        "items": [
+          {
+            "name": "health_potion",
+            "cost": 25,
+            "effect": "heal"
+          },
+          {
+            "name": "speed_potion",
+            "cost": 100,
+            "effect": "speed_boost"
+          },
+          {
+            "name": "explorers_map",
+            "cost": 180,
+            "effect": "reveal_fog"
+          }
+        ]
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 4
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "cave_12",
+      "name": "Mountain Cave",
+      "description": "A crystal-lined cave high in the peaks.",
+      "kind": {
+        "type": "treasure",
+        "description": "Gems sparkle in the crystal walls."
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 12
+          },
+          {
+            "condition": "has_item",
+            "item": "warm_cloak"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 200
+        },
+        {
+          "effect": "notification",
+          "text": "Found 200 gold in mountain crystals!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "dungeon_11",
+      "name": "The Forgotten Crypt",
+      "description": "An ancient crypt sealed for centuries.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Crypt Guardian",
+        "description": "A skeletal warrior rises, ancient blade in hand!",
+        "difficulty": 6
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 11
+          },
+          {
+            "condition": "has_item",
+            "item": "rope"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "tower_key"
+        },
+        {
+          "effect": "gold",
+          "amount": 200
+        },
+        {
+          "effect": "notification",
+          "text": "Defeated the Crypt Guardian! Found the Tower Key!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "village_2",
+      "name": "Woodland Outpost",
+      "description": "The last outpost before the Spire.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Scout Fenris",
+        "lines": [
+          "The Frozen Spire lies southeast through the mountains.",
+          "None who have entered have returned.",
+          "If you have both keys and the Starstone... perhaps you can succeed.",
+          "Good luck, bearer. The world is counting on you."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 2
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 30
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 88,
+          "y": 47,
+          "radius": 10
+        },
+        {
+          "effect": "notification",
+          "text": "The Frozen Spire's location is clear!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "cave_13",
+      "name": "Hidden Grotto",
+      "description": "A secret cave with ancient treasures.",
+      "kind": {
+        "type": "treasure",
+        "description": "A forgotten treasure trove glitters in the darkness."
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 13
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 250
+        },
+        {
+          "effect": "notification",
+          "text": "Found the Hidden Grotto! 250 gold!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "shrine_18",
+      "name": "Shrine of Ice",
+      "description": "A frozen shrine encased in crystal.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Ice Spirit",
+        "lines": [
+          "The Starstone remembers this place.",
+          "Long ago, the mages who built the Spire prayed here.",
+          "You carry their legacy. Complete what they began."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 18
+          },
+          {
+            "condition": "has_item",
+            "item": "warm_cloak"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 40
+        },
+        {
+          "effect": "notification",
+          "text": "The Shrine blesses your journey."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "camp_22",
+      "name": "Mountain Lookout",
+      "description": "A vantage point above the clouds.",
+      "kind": {
+        "type": "treasure",
+        "description": "From this height, you can see the entire landscape."
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 22
+          },
+          {
+            "condition": "has_item",
+            "item": "warm_cloak"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 40
+        },
+        {
+          "effect": "reveal_fog",
+          "x": 50,
+          "y": 30,
+          "radius": 20
+        },
+        {
+          "effect": "notification",
+          "text": "The view reveals vast areas of the map!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "cabin_16",
+      "name": "Mountain Cabin",
+      "description": "A sturdy cabin braving the cold.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Mountain Shepherd",
+        "lines": [
+          "The Spire grows colder with every passing year.",
+          "Something inside it hungers for the Starstone.",
+          "Be ready for a fight like no other."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 16
+          },
+          {
+            "condition": "has_item",
+            "item": "warm_cloak"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 20
+        },
+        {
+          "effect": "notification",
+          "text": "The shepherd warns of danger ahead."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "tower_20",
+      "name": "The Frozen Spire",
+      "description": "An immense tower of ice and ancient stone.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Frost Lord",
+        "description": "The Frost Lord awakens! Ice cracks and reforms as a towering figure of pure cold rises!",
+        "difficulty": 8
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 20
+          },
+          {
+            "condition": "has_item",
+            "item": "warm_cloak"
+          },
+          {
+            "condition": "has_item",
+            "item": "tower_key"
+          },
+          {
+            "condition": "has_item",
+            "item": "starstone"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 500
+        },
+        {
+          "effect": "notification",
+          "text": "The Frost Lord falls! The Starstone glows with blinding light!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "victory",
+      "name": "The Starstone Returns",
+      "description": "The quest is complete.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The Starstone rises from your hands, drawn to the heart of the Spire.",
+          "Ancient magic surges through the tower. The ice begins to melt.",
+          "Light pours from the peak, visible across the entire land.",
+          "You have restored the Starstone. The world is forever changed.",
+          "THE END - Thank you for playing!"
+        ]
+      },
+      "trigger": {
+        "condition": "event_completed",
+        "event_id": "tower_20"
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 1000
+        },
+        {
+          "effect": "notification",
+          "text": "QUEST COMPLETE! The Starstone has been returned!"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "forest_wolves",
+      "name": "Wolf Pack",
+      "description": "Yellow eyes in the trees.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Forest Wolves",
+        "description": "A pack of hungry wolves!",
+        "difficulty": 2
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "random_in_biome",
+            "biome": "Forest",
+            "chance": 0.08
+          },
+          {
+            "condition": "distance_walked",
+            "meters_min": 3000
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 30
+        },
+        {
+          "effect": "notification",
+          "text": "Wolves defeated! +30 gold"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "road_goblin",
+      "name": "Road Goblin",
+      "description": "A goblin blocks the path!",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Goblin",
+        "description": "A scrappy goblin jumps out!",
+        "difficulty": 1
+      },
+      "trigger": {
+        "condition": "distance_walked",
+        "meters_min": 500
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 40
+        },
+        {
+          "effect": "notification",
+          "text": "Goblin defeated! +40 gold"
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    }
+  ]
+}

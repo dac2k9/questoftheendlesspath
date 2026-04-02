@@ -226,7 +226,7 @@ fn spawn_world(
     mut images: ResMut<Assets<Image>>,
     mut atlases: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    let world = WorldGrid::from_seed(42);
+    let world = WorldGrid::from_seed(12345);
 
     let tileset_bytes = include_bytes!("../../assets/tilesets/miniworld.png");
     let tileset_dyn = image::load_from_memory(tileset_bytes).expect("tileset");

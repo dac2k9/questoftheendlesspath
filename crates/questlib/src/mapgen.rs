@@ -604,7 +604,7 @@ mod tests {
 
     #[test]
     fn export_json() {
-        let map = WorldMap::generate(42);
+        let map = WorldMap::generate(12345);
         let json = map.export_pois_json();
         assert!(json.contains("points_of_interest"));
         assert!(json.contains("Village"));
