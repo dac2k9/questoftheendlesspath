@@ -118,10 +118,11 @@ pub struct MyPlayerState {
 struct VisualState {
     pos: Vec2,
     initialized: bool,
+    had_route: bool,
 }
 
 impl Default for VisualState {
-    fn default() -> Self { Self { pos: Vec2::ZERO, initialized: false } }
+    fn default() -> Self { Self { pos: Vec2::ZERO, initialized: false, had_route: false } }
 }
 
 #[derive(Resource, Default)]
@@ -450,6 +451,13 @@ fn render_character(
         visual.pos = target_pos;
         visual.initialized = true;
     }
+
+    // Snap to tile position when route just completed (no lerp back)
+    let has_route = !state.route.is_empty();
+    if visual.had_route && !has_route {
+        visual.pos = target_pos;
+    }
+    visual.had_route = has_route;
 
     // Smoothly interpolate visual position toward target.
     // Uses exponential decay: lerp factor = 1 - e^(-rate * dt)
