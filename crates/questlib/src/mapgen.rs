@@ -129,7 +129,16 @@ impl WorldMap {
     }
 
     /// Check if a road passes through this tile.
+    /// POI tiles (and their 3x3 area) count as roads.
     pub fn has_road_at(&self, x: usize, y: usize) -> bool {
+        // POI tiles are treated as roads (cheap to walk through)
+        for poi in &self.pois {
+            let dx = (poi.x as i32 - x as i32).unsigned_abs() as usize;
+            let dy = (poi.y as i32 - y as i32).unsigned_abs() as usize;
+            if dx <= 1 && dy <= 1 {
+                return true;
+            }
+        }
         self.roads
             .iter()
             .any(|r| r.path.iter().any(|&(rx, ry)| rx == x && ry == y))
