@@ -52,8 +52,14 @@ pub fn start() {
 }
 
 /// Set canvas cursor to pointer when hovering any Button.
-fn update_cursor(buttons: Query<&Interaction, With<Button>>) {
+fn update_cursor(
+    buttons: Query<&Interaction, (With<Button>, Changed<Interaction>)>,
+    mut last_cursor: Local<bool>,
+) {
+    if buttons.is_empty() { return; } // no changes this frame
     let hovering = buttons.iter().any(|i| matches!(i, Interaction::Hovered | Interaction::Pressed));
+    if hovering == *last_cursor { return; }
+    *last_cursor = hovering;
     let cursor = if hovering { "pointer" } else { "default" };
     if let Some(window) = web_sys::window() {
         if let Some(doc) = window.document() {

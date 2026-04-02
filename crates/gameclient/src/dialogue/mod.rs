@@ -80,18 +80,20 @@ fn update_dialogue(
         state.typewriter_timer = 0.0;
         if state.current_line < state.lines.len() {
             let full_line = &state.lines[state.current_line];
-            if state.typewriter_index < full_line.len() {
+            let char_count = full_line.chars().count();
+            if state.typewriter_index < char_count {
                 state.typewriter_index += 1;
             }
         }
     }
 
-    // Update typewriter text on existing dialogue box
+    // Update typewriter text on existing dialogue box (char-safe slicing)
     if !existing.is_empty() {
         if let Ok(mut text) = text_q.get_single_mut() {
             if state.current_line < state.lines.len() {
                 let full = &state.lines[state.current_line];
-                **text = full[..state.typewriter_index.min(full.len())].to_string();
+                let visible: String = full.chars().take(state.typewriter_index).collect();
+                **text = visible;
             }
         }
         return;
@@ -101,7 +103,7 @@ fn update_dialogue(
     let speaker = state.speaker.clone();
     let line_text = if state.current_line < state.lines.len() {
         let full = &state.lines[state.current_line];
-        full[..state.typewriter_index.min(full.len())].to_string()
+        full.chars().take(state.typewriter_index).collect::<String>()
     } else {
         String::new()
     };
@@ -191,9 +193,9 @@ fn handle_dialogue_input(
 
     // If typewriter hasn't finished, show full line
     if state.current_line < state.lines.len() {
-        let full_len = state.lines[state.current_line].len();
-        if state.typewriter_index < full_len {
-            state.typewriter_index = full_len;
+        let char_count = state.lines[state.current_line].chars().count();
+        if state.typewriter_index < char_count {
+            state.typewriter_index = char_count;
             *debounce = 0.0; // reset debounce for next click
             // Rebuild UI to show full text
             for entity in &existing {
