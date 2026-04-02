@@ -175,12 +175,14 @@ fn handle_dialogue_input(
         return;
     }
 
-    // Advance via Continue button click or Enter/Space key
+    // Advance via Continue button or Enter/Space key.
+    // Use mouse.just_released — the Pressed state is set while mouse is held,
+    // but just_released fires once on the frame the click completes.
     let mut advance = keys.just_pressed(KeyCode::Enter)
         || keys.just_pressed(KeyCode::Space);
-    // Check if mouse was just clicked while hovering the Continue button
-    if mouse.just_pressed(MouseButton::Left) {
+    if mouse.just_released(MouseButton::Left) {
         for interaction in &continue_q {
+            // After release, Bevy sets interaction back to Hovered
             if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
                 advance = true;
             }
