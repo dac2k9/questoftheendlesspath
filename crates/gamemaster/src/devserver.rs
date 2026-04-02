@@ -278,6 +278,11 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     if event.transition(questlib::events::EventStatus::Completed).is_ok() {
                         // Apply outcomes to the first player (dev mode simplification)
                         let outcomes = event.outcomes.clone();
+                        let repeatable = event.repeatable;
+                        // Reset repeatable events (e.g. shops) to Pending
+                        if repeatable {
+                            event.force_status(questlib::events::EventStatus::Pending);
+                        }
                         drop(events_lock);
                         let mut state_lock = state.lock().unwrap();
                         if let Some(player) = state_lock.values_mut().next() {

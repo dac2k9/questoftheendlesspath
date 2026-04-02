@@ -38,6 +38,9 @@ pub struct EventInstance {
     pub triggered_at: Option<u64>,
     #[serde(default)]
     pub completed_at: Option<u64>,
+    /// If true, event resets to Pending after completion (e.g. shops).
+    #[serde(default)]
+    pub repeatable: bool,
 }
 
 fn default_status() -> EventStatus {

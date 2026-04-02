@@ -21,7 +21,7 @@ impl Plugin for HudPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
                 Update,
-                (update_hud, detect_gold_change, detect_level_up, update_floating_texts, toggle_inventory, update_inventory, show_item_tooltip)
+                (update_hud, detect_gold_change, detect_level_up, update_floating_texts, toggle_inventory, update_inventory, show_item_tooltip, update_shop_button)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -50,6 +50,12 @@ struct BiomeText;
 
 #[derive(Component)]
 struct InventoryButton;
+
+#[derive(Component)]
+struct ShopButton;
+
+#[derive(Component)]
+struct ShopButtonRoot;
 
 #[derive(Resource, Default)]
 struct LastKnownGold(i32);
@@ -481,4 +487,65 @@ fn show_item_tooltip(
             TextColor(Color::srgb(0.85, 0.85, 0.85)),
         ));
     });
+}
+
+// ── Shop Button (appears when at shop POI) ──────────
+
+fn update_shop_button(
+    mut commands: Commands,
+    font: Res<GameFont>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    shop: Res<crate::dialogue::ShopState>,
+    mut shop_mut: ResMut<crate::dialogue::ShopState>,
+    existing: Query<Entity, With<ShopButtonRoot>>,
+    btn_q: Query<&Interaction, With<ShopButton>>,
+) {
+    // Click to open shop
+    if mouse.just_pressed(MouseButton::Left) {
+        for interaction in &btn_q {
+            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+                shop_mut.active = true;
+            }
+        }
+    }
+
+    let should_show = shop.available && !shop.active;
+
+    if should_show && existing.is_empty() {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(12.0),
+                left: Val::Percent(50.0),
+                margin: UiRect::left(Val::Px(-60.0)),
+                width: Val::Px(120.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            ShopButtonRoot,
+        )).with_children(|parent| {
+            parent.spawn((
+                Button,
+                Node {
+                    padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.15, 0.12, 0.05, 0.9)),
+                BorderColor(Color::srgb(0.6, 0.5, 0.2)),
+                BorderRadius::all(Val::Px(6.0)),
+                ShopButton,
+            )).with_children(|btn| {
+                btn.spawn((
+                    Text::new("Shop"),
+                    TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                    TextColor(Color::srgb(1.0, 0.85, 0.3)),
+                ));
+            });
+        });
+    } else if !should_show && !existing.is_empty() {
+        for entity in &existing {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
 }

@@ -252,6 +252,8 @@ pub struct ShopState {
     pub event_id: String,
     pub merchant_name: String,
     pub items: Vec<ShopItem>,
+    /// A shop is available at the current location (show button in HUD).
+    pub available: bool,
 }
 
 /// Returns true when shop is active — used as a run condition.

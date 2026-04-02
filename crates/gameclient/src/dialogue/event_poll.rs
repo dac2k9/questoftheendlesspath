@@ -50,17 +50,50 @@ pub fn poll_active_events(
 
     if let Some(events) = fetched_events {
         {
+            // Clear shop availability — will be re-set if a shop event is active
+            if !shop.active {
+                shop.available = false;
+            }
+
             // Find newly active events (not in known list)
             for event in &events {
+                let event_type = event.kind.get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown");
+
+                // Shops: always update availability even if already known
+                if event_type == "shop" {
+                    if !shop.active {
+                        let merchant = event.kind.get("merchant_name")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("Merchant")
+                            .to_string();
+
+                        let items: Vec<super::ShopItem> = event.kind.get("items")
+                            .and_then(|i| i.as_array())
+                            .map(|arr| arr.iter().filter_map(|item| {
+                                let name = item.get("name").and_then(|n| n.as_str())?;
+                                let cost = item.get("cost").and_then(|c| c.as_i64())? as i32;
+                                Some(super::ShopItem { item_id: name.to_string(), cost })
+                            }).collect())
+                            .unwrap_or_default();
+
+                        shop.available = true;
+                        shop.event_id = event.id.clone();
+                        shop.merchant_name = merchant;
+                        shop.items = items;
+                    }
+                    if !poll.known_active_ids.contains(&event.id) {
+                        poll.known_active_ids.push(event.id.clone());
+                    }
+                    continue;
+                }
+
                 if poll.known_active_ids.contains(&event.id) {
                     continue;
                 }
 
                 // New active event!
-                let event_type = event.kind.get("type")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("unknown");
-
                 match event_type {
                     // Boss and random_encounter are handled by the combat system
                     "boss" | "random_encounter" => {}
@@ -116,28 +149,7 @@ pub fn poll_active_events(
                             duration: 3.0,
                         });
                     }
-                    "shop" => {
-                        if !shop.active && !dialogue.active {
-                            let merchant = event.kind.get("merchant_name")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("Merchant")
-                                .to_string();
-
-                            let items: Vec<super::ShopItem> = event.kind.get("items")
-                                .and_then(|i| i.as_array())
-                                .map(|arr| arr.iter().filter_map(|item| {
-                                    let name = item.get("name").and_then(|n| n.as_str())?;
-                                    let cost = item.get("cost").and_then(|c| c.as_i64())? as i32;
-                                    Some(super::ShopItem { item_id: name.to_string(), cost })
-                                }).collect())
-                                .unwrap_or_default();
-
-                            shop.active = true;
-                            shop.event_id = event.id.clone();
-                            shop.merchant_name = merchant;
-                            shop.items = items;
-                        }
-                    }
+                    // "shop" is handled above, before the known_active check
                     _ => {
                         // Generic notification
                         notifications.pending.push(NotificationData {
