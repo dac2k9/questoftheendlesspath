@@ -137,11 +137,7 @@ impl WorldMap {
 
     /// Get POI at position (exact tile or adjacent — covers 3x3 village area).
     pub fn poi_at(&self, x: usize, y: usize) -> Option<&PointOfInterest> {
-        self.pois.iter().find(|p| {
-            let dx = (p.x as i32 - x as i32).unsigned_abs() as usize;
-            let dy = (p.y as i32 - y as i32).unsigned_abs() as usize;
-            dx <= 1 && dy <= 1
-        })
+        self.pois.iter().find(|p| p.x == x && p.y == y)
     }
 
     /// Get all POI IDs within a given radius.
