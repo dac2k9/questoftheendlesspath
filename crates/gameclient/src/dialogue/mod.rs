@@ -394,15 +394,9 @@ fn handle_shop_input(
     session: Res<crate::GameSession>,
     btn_q: Query<(&Interaction, &ShopItemButton)>,
 ) {
-    // ESC to close
+    // ESC to close shop (no server completion — shops are always available)
     if keys.just_pressed(KeyCode::Escape) && shop.active {
-        let event_id = shop.event_id.clone();
         shop.active = false;
-        let url = format!("http://localhost:3001/events/{}/complete", event_id);
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = reqwest::Client::new();
-            let _ = client.post(&url).send().await;
-        });
         return;
     }
 
@@ -412,14 +406,7 @@ fn handle_shop_input(
         if !matches!(interaction, Interaction::Hovered | Interaction::Pressed) { continue; }
 
         if btn.0 == usize::MAX {
-            // Close button
-            let event_id = shop.event_id.clone();
             shop.active = false;
-            let url = format!("http://localhost:3001/events/{}/complete", event_id);
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = reqwest::Client::new();
-                let _ = client.post(&url).send().await;
-            });
             return;
         }
 
