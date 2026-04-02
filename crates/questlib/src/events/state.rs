@@ -115,6 +115,7 @@ mod tests {
             requires_browser: false,
             triggered_at: None,
             completed_at: None,
+            repeatable: false,
         }
     }
 

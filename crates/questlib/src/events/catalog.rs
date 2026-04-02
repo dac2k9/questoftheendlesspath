@@ -81,6 +81,7 @@ mod tests {
                     requires_browser: false,
                     triggered_at: None,
                     completed_at: None,
+                    repeatable: false,
                 },
                 EventInstance {
                     id: "npc_sage".into(),
@@ -99,6 +100,7 @@ mod tests {
                     requires_browser: true,
                     triggered_at: None,
                     completed_at: None,
+                    repeatable: false,
                 },
                 EventInstance {
                     id: "boss_troll".into(),
@@ -126,6 +128,7 @@ mod tests {
                     requires_browser: true,
                     triggered_at: None,
                     completed_at: None,
+                    repeatable: false,
                 },
             ],
         }

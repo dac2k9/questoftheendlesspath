@@ -53,25 +53,28 @@ pub fn position_along_route(
     }
 
     let mut remaining = meters_walked;
+    let last_idx = route.len().saturating_sub(1);
     for (i, &(x, y)) in route.iter().enumerate() {
         let biome = world.biome_at(x, y);
         let has_road = world.has_road_at(x, y);
         let cost = tile_cost(biome, has_road);
         if cost == u32::MAX {
-            // Impassable — stop here
+            return (x, y, i, true);
+        }
+
+        // Last tile in route = destination. Reaching it means route is complete.
+        if i == last_idx {
             return (x, y, i, true);
         }
 
         if remaining < cost as f64 {
-            // Still on this tile
             return (x, y, i, false);
         }
         remaining -= cost as f64;
     }
 
-    // Completed the entire route
     let &(x, y) = route.last().unwrap_or(&(0, 0));
-    (x, y, route.len().saturating_sub(1), true)
+    (x, y, last_idx, true)
 }
 
 /// Compute the facing direction from the current route index to the next tile.
@@ -228,13 +231,10 @@ mod tests {
         let world = WorldMap::generate(42);
         let road_tile = find_road_tile(&world);
         let route = vec![road_tile];
-        let cost = tile_cost(Biome::Grassland, true); // road = 20
 
-        let (_, _, _, done_before) = position_along_route(&route, (cost - 1) as f64, &world);
-        assert!(!done_before, "should not be done before cost consumed");
-
-        let (x, y, _, done_after) = position_along_route(&route, cost as f64, &world);
-        assert!(done_after, "should be done after cost consumed");
+        // A single-tile route completes immediately (last tile = destination)
+        let (x, y, _, done) = position_along_route(&route, 0.0, &world);
+        assert!(done, "single-tile route should complete immediately");
         assert_eq!((x, y), road_tile);
     }
 
@@ -255,17 +255,18 @@ mod tests {
         let world = WorldMap::generate(42);
         let route = find_road_route(&world, 8);
 
-        let total_cost: f64 = route.iter().map(|&(x, y)| {
+        // Cost of all tiles except the last (last tile = destination, no cost to enter)
+        let cost_to_reach_last: f64 = route[..route.len()-1].iter().map(|&(x, y)| {
             tile_cost(world.biome_at(x, y), world.has_road_at(x, y)) as f64
         }).sum();
 
-        // At total_cost meters, route should be complete
-        let (_, _, _, done) = position_along_route(&route, total_cost, &world);
-        assert!(done, "route should be complete after walking total cost");
+        // At cost to reach last tile, route should be complete
+        let (_, _, _, done) = position_along_route(&route, cost_to_reach_last, &world);
+        assert!(done, "route should be complete after reaching last tile");
 
-        // At total_cost - 1, should NOT be complete
-        let (_, _, _, done2) = position_along_route(&route, total_cost - 1.0, &world);
-        assert!(!done2, "route should not be complete 1m before total cost");
+        // 1m before reaching last tile, should NOT be complete
+        let (_, _, _, done2) = position_along_route(&route, cost_to_reach_last - 1.0, &world);
+        assert!(!done2, "route should not be complete before reaching last tile");
     }
 
     #[test]

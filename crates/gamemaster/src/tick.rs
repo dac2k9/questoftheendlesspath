@@ -505,8 +505,7 @@ mod tests {
         run_ticks(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &pid, 20, 10.0);
 
         let p = get_player(&state, &pid);
-        assert!(p.route_meters_walked > 0.0, "route_meters should advance");
-        // Should have moved from start tile
+        // Should have moved from start tile (route may have completed and cleared meters)
         let moved = p.map_tile_x != start.0 as i32 || p.map_tile_y != start.1 as i32;
         assert!(moved, "player should have moved tiles: still at ({},{})", p.map_tile_x, p.map_tile_y);
     }
