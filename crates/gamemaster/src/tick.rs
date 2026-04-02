@@ -65,18 +65,24 @@ pub fn run_tick_dev(
             player.total_distance_m, player.gold, player.route_meters_walked
         );
 
-        // Distance delta
-        let last_dist = *player_last_distance.get(player_id).unwrap_or(&player.total_distance_m);
-        let raw_delta = (player.total_distance_m - last_dist).max(0);
-        let delta_m = raw_delta.min(20);
-        player_last_distance.insert(player_id.clone(), player.total_distance_m);
+        // Distance delta — use f64 for sub-meter precision.
+        // Debug walking computes delta from speed directly (no integer accumulator).
+        let delta: f64 = if player.debug_walking {
+            // Meters per tick (1s) from speed, capped at 20m
+            (player.current_speed_kmh as f64 / 3.6).min(20.0)
+        } else {
+            let last_dist = *player_last_distance.get(player_id).unwrap_or(&player.total_distance_m);
+            let raw_delta = (player.total_distance_m - last_dist).max(0);
+            let capped = raw_delta.min(20);
+            player_last_distance.insert(player_id.clone(), player.total_distance_m);
+            if raw_delta != capped {
+                info!("[{}] delta capped: {}m → {}m", player.name, raw_delta, capped);
+            }
+            capped as f64
+        };
+        info!("[{}] delta={:.2}m (speed={:.1}km/h)", player.name, delta, player.current_speed_kmh);
 
-        if raw_delta != delta_m {
-            info!("[{}] delta capped: {}m → {}m", player.name, raw_delta, delta_m);
-        }
-        info!("[{}] delta_m={} (total={} last={})", player.name, delta_m, player.total_distance_m, last_dist);
-
-        if delta_m == 0 {
+        if delta < 0.01 {
             continue;
         }
 
@@ -100,15 +106,15 @@ pub fn run_tick_dev(
         let mut new_facing: Option<route::Facing> = None;
 
         if has_blocking {
-            gold_delta = (delta_m / 10).max(1);
-            debug!("[{}] paused (blocking event), +{} gold", player.name, gold_delta);
+            gold_delta = 0;
+            info!("[{}] BLOCKED (active event/combat), +{} gold", player.name, gold_delta);
         } else if route_tiles.is_empty() {
-            gold_delta = (delta_m / 10).max(1);
+            gold_delta = 0;
             info!("[{}] no route, +{} gold", player.name, gold_delta);
         } else {
-            info!("[{}] route has {} waypoints, advancing {}m", player.name, route_tiles.len(), delta_m);
+            info!("[{}] route has {} waypoints, advancing {:.2}m", player.name, route_tiles.len(), delta);
 
-            new_route_meters += delta_m as f64;
+            new_route_meters += delta;
             let (tile_x, tile_y, idx, route_complete) =
                 position_along_route(&route_tiles, new_route_meters, world);
 
@@ -149,13 +155,21 @@ pub fn run_tick_dev(
                 clear_route = true;
             }
 
-            gold_delta = (delta_m / 10).max(1);
+            gold_delta = 0;
         }
 
         // Write changes back (re-acquire lock briefly)
         {
             let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
             if let Some(p) = lock.get_mut(player_id) {
+                // Debug walking: tick manages total_distance since handler only sets speed
+                if p.debug_walking {
+                    p.total_distance_m += delta as i32;
+                }
+                // Gold: 1 gold per 10 meters walked (based on distance milestones)
+                let old_gold_milestone = (p.total_distance_m - delta as i32) / 10;
+                let new_gold_milestone = p.total_distance_m / 10;
+                gold_delta = (new_gold_milestone - old_gold_milestone).max(0);
                 p.gold += gold_delta;
                 p.route_meters_walked = new_route_meters;
                 if let Some((tx, ty)) = new_tile {
@@ -173,8 +187,27 @@ pub fn run_tick_dev(
                     p.route_meters_walked = 0.0;
                 }
 
+                // Compute interpolation envelope for smooth client animation.
+                // Target = current meters + projected advance for next tick, clamped to route end.
+                if !p.planned_route.is_empty() && p.is_walking && p.current_speed_kmh > 0.1 {
+                    let speed_mps = p.current_speed_kmh as f64 / 3.6;
+                    // Project one tick interval (1s), capped at same 20m delta limit
+                    let projected = (speed_mps * 1.0).min(20.0);
+                    // Compute total route cost to clamp
+                    let route_cost: f64 = route_tiles.iter().map(|&(rx, ry)| {
+                        let cost = route::tile_cost(world.biome_at(rx, ry), world.has_road_at(rx, ry));
+                        if cost == u32::MAX { 0.0 } else { cost as f64 }
+                    }).sum();
+                    p.interp_meters_target = (p.route_meters_walked + projected).min(route_cost);
+                    p.interp_duration_secs = 1.0;
+                } else {
+                    // Not walking or no route — no interpolation
+                    p.interp_meters_target = p.route_meters_walked;
+                    p.interp_duration_secs = 0.0;
+                }
+
                 // Check for level up
-                let old_level = questlib::leveling::level_from_meters((p.total_distance_m - delta_m) as u64);
+                let old_level = questlib::leveling::level_from_meters(p.total_distance_m.saturating_sub(delta as i32) as u64);
                 let new_level = questlib::leveling::level_from_meters(p.total_distance_m as u64);
                 if new_level > old_level {
                     info!("[{}] leveled up! {} → {}", p.name, old_level, new_level);
@@ -214,18 +247,23 @@ pub fn run_tick_dev(
             if event.transition(EventStatus::Active).is_ok() {
                 info!("[{}] Event triggered: {} ({})", player.name, event.name, event.id);
 
-                // Start combat for Boss/RandomEncounter events (only if player has a route)
+                // Start combat for Boss/RandomEncounter events
                 if matches!(event.kind, questlib::events::kind::EventKind::Boss { .. }
                     | questlib::events::kind::EventKind::RandomEncounter { .. })
-                    && !player.planned_route.is_empty()
                 {
-                    server_combat::start_combat(
-                        shared_combat,
-                        &event.id,
-                        &event.kind,
-                        player.total_distance_m as u64,
-                    );
-                    info!("  Combat started: {}", event.name);
+                    if !player.planned_route.is_empty() {
+                        server_combat::start_combat(
+                            shared_combat,
+                            &event.id,
+                            &event.kind,
+                            player.total_distance_m as u64,
+                        );
+                        info!("  Combat started: {}", event.name);
+                    } else {
+                        // No route — can't fight, dismiss so it doesn't block forever
+                        event.force_status(EventStatus::Dismissed);
+                        info!("  Combat dismissed (no route): {}", event.name);
+                    }
                 }
 
                 if event.auto_completes() {

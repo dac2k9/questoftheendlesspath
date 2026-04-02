@@ -15,8 +15,8 @@ impl Plugin for SupabasePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SupabaseConfig::default())
             .insert_resource(PolledPlayerState::default())
-            .add_systems(OnEnter(AppState::InGame), start_polling)
-            .add_systems(Update, receive_poll_results.run_if(in_state(AppState::InGame)));
+            .add_systems(OnEnter(AppState::InGame), start_long_poll)
+            .add_systems(Update, check_long_poll.run_if(in_state(AppState::InGame)));
     }
 }
 
@@ -41,6 +41,17 @@ pub struct PlayerRow {
     pub route_meters_walked: Option<f64>,
     #[serde(default)]
     pub facing: questlib::route::Facing,
+    #[serde(default)]
+    pub interp_meters_target: Option<f64>,
+    #[serde(default)]
+    pub interp_duration_secs: Option<f32>,
+}
+
+/// Long-poll response wrapper from server.
+#[derive(Deserialize)]
+struct PollResponse {
+    tick: u64,
+    players: Vec<PlayerRow>,
 }
 
 /// Polled state from Supabase, shared between async task and Bevy systems.
@@ -50,52 +61,70 @@ pub struct PolledPlayerState {
     pub last_update: f64,
 }
 
-/// Timer for polling interval.
-#[derive(Resource)]
-struct PollTimer(Timer);
-
-fn start_polling(mut commands: Commands) {
-    // First tick fires immediately, then every 5 seconds
-    let mut timer = Timer::from_seconds(2.0, TimerMode::Repeating);
-    timer.tick(std::time::Duration::from_secs(2)); // force first tick
-    commands.insert_resource(PollTimer(timer));
+/// Shared state for long-poll loop: in-flight flag + last-seen tick generation.
+#[derive(Resource, Default, Clone)]
+struct LongPollState {
+    inner: Arc<Mutex<LongPollInner>>,
 }
 
-fn receive_poll_results(
-    time: Res<Time>,
-    mut timer: ResMut<PollTimer>,
-    config: Res<SupabaseConfig>,
-    session: Res<GameSession>,
-    state: Res<PolledPlayerState>,
-) {
-    timer.0.tick(time.delta());
-    if !timer.0.just_finished() {
-        return;
-    }
+#[derive(Default)]
+struct LongPollInner {
+    in_flight: bool,
+    last_tick: u64,
+}
 
-    // Dev mode: poll local dev server
-    let dev_url = "http://localhost:3001/players".to_string();
+fn start_long_poll(mut commands: Commands) {
+    commands.insert_resource(LongPollState::default());
+}
+
+/// Each frame: if no long-poll is in flight, fire one. When it returns, data
+/// is written to PolledPlayerState and the flag is cleared, so next frame fires again.
+fn check_long_poll(
+    state: Res<PolledPlayerState>,
+    poll_state: Res<LongPollState>,
+) {
+    let last_tick = {
+        let mut lock = poll_state.inner.lock().unwrap();
+        if lock.in_flight {
+            return;
+        }
+        lock.in_flight = true;
+        lock.last_tick
+    };
+
     let players_ref = state.players.clone();
+    let poll_inner = poll_state.inner.clone();
 
     wasm_bindgen_futures::spawn_local(async move {
         let client = reqwest::Client::new();
-        let resp = client.get(&dev_url).send().await;
+        let url = format!("http://localhost:3001/players/poll?after={}", last_tick);
+        let resp = client.get(&url).send().await;
 
         if let Ok(resp) = resp {
-            if let Ok(players) = resp.json::<Vec<PlayerRow>>().await {
+            if let Ok(poll) = resp.json::<PollResponse>().await {
                 if let Ok(mut lock) = players_ref.lock() {
-                    *lock = players;
+                    *lock = poll.players;
+                }
+                if let Ok(mut lock) = poll_inner.lock() {
+                    lock.last_tick = poll.tick;
                 }
             }
+        }
+
+        // Clear in-flight flag — next frame will fire another request
+        if let Ok(mut lock) = poll_inner.lock() {
+            lock.in_flight = false;
         }
     });
 }
 
 /// Write the planned route — uses dev server in dev mode.
+/// When `meters` is Some, preserves walked progress (used when extending a route).
 pub fn write_planned_route(
     _config: &SupabaseConfig,
     player_id: &str,
     route_json: &str,
+    meters: Option<f64>,
 ) {
     if player_id.is_empty() {
         return;
@@ -107,11 +136,14 @@ pub fn write_planned_route(
     struct Params {
         player_id: String,
         route: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        meters: Option<f64>,
     }
 
     let body = serde_json::to_string(&Params {
         player_id: player_id.to_string(),
         route: route_json.to_string(),
+        meters,
     })
     .unwrap_or_default();
 

@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use super::world::{WorldGrid, WORLD_W, WORLD_H, TILE_PX};
-use super::path::{DisplayRoute, PredictedMeters, find_path, position_and_index_from_route_meters, position_from_route_meters, tile_index_from_meters};
+use super::path::{DisplayRoute, InterpolationState, find_path, position_and_index_from_route_meters, position_from_route_meters, tile_index_from_meters};
 use crate::states::AppState;
 use crate::supabase::{self, PolledPlayerState, SupabaseConfig};
 use crate::{GameFont, GameSession};
@@ -16,7 +16,7 @@ impl Plugin for TilemapPlugin {
                 Update,
                 (
                     apply_server_state,
-                    predict_movement,
+                    interpolate_movement,
                     render_character,
                 ).chain().run_if(in_state(AppState::InGame)),
             )
@@ -270,7 +270,7 @@ fn spawn_world(
     commands.insert_resource(debug);
     commands.insert_resource(MyPlayerState::default());
     commands.insert_resource(DisplayRoute::default());
-    commands.insert_resource(PredictedMeters::default());
+    commands.insert_resource(InterpolationState::default());
     commands.insert_resource(VisualState::default());
     commands.insert_resource(CameraPan::default());
     commands.insert_resource(world);
@@ -283,7 +283,7 @@ fn apply_server_state(
     polled: Res<PolledPlayerState>,
     session: Res<GameSession>,
     mut state: ResMut<MyPlayerState>,
-    mut predicted: ResMut<PredictedMeters>,
+    mut interp: ResMut<InterpolationState>,
     mut display_route: ResMut<DisplayRoute>,
     mut fog: ResMut<FogOfWar>,
     mut commands: Commands,
@@ -307,39 +307,55 @@ fn apply_server_state(
     state.speed_kmh = me.current_speed_kmh;
     state.is_walking = me.is_walking;
     state.gold = me.gold;
-    // Don't overwrite route_meters from server if we just set a new route locally.
-    // The server hasn't received it yet, so its meters are from the OLD route.
-    if !display_route.locally_modified {
-        let old_client_total = state.route_meters + predicted.0;
-        let server_meters = me.route_meters_walked.unwrap_or(0.0);
-        state.route_meters = server_meters;
-        predicted.0 = (old_client_total - server_meters).max(0.0);
-    }
     state.facing = me.facing;
     state.total_distance_m = me.total_distance_m;
 
-    // Parse route from server
-    if let Some(ref route_json) = me.planned_route {
+    // Parse route from server — check if server has caught up to local changes.
+    let server_in_sync = if let Some(ref route_json) = me.planned_route {
         if !route_json.is_empty() {
             if let Some(route) = questlib::route::parse_route_json(route_json) {
-                state.route = route.clone();
-                // Only update display if we didn't just modify it locally
                 if !display_route.locally_modified {
+                    state.route = route.clone();
                     display_route.waypoints = route;
+                    true
+                } else if state.route == route {
+                    // Server caught up to our local route — clear flag
+                    display_route.locally_modified = false;
+                    true
+                } else {
+                    false // server still has stale route
                 }
+            } else {
+                !display_route.locally_modified
             }
         } else {
-            state.route.clear();
             if !display_route.locally_modified {
+                state.route.clear();
                 display_route.waypoints.clear();
+                true
+            } else if display_route.waypoints.is_empty() {
+                // Server confirmed empty route matches our local clear
+                display_route.locally_modified = false;
+                true
+            } else {
+                false
             }
-            // Server confirmed empty route — safe to clear local flag
-            display_route.locally_modified = false;
         }
-    }
-    // If server has a route and it matches our local one, clear flag
-    if display_route.locally_modified && !state.route.is_empty() && state.route == display_route.waypoints {
-        display_route.locally_modified = false;
+    } else {
+        !display_route.locally_modified
+    };
+
+    // Only accept server meters/interp when the server has our current route.
+    // Otherwise its meters refer to a stale route and would cause jumps.
+    if server_in_sync {
+        let server_meters = me.route_meters_walked.unwrap_or(0.0);
+        let target = me.interp_meters_target.unwrap_or(server_meters);
+        let duration = me.interp_duration_secs.unwrap_or(0.0);
+        state.route_meters = server_meters;
+        interp.start_meters = server_meters;
+        interp.target_meters = target;
+        interp.duration = duration;
+        interp.elapsed = 0.0;
     }
 
 
@@ -383,22 +399,22 @@ fn apply_server_state(
     state.last_poll_tile = (state.tile_x, state.tile_y);
 }
 
-/// Between polls: predict forward based on walking speed.
-fn predict_movement(
-    state: Res<MyPlayerState>,
+/// Between polls: advance interpolation timer. The actual meters are computed
+/// by InterpolationState::current_meters() which lerps between server-confirmed
+/// position and the server's projected target. Can never overshoot.
+fn interpolate_movement(
     time: Res<Time>,
-    mut predicted: ResMut<PredictedMeters>,
+    mut interp: ResMut<InterpolationState>,
 ) {
-    if state.is_walking && state.speed_kmh > 0.1 && !state.route.is_empty() {
-        let speed_ms = state.speed_kmh as f64 / 3.6;
-        predicted.0 += speed_ms * time.delta_secs() as f64;
+    if interp.duration > 0.0 {
+        interp.elapsed += time.delta_secs();
     }
 }
 
 /// Set character position with smooth interpolation.
 fn render_character(
     state: Res<MyPlayerState>,
-    predicted: Res<PredictedMeters>,
+    interp: Res<InterpolationState>,
     mut visual: ResMut<VisualState>,
     session: Res<GameSession>,
     time: Res<Time>,
@@ -410,7 +426,7 @@ fn render_character(
     if !state.initialized { return; }
 
     // Compute target position and facing from route
-    let total_meters = state.route_meters + predicted.0;
+    let total_meters = interp.current_meters();
     let (target_pos, visual_facing) = if !state.route.is_empty() {
         if let Some(world) = &world {
             if let Some((pos, idx)) = position_and_index_from_route_meters(&state.route, total_meters, world) {
@@ -495,7 +511,7 @@ fn handle_map_click(
     session: Res<GameSession>,
     mut state: ResMut<MyPlayerState>,
     mut display_route: ResMut<DisplayRoute>,
-    mut predicted: ResMut<PredictedMeters>,
+    mut interp: ResMut<InterpolationState>,
     mut commands: Commands,
     path_markers: Query<Entity, With<PathMarker>>,
     mut info_q: Query<(&mut Text2d, &mut Transform), (With<TileInfoText>, Without<PlayerSprite>)>,
@@ -535,27 +551,37 @@ fn handle_map_click(
         if start == (tx, ty) { return; }
 
         if let Some(mut segment) = find_path(&world, start, (tx, ty)) {
+            let send_meters;
+            let marker_skip;
+
             if has_active_route {
-                // Extending: just append, don't touch meters or prediction.
-                // The existing route + meters still map to the correct position.
+                // Extending: append new segment, preserve walked progress.
                 if !segment.is_empty() { segment.remove(0); }
                 display_route.waypoints.extend(segment);
+                let current_meters = interp.current_meters();
+                send_meters = Some(current_meters);
+                marker_skip = tile_index_from_meters(&display_route.waypoints, current_meters, &world);
             } else {
                 // Fresh route from current position
                 display_route.waypoints = segment;
                 state.route_meters = 0.0;
-                predicted.0 = 0.0;
+                interp.start_meters = 0.0;
+                interp.target_meters = 0.0;
+                interp.elapsed = 0.0;
+                interp.duration = 0.0;
+                send_meters = None;
+                marker_skip = 0;
             }
             display_route.locally_modified = true;
             state.route = display_route.waypoints.clone();
 
-            // Redraw markers
+            // Redraw markers (skip already-walked tiles)
             for entity in &path_markers { commands.entity(entity).despawn(); }
-            draw_path_markers(&mut commands, &display_route.waypoints, 0, &fog);
+            draw_path_markers(&mut commands, &display_route.waypoints, marker_skip, &fog);
 
-            // Send to server
+            // Send to server (with meters when extending, so server preserves progress)
             let route_json = questlib::route::encode_route_json(&display_route.waypoints);
-            supabase::write_planned_route(&config, &session.player_id, &route_json);
+            supabase::write_planned_route(&config, &session.player_id, &route_json, send_meters);
         }
     }
 }
@@ -566,18 +592,33 @@ fn handle_clear_route(
     session: Res<GameSession>,
     mut state: ResMut<MyPlayerState>,
     mut display_route: ResMut<DisplayRoute>,
-    mut predicted: ResMut<PredictedMeters>,
+    mut interp: ResMut<InterpolationState>,
+    world: Res<WorldGrid>,
     mut commands: Commands,
     path_markers: Query<Entity, With<PathMarker>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
+        // Snap tile position to where the character visually is on the route,
+        // so we don't jump back to the last server-confirmed tile.
+        if !state.route.is_empty() {
+            let current_meters = interp.current_meters();
+            let idx = tile_index_from_meters(&state.route, current_meters, &world);
+            if let Some(&(tx, ty)) = state.route.get(idx) {
+                state.tile_x = tx as i32;
+                state.tile_y = ty as i32;
+            }
+        }
+
         display_route.waypoints.clear();
         display_route.locally_modified = true;
         state.route.clear();
         state.route_meters = 0.0;
-        predicted.0 = 0.0;
+        interp.start_meters = 0.0;
+        interp.target_meters = 0.0;
+        interp.elapsed = 0.0;
+        interp.duration = 0.0;
         for entity in &path_markers { commands.entity(entity).despawn(); }
-        supabase::write_planned_route(&config, &session.player_id, "");
+        supabase::write_planned_route(&config, &session.player_id, "", None);
     }
 }
 

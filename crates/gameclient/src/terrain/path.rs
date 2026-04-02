@@ -13,9 +13,32 @@ pub struct DisplayRoute {
     pub locally_modified: bool,
 }
 
-/// Predicted meters since last server poll (dead reckoning).
+/// Server-driven interpolation state. The server tells us where to animate toward,
+/// and we lerp smoothly over the given duration. Can never overshoot.
 #[derive(Resource, Default)]
-pub struct PredictedMeters(pub f64);
+pub struct InterpolationState {
+    /// Confirmed route_meters at last poll.
+    pub start_meters: f64,
+    /// Server's interpolation target (max meters we may animate toward).
+    pub target_meters: f64,
+    /// Seconds elapsed since this interpolation started.
+    pub elapsed: f32,
+    /// Duration over which to reach target (from server, typically 1.0s).
+    pub duration: f32,
+}
+
+impl InterpolationState {
+    /// Current display meters, lerped between start and target. Never exceeds target.
+    pub fn current_meters(&self) -> f64 {
+        if self.duration <= 0.0 {
+            return self.start_meters;
+        }
+        let t = (self.elapsed / self.duration).clamp(0.0, 1.0) as f64;
+        // Smoothstep for ease-out near target (reduces snap on next poll)
+        let t = t * t * (3.0 - 2.0 * t);
+        self.start_meters + (self.target_meters - self.start_meters) * t
+    }
+}
 
 /// Compute world-space position from a route + meters walked.
 /// Walks through tiles consuming meter costs, interpolates within the current tile.

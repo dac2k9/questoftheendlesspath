@@ -13,5 +13,5 @@ while true; do
   curl -sX POST http://localhost:3001/debug_walk \
     -H 'Content-Type: application/json' \
     -d "{\"player_id\":\"${PLAYER}\",\"speed\":${SPEED}}"
-  sleep 3
+  sleep 1
 done

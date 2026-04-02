@@ -107,6 +107,7 @@ async fn main() -> Result<()> {
 
     let shared_notifs: SharedNotifs = Arc::new(Mutex::new(Vec::new()));
     let shared_combat: combat::SharedCombat = Arc::new(Mutex::new(HashMap::new()));
+    let tick_signal = devserver::new_tick_signal();
 
     // Start dev HTTP server
     let server_state = state.clone();
@@ -114,8 +115,9 @@ async fn main() -> Result<()> {
     let server_notifs = shared_notifs.clone();
     let server_world = world.clone();
     let server_combat = shared_combat.clone();
+    let server_tick_signal = tick_signal.clone();
     tokio::spawn(async move {
-        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world, server_combat).await {
+        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world, server_combat, server_tick_signal).await {
             error!("Dev server error: {e}");
         }
     });
@@ -148,6 +150,9 @@ async fn main() -> Result<()> {
         ) {
             error!("Tick error: {e:#}");
         }
+
+        // Wake all long-polling clients — they get fresh post-tick state
+        tick_signal.tick();
 
         // Save state to disk every 10 ticks (~30 seconds)
         save_counter += 1;

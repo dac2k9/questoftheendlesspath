@@ -26,6 +26,12 @@ pub struct DevPlayerState {
     /// Direction the character is facing along the route.
     #[serde(default)]
     pub facing: questlib::route::Facing,
+    /// Interpolation target: client should animate toward this meters value.
+    #[serde(default)]
+    pub interp_meters_target: f64,
+    /// How many seconds the client should take to reach the target (matches tick interval).
+    #[serde(default)]
+    pub interp_duration_secs: f32,
     #[serde(default)]
     pub current_incline: f32,
     #[serde(default)]
@@ -39,7 +45,31 @@ use crate::SharedEvents;
 /// Start the dev HTTP server on port 3001.
 pub type SharedNotifs = Arc<Mutex<Vec<String>>>;
 
-pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat) -> Result<()> {
+/// Tick signal: generation counter + notify. The counter avoids the race where
+/// a notification fires between client disconnect and reconnect.
+pub struct TickSignal {
+    pub generation: std::sync::atomic::AtomicU64,
+    pub notify: tokio::sync::Notify,
+}
+
+pub type SharedTickSignal = Arc<TickSignal>;
+
+pub fn new_tick_signal() -> SharedTickSignal {
+    Arc::new(TickSignal {
+        generation: std::sync::atomic::AtomicU64::new(0),
+        notify: tokio::sync::Notify::new(),
+    })
+}
+
+impl TickSignal {
+    /// Called after each tick: bump generation, wake all waiters.
+    pub fn tick(&self) {
+        self.generation.fetch_add(1, std::sync::atomic::Ordering::Release);
+        self.notify.notify_waiters();
+    }
+}
+
+pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal) -> Result<()> {
     let listener = TcpListener::bind("0.0.0.0:3001").await?;
     tracing::info!("Dev server listening on http://127.0.0.1:3001");
 
@@ -50,13 +80,47 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
         let notifs = notifs.clone();
         let world = world.clone();
         let combat = combat.clone();
+        let tick_signal = tick_signal.clone();
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 16384];
             let n = stream.read(&mut buf).await.unwrap_or(0);
             let request = String::from_utf8_lossy(&buf[..n]);
+            let first_line = request.lines().next().unwrap_or("");
 
-            let (status, body) = handle_request(&request, &state, &events, &notifs, &world, &combat);
+            // Long-poll: GET /players/poll?after=N waits until tick generation > N
+            let (status, body) = if first_line.starts_with("GET /players/poll") {
+                // Parse ?after=N from the URL
+                let client_gen: u64 = first_line
+                    .split('?')
+                    .nth(1)
+                    .and_then(|qs| qs.split('&').find(|p| p.starts_with("after=")))
+                    .and_then(|p| p.strip_prefix("after="))
+                    .and_then(|v| v.split_whitespace().next()) // trim " HTTP/1.1"
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
+
+                let current_gen = tick_signal.generation.load(std::sync::atomic::Ordering::Acquire);
+
+                // If server already ahead, respond immediately (no missed tick)
+                if current_gen <= client_gen {
+                    // Wait for next tick (with 30s timeout)
+                    let _ = tokio::time::timeout(
+                        std::time::Duration::from_secs(30),
+                        tick_signal.notify.notified(),
+                    ).await;
+                }
+
+                let gen = tick_signal.generation.load(std::sync::atomic::Ordering::Acquire);
+                let lock = state.lock().unwrap();
+                let players: Vec<&DevPlayerState> = lock.values().collect();
+                let json = serde_json::to_string(&players).unwrap_or_default();
+                // Include tick generation so client can send it back
+                let body = format!(r#"{{"tick":{},"players":{}}}"#, gen, json);
+                ("200 OK", body)
+            } else {
+                handle_request(&request, &state, &events, &notifs, &world, &combat)
+            };
 
             let response = format!(
                 "HTTP/1.1 {}\r\n\
@@ -103,14 +167,16 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             struct RouteReq {
                 player_id: String,
                 route: String,
+                /// When extending a route, the client sends current meters so
+                /// already-walked progress is preserved. Omit or 0 for fresh routes.
+                #[serde(default)]
+                meters: Option<f64>,
             }
             if let Ok(req) = serde_json::from_str::<RouteReq>(body) {
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
-                    // Trust the client's pre-trimmed route. Reset meters to 0 —
-                    // the client manages its own remainder for smooth visuals.
                     player.planned_route = req.route;
-                    player.route_meters_walked = 0.0;
+                    player.route_meters_walked = req.meters.unwrap_or(0.0);
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
             }
@@ -214,13 +280,13 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                         player.current_speed_kmh = 0.0;
                         return ("200 OK", r#"{"ok":true,"stopped":true}"#.to_string());
                     }
-                    // Speed in m/s * tick interval (3s) * 5x multiplier for faster testing
-                    let delta = (req.speed / 3.6 * 3.0 * 5.0) as i32;
+                    // Just set speed + flags. The tick loop computes the actual
+                    // distance from speed when debug_walking is true (avoids
+                    // integer truncation at slow walking speeds).
                     player.current_speed_kmh = req.speed;
-                    player.total_distance_m += delta;
                     player.is_walking = true;
                     player.debug_walking = true;
-                    return ("200 OK", format!("{{\"ok\":true,\"delta\":{}}}", delta));
+                    return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
             }
         }
