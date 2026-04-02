@@ -23,6 +23,22 @@ pub enum Biome {
     DeepWater,
 }
 
+impl Biome {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Grassland => "Grassland",
+            Self::Forest => "Forest",
+            Self::DenseForest => "Dense Forest",
+            Self::Mountain => "Mountain",
+            Self::Desert => "Desert",
+            Self::Snow => "Snowfield",
+            Self::Swamp => "Swamp",
+            Self::Water => "Water",
+            Self::DeepWater => "Deep Water",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PoiType {
     Village,

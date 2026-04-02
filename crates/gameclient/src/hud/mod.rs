@@ -41,6 +41,12 @@ struct DistanceText;
 #[derive(Component)]
 struct SpeedText;
 
+#[derive(Component)]
+struct BiomeText;
+
+#[derive(Component)]
+struct InventoryButton;
+
 #[derive(Resource, Default)]
 struct LastKnownGold(i32);
 
@@ -71,13 +77,36 @@ fn spawn_hud(mut commands: Commands, font: Res<GameFont>) {
         BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
         HudRoot,
     )).with_children(|parent| {
-        // Gold
-        parent.spawn((
-            Text::new("Gold: 0"),
-            TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
-            TextColor(Color::srgb(1.0, 0.85, 0.2)),
-            GoldText,
-        ));
+        // Left group: Gold + Inventory button
+        parent.spawn(Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(10.0),
+            ..default()
+        }).with_children(|left| {
+            left.spawn((
+                Text::new("Gold: 0"),
+                TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                TextColor(Color::srgb(1.0, 0.85, 0.2)),
+                GoldText,
+            ));
+            left.spawn((
+                Button,
+                Node {
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.3, 0.25, 0.15, 0.7)),
+                BorderRadius::all(Val::Px(3.0)),
+                InventoryButton,
+            )).with_children(|btn| {
+                btn.spawn((
+                    Text::new("[I]nv"),
+                    TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
+                    TextColor(Color::srgb(0.8, 0.75, 0.6)),
+                ));
+            });
+        });
 
         // Level + XP bar container
         parent.spawn(Node {
@@ -124,6 +153,14 @@ fn spawn_hud(mut commands: Commands, font: Res<GameFont>) {
             DistanceText,
         ));
 
+        // Biome
+        parent.spawn((
+            Text::new(""),
+            TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+            TextColor(Color::srgb(0.6, 0.8, 0.6)),
+            BiomeText,
+        ));
+
         // Speed
         parent.spawn((
             Text::new("0.0 km/h"),
@@ -139,10 +176,13 @@ fn update_hud(
     route: Res<DisplayRoute>,
     world: Option<Res<WorldGrid>>,
     mut gold_q: Query<&mut Text, With<GoldText>>,
-    mut level_q: Query<&mut Text, (With<LevelText>, Without<GoldText>, Without<DistanceText>, Without<SpeedText>)>,
+    mut level_q: Query<&mut Text, (With<LevelText>, Without<GoldText>, Without<DistanceText>, Without<SpeedText>, Without<BiomeText>)>,
     mut xp_bar_q: Query<&mut Node, With<XpBarFill>>,
-    mut dist_q: Query<&mut Text, (With<DistanceText>, Without<GoldText>, Without<LevelText>, Without<SpeedText>)>,
-    mut speed_q: Query<&mut Text, (With<SpeedText>, Without<GoldText>, Without<LevelText>, Without<DistanceText>)>,
+    mut dist_q: Query<&mut Text, (With<DistanceText>, Without<GoldText>, Without<LevelText>, Without<SpeedText>, Without<BiomeText>)>,
+    mut speed_q: Query<&mut Text, (With<SpeedText>, Without<GoldText>, Without<LevelText>, Without<DistanceText>, Without<BiomeText>)>,
+    mut biome_q: Query<&mut Text, (With<BiomeText>, Without<GoldText>, Without<LevelText>, Without<DistanceText>, Without<SpeedText>)>,
+    mut open: ResMut<InventoryOpen>,
+    inv_btn_q: Query<&Interaction, (With<InventoryButton>, Changed<Interaction>)>,
 ) {
     if let Ok(mut text) = gold_q.get_single_mut() {
         **text = format!("Gold: {}", state.gold);
@@ -172,6 +212,19 @@ fn update_hud(
             }
         } else {
             **text = "No route".to_string();
+        }
+    }
+    // Biome
+    if let Ok(mut text) = biome_q.get_single_mut() {
+        if let Some(world) = &world {
+            let biome = world.map.biome_at(state.tile_x as usize, state.tile_y as usize);
+            **text = biome.display_name().to_string();
+        }
+    }
+    // Inventory button
+    for interaction in &inv_btn_q {
+        if *interaction == Interaction::Pressed {
+            open.0 = !open.0;
         }
     }
 }
@@ -237,62 +290,10 @@ struct InventoryContent;
 fn toggle_inventory(
     keys: Res<ButtonInput<KeyCode>>,
     mut open: ResMut<InventoryOpen>,
-    mut commands: Commands,
-    panel_q: Query<Entity, With<InventoryPanel>>,
-    font: Res<GameFont>,
-    state: Res<MyPlayerState>,
 ) {
-    if !keys.just_pressed(KeyCode::KeyI) {
-        return;
+    if keys.just_pressed(KeyCode::KeyI) {
+        open.0 = !open.0;
     }
-    open.0 = !open.0;
-
-    if !open.0 {
-        for entity in &panel_q {
-            commands.entity(entity).despawn_recursive();
-        }
-        return;
-    }
-
-    // Spawn panel
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(40.0),
-            right: Val::Px(12.0),
-            width: Val::Px(220.0),
-            min_height: Val::Px(100.0),
-            max_height: Val::Px(400.0),
-            padding: UiRect::all(Val::Px(12.0)),
-            border: UiRect::all(Val::Px(2.0)),
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(4.0),
-            ..default()
-        },
-        BackgroundColor(Color::srgba(0.02, 0.02, 0.08, 0.92)),
-        BorderColor(Color::srgb(0.4, 0.35, 0.2)),
-        BorderRadius::all(Val::Px(6.0)),
-        InventoryPanel,
-    )).with_children(|parent| {
-        // Title
-        parent.spawn((
-            Text::new("Inventory"),
-            TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
-            TextColor(Color::srgb(1.0, 0.85, 0.3)),
-        ));
-
-        // Content container — will be updated each frame
-        parent.spawn((
-            Node {
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(2.0),
-                ..default()
-            },
-            InventoryContent,
-        )).with_children(|content| {
-            build_inventory_items(content, &state, &font);
-        });
-    });
 }
 
 fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font: &GameFont) {
@@ -323,12 +324,58 @@ fn update_inventory(
     open: Res<InventoryOpen>,
     state: Res<MyPlayerState>,
     font: Res<GameFont>,
+    panel_q: Query<Entity, With<InventoryPanel>>,
     content_q: Query<Entity, With<InventoryContent>>,
 ) {
-    if !open.0 { return; }
-    let Ok(content_entity) = content_q.get_single() else { return; };
+    if !open.0 {
+        for entity in &panel_q {
+            commands.entity(entity).despawn_recursive();
+        }
+        return;
+    }
 
-    // Rebuild children every frame the inventory is open
+    // Spawn panel if it doesn't exist
+    if panel_q.is_empty() {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(40.0),
+                right: Val::Px(12.0),
+                width: Val::Px(220.0),
+                min_height: Val::Px(100.0),
+                max_height: Val::Px(400.0),
+                padding: UiRect::all(Val::Px(12.0)),
+                border: UiRect::all(Val::Px(2.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(4.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.02, 0.02, 0.08, 0.92)),
+            BorderColor(Color::srgb(0.4, 0.35, 0.2)),
+            BorderRadius::all(Val::Px(6.0)),
+            InventoryPanel,
+        )).with_children(|parent| {
+            parent.spawn((
+                Text::new("Inventory"),
+                TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                TextColor(Color::srgb(1.0, 0.85, 0.3)),
+            ));
+            parent.spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(2.0),
+                    ..default()
+                },
+                InventoryContent,
+            )).with_children(|content| {
+                build_inventory_items(content, &state, &font);
+            });
+        });
+        return;
+    }
+
+    // Update content
+    let Ok(content_entity) = content_q.get_single() else { return; };
     commands.entity(content_entity).despawn_descendants();
     commands.entity(content_entity).with_children(|content| {
         build_inventory_items(content, &state, &font);
