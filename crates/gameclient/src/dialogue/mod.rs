@@ -268,6 +268,9 @@ struct ShopPanel;
 #[derive(Component)]
 struct ShopItemButton(usize); // index into ShopState.items
 
+#[derive(Component)]
+struct SellItemButton(String); // item_id
+
 fn update_shop(
     mut commands: Commands,
     font: Res<GameFont>,
@@ -379,6 +382,56 @@ fn update_shop(
             });
         }
 
+        // Sell section — show player's sellable items
+        let sellable: Vec<_> = player.inventory.iter()
+            .filter(|slot| {
+                catalog.0.get(&slot.item_id)
+                    .map_or(false, |d| d.category != questlib::items::ItemCategory::KeyItem)
+            })
+            .collect();
+        if !sellable.is_empty() {
+            parent.spawn((
+                Text::new("-- Sell --"),
+                TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                TextColor(Color::srgb(0.6, 0.6, 0.5)),
+                Node { margin: UiRect::top(Val::Px(8.0)), ..default() },
+            ));
+            for slot in &sellable {
+                let def = catalog.0.get(&slot.item_id);
+                let display_name = def.map(|d| d.display_name.as_str()).unwrap_or(&slot.item_id);
+                let sell_price = self::sell_price(&slot.item_id, &catalog.0);
+                let label = if slot.quantity > 1 {
+                    format!("{} x{}", display_name, slot.quantity)
+                } else {
+                    display_name.to_string()
+                };
+
+                parent.spawn((
+                    Button,
+                    Node {
+                        padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                        justify_content: JustifyContent::SpaceBetween,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.2, 0.15, 0.1, 0.8)),
+                    BorderRadius::all(Val::Px(3.0)),
+                    SellItemButton(slot.item_id.clone()),
+                    crate::hud::InventoryItemRow(slot.item_id.clone()),
+                )).with_children(|btn| {
+                    btn.spawn((
+                        Text::new(label),
+                        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                        TextColor(Color::srgb(0.9, 0.8, 0.7)),
+                    ));
+                    btn.spawn((
+                        Text::new(format!("+{} gold", sell_price)),
+                        TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                        TextColor(Color::srgb(0.5, 0.9, 0.4)),
+                    ));
+                });
+            }
+        }
+
         // Close button
         parent.spawn((
             Button,
@@ -390,7 +443,7 @@ fn update_shop(
             },
             BackgroundColor(Color::srgba(0.3, 0.15, 0.15, 0.8)),
             BorderRadius::all(Val::Px(3.0)),
-            ShopItemButton(usize::MAX), // sentinel for close
+            ShopItemButton(usize::MAX),
         )).with_children(|btn| {
             btn.spawn((
                 Text::new("[ESC] Leave Shop"),
@@ -401,6 +454,23 @@ fn update_shop(
     });
 }
 
+/// Sell price = half the cheapest shop price for that item, minimum 5 gold.
+fn sell_price(item_id: &str, catalog: &questlib::items::ItemCatalog) -> i32 {
+    // Look up a reasonable price from item effects
+    let def = catalog.get(item_id);
+    let base = match item_id {
+        "wooden_club" => 40, "iron_sword" => 120, "fire_blade" => 200, "frost_axe" => 180,
+        "leather_vest" => 50, "chainmail" => 150, "dragonscale_armor" => 300,
+        "warm_cloak" => 60, "bog_charm" => 60, "ring_of_vigor" => 100, "berserker_pendant" => 80,
+        "health_potion" => 30, "greater_health_potion" => 60, "speed_potion" => 80,
+        "mystery_potion" => 40, "battle_elixir" => 120,
+        "torch" => 20, "compass" => 60, "explorers_map" => 180,
+        _ => 20,
+    };
+    let _ = def; // suppress unused
+    (base / 2).max(5)
+}
+
 fn handle_shop_input(
     mut shop: ResMut<ShopState>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -408,6 +478,7 @@ fn handle_shop_input(
     player: Res<crate::terrain::tilemap::MyPlayerState>,
     session: Res<crate::GameSession>,
     btn_q: Query<(&Interaction, &ShopItemButton)>,
+    sell_q: Query<(&Interaction, &SellItemButton)>,
 ) {
     // ESC to close shop (no server completion — shops are always available)
     if keys.just_pressed(KeyCode::Escape) && shop.active {
@@ -443,6 +514,19 @@ fn handle_shop_input(
                 });
             }
         }
+    }
+
+    // Sell items
+    for (interaction, sell_btn) in &sell_q {
+        if !matches!(interaction, Interaction::Hovered | Interaction::Pressed) { continue; }
+        let player_id = session.player_id.clone();
+        let item_id = sell_btn.0.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = reqwest::Client::new();
+            let _ = client.post("http://localhost:3001/sell_item")
+                .json(&serde_json::json!({"player_id": player_id, "item_id": item_id}))
+                .send().await;
+        });
     }
 }
 

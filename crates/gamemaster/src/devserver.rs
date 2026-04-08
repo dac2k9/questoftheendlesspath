@@ -257,6 +257,43 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
     }
 
+    // POST /sell_item — sell an item for gold
+    if first_line.starts_with("POST /sell_item") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            let body = &request[body_start + 4..];
+            #[derive(Deserialize)]
+            struct SellReq { player_id: String, item_id: String }
+            if let Ok(req) = serde_json::from_str::<SellReq>(body) {
+                let catalog = questlib::items::ItemCatalog::from_json(
+                    include_str!("../../../adventures/items.json")
+                ).ok();
+                let mut lock = state.lock().unwrap();
+                if let Some(player) = lock.get_mut(&req.player_id) {
+                    // Can't sell key items
+                    let is_key = catalog.as_ref()
+                        .and_then(|c| c.get(&req.item_id))
+                        .map_or(false, |d| d.category == questlib::items::ItemCategory::KeyItem);
+                    if is_key {
+                        return ("400 Bad Request", r#"{"error":"can't sell key items"}"#.to_string());
+                    }
+                    if !questlib::items::has_item(&player.inventory, &req.item_id) {
+                        return ("400 Bad Request", r#"{"error":"item not found"}"#.to_string());
+                    }
+                    // Sell price = half buy cost
+                    let price = sell_price(&req.item_id);
+                    questlib::items::remove_item(&mut player.inventory, &req.item_id);
+                    player.gold += price;
+                    if let Ok(mut n) = notifs.lock() {
+                        let name = catalog.as_ref().and_then(|c| c.get(&req.item_id)).map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
+                        n.push(format!("Sold {} for {} gold", name, price));
+                    }
+                    return ("200 OK", r#"{"ok":true}"#.to_string());
+                }
+            }
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
     // POST /use_item — use a consumable item
     if first_line.starts_with("POST /use_item") {
         if let Some(body_start) = request.find("\r\n\r\n") {
@@ -526,4 +563,17 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
     }
 
     ("404 Not Found", r#"{"error":"not found"}"#.to_string())
+}
+
+fn sell_price(item_id: &str) -> i32 {
+    let base = match item_id {
+        "wooden_club" => 40, "iron_sword" => 120, "fire_blade" => 200, "frost_axe" => 180,
+        "leather_vest" => 50, "chainmail" => 150, "dragonscale_armor" => 300,
+        "warm_cloak" => 60, "bog_charm" => 60, "ring_of_vigor" => 100, "berserker_pendant" => 80,
+        "health_potion" => 30, "greater_health_potion" => 60, "speed_potion" => 80,
+        "mystery_potion" => 40, "battle_elixir" => 120,
+        "torch" => 20, "compass" => 60, "explorers_map" => 180,
+        _ => 20,
+    };
+    (base / 2).max(5)
 }
