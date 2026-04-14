@@ -41,6 +41,7 @@ impl Plugin for TilemapPlugin {
                     handle_debug_menu,
                     update_chest_sprites,
                     animate_monsters,
+                    update_other_players,
                 ).run_if(in_state(AppState::InGame)),
             );
     }
@@ -59,6 +60,12 @@ struct PathMarker;
 
 #[derive(Component)]
 pub struct PlayerSprite;
+
+#[derive(Component)]
+struct OtherPlayerSprite(String); // player_id
+
+#[derive(Component)]
+struct OtherPlayerName;
 
 #[derive(Component)]
 struct ChestSprite(usize); // chest index
@@ -890,6 +897,86 @@ fn update_camera(
     let ps = 1.0 / proj.scale;
     cam.translation.x = (cam.translation.x * ps).round() / ps;
     cam.translation.y = (cam.translation.y * ps).round() / ps;
+}
+
+fn update_other_players(
+    mut commands: Commands,
+    session: Res<GameSession>,
+    polled: Res<PolledPlayerState>,
+    world: Option<Res<WorldGrid>>,
+    mut images: ResMut<Assets<Image>>,
+    mut atlases: ResMut<Assets<TextureAtlasLayout>>,
+    mut existing: Query<(Entity, &OtherPlayerSprite, &mut Transform, &mut Sprite), Without<OtherPlayerName>>,
+    mut name_q: Query<(Entity, &OtherPlayerName, &mut Transform, &mut Text2d), Without<OtherPlayerSprite>>,
+    font: Res<GameFont>,
+) {
+    let Some(world) = world else { return; };
+    let Ok(lock) = polled.players.lock() else { return; };
+
+    // Get other players (not us)
+    let others: Vec<_> = lock.iter()
+        .filter(|p| p.id != session.player_id)
+        .collect();
+
+    for other in &others {
+        let target_pos = WorldGrid::tile_to_world(
+            other.map_tile_x.unwrap_or(0) as usize,
+            other.map_tile_y.unwrap_or(0) as usize,
+        );
+
+        // Find existing sprite for this player
+        let found = existing.iter_mut().find(|(_, ops, _, _)| ops.0 == other.id);
+
+        if let Some((_, _, mut tf, mut sprite)) = found {
+            // Update position
+            let lerp = 1.0 - (-6.0_f32 * 0.016).exp(); // ~60fps lerp
+            tf.translation.x += (target_pos.x - tf.translation.x) * lerp;
+            tf.translation.y += (target_pos.y - tf.translation.y) * lerp;
+
+            // Flip based on facing
+            sprite.flip_x = other.facing == questlib::route::Facing::Left;
+        } else {
+            // Spawn new sprite for this player (use Zhinja sprite sheet)
+            let sprite_bytes = include_bytes!("../../assets/sprites/Zhinja.png");
+            let dyn_img = image::load_from_memory(sprite_bytes).expect("other player sprite");
+            let rgba = dyn_img.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            let tex = images.add(Image::new(
+                Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                TextureDimension::D2, rgba.into_raw(), TextureFormat::Rgba8UnormSrgb, default(),
+            ));
+            let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, None, None);
+            let layout_handle = atlases.add(layout);
+            let pos = target_pos;
+            commands.spawn((
+                Sprite { image: tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
+                Transform::from_xyz(pos.x, pos.y, 4.0),
+                OtherPlayerSprite(other.id.clone()),
+            ));
+            // Name tag
+            commands.spawn((
+                Text2d::new(&other.name),
+                TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
+                TextColor(Color::srgb(0.5, 0.8, 1.0)),
+                Transform::from_xyz(pos.x, pos.y + 12.0, 6.0),
+                OtherPlayerName,
+            ));
+        }
+    }
+
+    // Update name positions to follow their sprites
+    // (simplified — just update from polled data)
+    for other in &others {
+        let target_pos = WorldGrid::tile_to_world(
+            other.map_tile_x.unwrap_or(0) as usize,
+            other.map_tile_y.unwrap_or(0) as usize,
+        );
+        for (_, _, mut tf, _) in name_q.iter_mut() {
+            // This is a rough approach — would be better with parent-child but works for 2 players
+            tf.translation.x = target_pos.x;
+            tf.translation.y = target_pos.y + 12.0;
+        }
+    }
 }
 
 fn animate_monsters(

@@ -1,6 +1,7 @@
 mod combat;
 mod devserver;
 mod tick;
+mod walker_bridge;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -24,6 +25,8 @@ struct SaveData {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -121,6 +124,16 @@ async fn main() -> Result<()> {
             error!("Dev server error: {e}");
         }
     });
+
+    // Start Walker bridges for configured players
+    let walker_config = walker_bridge::build_config();
+    if !walker_config.is_empty() {
+        info!("Starting Walker bridges for {} player(s)", walker_config.len());
+        for (pid, wid) in &walker_config {
+            info!("  {} -> walker:{}", pid, wid);
+        }
+        walker_bridge::spawn_bridges(state.clone(), std::sync::Arc::new(walker_config));
+    }
 
     // Track per-player state
     let mut player_fogs: HashMap<String, questlib::fog::FogBitfield> = HashMap::new();
