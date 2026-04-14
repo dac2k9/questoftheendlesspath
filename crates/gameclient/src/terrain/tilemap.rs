@@ -598,8 +598,9 @@ fn render_character(
     }
 
     for (mut tf, mut anim, mut sprite) in &mut player_q {
-        tf.translation.x = visual.pos.x;
-        tf.translation.y = visual.pos.y;
+        // Round to whole pixels to prevent sprite atlas bleed
+        tf.translation.x = visual.pos.x.round();
+        tf.translation.y = visual.pos.y.round();
 
         // Derive facing from the visual position on the route
         anim.facing = visual_facing;
