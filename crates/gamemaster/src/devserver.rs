@@ -44,6 +44,9 @@ pub struct DevPlayerState {
     pub opened_chests: Vec<String>,
     #[serde(default)]
     pub defeated_monsters: Vec<String>,
+    /// Previous tile before entering current tile (for retreat).
+    #[serde(default)]
+    pub prev_tile: Option<(i32, i32)>,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;

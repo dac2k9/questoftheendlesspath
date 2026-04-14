@@ -239,6 +239,7 @@ pub fn run_tick_dev(
                 p.gold += gold_delta;
                 p.route_meters_walked = new_route_meters;
                 if let Some((tx, ty)) = new_tile {
+                    p.prev_tile = Some((p.map_tile_x, p.map_tile_y));
                     p.map_tile_x = tx;
                     p.map_tile_y = ty;
                 }
@@ -444,46 +445,18 @@ pub fn run_tick_dev(
             event.force_status(EventStatus::Dismissed);
         }
 
-        // Push player back to a safe adjacent tile
+        // Push player back to where they came from
         let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let fighting_pid = lock.iter().find(|(_, p)| p.is_walking).map(|(id, _)| id.clone());
         if let Some(pid) = fighting_pid {
             if let Some(p) = lock.get_mut(&pid) {
-                let px = p.map_tile_x as usize;
-                let py = p.map_tile_y as usize;
-                // Find a safe adjacent tile: walkable, not water, not the monster tile,
-                // not a biome the player can't enter, and has a road or is grassland
-                let candidates = [
-                    (px.wrapping_sub(1), py),
-                    (px + 1, py),
-                    (px, py.wrapping_sub(1)),
-                    (px, py + 1),
-                ];
-                let mut best: Option<(usize, usize)> = None;
-                for (nx, ny) in candidates {
-                    if nx >= world.width || ny >= world.height { continue; }
-                    let biome = world.biome_at(nx, ny);
-                    if matches!(biome, questlib::mapgen::Biome::Water | questlib::mapgen::Biome::DeepWater) { continue; }
-                    // Don't push into biomes that need items the player doesn't have
-                    if let Some(req) = biome.required_item() {
-                        if !questlib::items::has_item_or_equipped(&p.inventory, &p.equipment, req) {
-                            continue;
-                        }
-                    }
-                    // Prefer road tiles
-                    if world.has_road_at(nx, ny) {
-                        best = Some((nx, ny));
-                        break;
-                    }
-                    if best.is_none() { best = Some((nx, ny)); }
+                if let Some((prev_x, prev_y)) = p.prev_tile {
+                    info!("[{}] retreated back to ({},{}) (previous tile)", p.name, prev_x, prev_y);
+                    p.map_tile_x = prev_x;
+                    p.map_tile_y = prev_y;
                 }
-                if let Some((nx, ny)) = best {
-                    info!("[{}] pushed back to ({},{}) after retreat", p.name, nx, ny);
-                    p.map_tile_x = nx as i32;
-                    p.map_tile_y = ny as i32;
-                    p.planned_route.clear();
-                    p.route_meters_walked = 0.0;
-                }
+                p.planned_route.clear();
+                p.route_meters_walked = 0.0;
             }
         }
 
