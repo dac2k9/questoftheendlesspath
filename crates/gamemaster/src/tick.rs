@@ -437,13 +437,56 @@ pub fn run_tick_dev(
         server_combat::remove_combat(shared_combat, victory_event_id);
     }
 
-    // Defeat/Fled: dismiss the event for now (prevents immediate re-trigger).
-    // TODO: re-encounter system — place enemy on map, re-trigger when player returns.
+    // Defeat/Fled: push player back one tile (away from the monster/enemy)
     for retreat_event_id in &retreats {
         info!("Combat retreat: {}", retreat_event_id);
         if let Some(event) = events_lock.get_mut(retreat_event_id) {
             event.force_status(EventStatus::Dismissed);
         }
+
+        // Push player back to a safe adjacent tile
+        let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let fighting_pid = lock.iter().find(|(_, p)| p.is_walking).map(|(id, _)| id.clone());
+        if let Some(pid) = fighting_pid {
+            if let Some(p) = lock.get_mut(&pid) {
+                let px = p.map_tile_x as usize;
+                let py = p.map_tile_y as usize;
+                // Find a safe adjacent tile: walkable, not water, not the monster tile,
+                // not a biome the player can't enter, and has a road or is grassland
+                let candidates = [
+                    (px.wrapping_sub(1), py),
+                    (px + 1, py),
+                    (px, py.wrapping_sub(1)),
+                    (px, py + 1),
+                ];
+                let mut best: Option<(usize, usize)> = None;
+                for (nx, ny) in candidates {
+                    if nx >= world.width || ny >= world.height { continue; }
+                    let biome = world.biome_at(nx, ny);
+                    if matches!(biome, questlib::mapgen::Biome::Water | questlib::mapgen::Biome::DeepWater) { continue; }
+                    // Don't push into biomes that need items the player doesn't have
+                    if let Some(req) = biome.required_item() {
+                        if !questlib::items::has_item_or_equipped(&p.inventory, &p.equipment, req) {
+                            continue;
+                        }
+                    }
+                    // Prefer road tiles
+                    if world.has_road_at(nx, ny) {
+                        best = Some((nx, ny));
+                        break;
+                    }
+                    if best.is_none() { best = Some((nx, ny)); }
+                }
+                if let Some((nx, ny)) = best {
+                    info!("[{}] pushed back to ({},{}) after retreat", p.name, nx, ny);
+                    p.map_tile_x = nx as i32;
+                    p.map_tile_y = ny as i32;
+                    p.planned_route.clear();
+                    p.route_meters_walked = 0.0;
+                }
+            }
+        }
+
         server_combat::remove_combat(shared_combat, retreat_event_id);
     }
 
