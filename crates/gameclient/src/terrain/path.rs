@@ -160,11 +160,13 @@ pub fn find_path_with_items(
     if !world.get(goal.0, goal.1).is_passable() {
         return None;
     }
-    // Check if goal biome requires an item we don't have
+    // Check if goal biome requires an item — but roads are always safe
     let goal_biome = world.map.biome_at(goal.0, goal.1);
-    if let Some(req) = goal_biome.required_item() {
-        if !inventory_ids.iter().any(|id| id == req) {
-            return None;
+    if !world.map.has_road_at(goal.0, goal.1) {
+        if let Some(req) = goal_biome.required_item() {
+            if !inventory_ids.iter().any(|id| id == req) {
+                return None;
+            }
         }
     }
 
@@ -212,11 +214,13 @@ pub fn find_path_with_items(
             if !terrain.is_passable() {
                 continue;
             }
-            // Block tiles that require an item the player doesn't have
+            // Block tiles that require an item — but roads are always safe
             let biome = world.map.biome_at(nx, ny);
-            if let Some(req) = biome.required_item() {
-                if !inventory_ids.iter().any(|id| id == req) {
-                    continue;
+            if !world.map.has_road_at(nx, ny) {
+                if let Some(req) = biome.required_item() {
+                    if !inventory_ids.iter().any(|id| id == req) {
+                        continue;
+                    }
                 }
             }
 

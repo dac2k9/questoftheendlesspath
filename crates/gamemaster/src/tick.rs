@@ -136,11 +136,15 @@ pub fn run_tick_dev(
                 }
             };
 
-            // Block movement into biomes that require items the player doesn't have
+            // Block movement into biomes that require items — but roads are always safe
             let target_biome = world.biome_at(tile_x, tile_y);
-            let has_required_item = target_biome.required_item().map_or(true, |req| {
-                questlib::items::has_item_or_equipped(&player.inventory, &player.equipment, req)
-            });
+            let has_required_item = if world.has_road_at(tile_x, tile_y) {
+                true
+            } else {
+                target_biome.required_item().map_or(true, |req| {
+                    questlib::items::has_item_or_equipped(&player.inventory, &player.equipment, req)
+                })
+            };
 
             if should_move && has_required_item {
                 info!("[{}] moved ({},{}) → ({},{})", player.name, player.map_tile_x, player.map_tile_y, tile_x, tile_y);
