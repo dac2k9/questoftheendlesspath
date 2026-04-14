@@ -65,7 +65,14 @@ pub struct PlayerSprite;
 struct OtherPlayerSprite(String); // player_id
 
 #[derive(Component)]
-struct OtherPlayerName;
+struct OtherPlayerAnim {
+    timer: Timer,
+    frame: usize,
+    moving: bool,
+}
+
+#[derive(Component)]
+struct OtherPlayerName(String); // player_id
 
 #[derive(Component)]
 struct ChestSprite(usize); // chest index
@@ -903,11 +910,12 @@ fn update_other_players(
     mut commands: Commands,
     session: Res<GameSession>,
     polled: Res<PolledPlayerState>,
+    time: Res<Time>,
     world: Option<Res<WorldGrid>>,
     mut images: ResMut<Assets<Image>>,
     mut atlases: ResMut<Assets<TextureAtlasLayout>>,
-    mut existing: Query<(Entity, &OtherPlayerSprite, &mut Transform, &mut Sprite), Without<OtherPlayerName>>,
-    mut name_q: Query<(Entity, &OtherPlayerName, &mut Transform, &mut Text2d), Without<OtherPlayerSprite>>,
+    mut existing: Query<(Entity, &OtherPlayerSprite, &mut Transform, &mut Sprite, &mut OtherPlayerAnim), Without<OtherPlayerName>>,
+    mut name_q: Query<(&OtherPlayerName, &mut Transform), Without<OtherPlayerSprite>>,
     font: Res<GameFont>,
 ) {
     let Some(world) = world else { return; };
@@ -925,16 +933,34 @@ fn update_other_players(
         );
 
         // Find existing sprite for this player
-        let found = existing.iter_mut().find(|(_, ops, _, _)| ops.0 == other.id);
+        let found = existing.iter_mut().find(|(_, ops, _, _, _)| ops.0 == other.id);
 
-        if let Some((_, _, mut tf, mut sprite)) = found {
-            // Update position
-            let lerp = 1.0 - (-6.0_f32 * 0.016).exp(); // ~60fps lerp
+        if let Some((_, _, mut tf, mut sprite, mut anim)) = found {
+            // Smooth position lerp
+            let dt = time.delta_secs();
+            let lerp = 1.0 - (-6.0_f32 * dt).exp();
             tf.translation.x += (target_pos.x - tf.translation.x) * lerp;
             tf.translation.y += (target_pos.y - tf.translation.y) * lerp;
 
-            // Flip based on facing
-            sprite.flip_x = other.facing == questlib::route::Facing::Left;
+            // Animation
+            let is_walking = other.is_walking && other.current_speed_kmh > 0.1;
+            if is_walking {
+                let speed_factor = other.current_speed_kmh.clamp(0.5, 6.0);
+                anim.timer.set_duration(std::time::Duration::from_secs_f32(0.3 / speed_factor));
+                anim.timer.tick(time.delta());
+                if anim.timer.just_finished() {
+                    anim.frame = (anim.frame % 4) + 1;
+                }
+                let row = facing_base_row(other.facing);
+                if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6 + anim.frame; }
+                anim.moving = true;
+            } else if anim.moving {
+                anim.moving = false;
+                anim.frame = 0;
+                let row = facing_base_row(other.facing);
+                if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6; }
+            }
+            sprite.flip_x = false;
         } else {
             // Spawn new sprite for this player (use Zhinja sprite sheet)
             let sprite_bytes = include_bytes!("../../assets/sprites/Zhinja.png");
@@ -952,6 +978,7 @@ fn update_other_players(
                 Sprite { image: tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
                 Transform::from_xyz(pos.x, pos.y, 4.0),
                 OtherPlayerSprite(other.id.clone()),
+                OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false },
             ));
             // Name tag
             commands.spawn((
@@ -959,22 +986,24 @@ fn update_other_players(
                 TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
                 TextColor(Color::srgb(0.5, 0.8, 1.0)),
                 Transform::from_xyz(pos.x, pos.y + 12.0, 6.0),
-                OtherPlayerName,
+                OtherPlayerName(other.id.clone()),
             ));
         }
     }
 
-    // Update name positions to follow their sprites
-    // (simplified — just update from polled data)
+    // Update name tag positions
     for other in &others {
         let target_pos = WorldGrid::tile_to_world(
             other.map_tile_x.unwrap_or(0) as usize,
             other.map_tile_y.unwrap_or(0) as usize,
         );
-        for (_, _, mut tf, _) in name_q.iter_mut() {
-            // This is a rough approach — would be better with parent-child but works for 2 players
-            tf.translation.x = target_pos.x;
-            tf.translation.y = target_pos.y + 12.0;
+        for (name_comp, mut tf) in name_q.iter_mut() {
+            if name_comp.0 == other.id {
+                let dt = time.delta_secs();
+                let lerp = 1.0 - (-6.0_f32 * dt).exp();
+                tf.translation.x += (target_pos.x - tf.translation.x) * lerp;
+                tf.translation.y += (target_pos.y + 12.0 - tf.translation.y) * lerp;
+            }
         }
     }
 }
