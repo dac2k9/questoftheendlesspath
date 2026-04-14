@@ -537,7 +537,7 @@ fn handle_shop_input(
 // ── Message Log (bottom-left panel) ──────────────────
 
 const MAX_LOG_LINES: usize = 8;
-const LOG_TYPEWRITER_SPEED: f32 = 0.02; // seconds per character
+const LOG_TYPEWRITER_SPEED: f32 = 0.01; // seconds per character
 
 #[derive(Resource, Default)]
 pub struct NotificationQueue {

@@ -81,30 +81,31 @@ pub fn manage_combat_overlay(
 }
 
 fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
+    let font_12 = TextFont { font: font.clone(), font_size: 12.0, ..default() };
     let font_10 = TextFont { font: font.clone(), font_size: 10.0, ..default() };
-    let font_8 = TextFont { font: font.clone(), font_size: 8.0, ..default() };
-    let font_7 = TextFont { font: font.clone(), font_size: 7.0, ..default() };
+    let font_9 = TextFont { font: font.clone(), font_size: 9.0, ..default() };
 
-    // Main overlay — compact bar at bottom
+    // Main overlay — centered bar
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            right: Val::Px(0.0),
-            bottom: Val::Px(0.0),
+            left: Val::Percent(10.0),
+            right: Val::Percent(10.0),
+            top: Val::Percent(35.0),
             flex_direction: FlexDirection::Column,
-            padding: UiRect::all(Val::Px(12.0)),
-            border: UiRect::top(Val::Px(2.0)),
+            padding: UiRect::all(Val::Px(16.0)),
+            border: UiRect::all(Val::Px(2.0)),
             ..default()
         },
         BackgroundColor(BG_COLOR),
         BorderColor(BORDER_COLOR),
+        BorderRadius::all(Val::Px(6.0)),
         CombatOverlay,
     )).with_children(|parent| {
         // Encounter description (shown once at start)
         parent.spawn((
             Text::new(""),
-            font_8.clone(),
+            font_10.clone(),
             TextColor(Color::srgb(0.9, 0.8, 0.5)),
             Node { margin: UiRect::bottom(Val::Px(6.0)), ..default() },
             EncounterDescText,
@@ -126,13 +127,13 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
             }).with_children(|player| {
                 player.spawn((
                     Text::new("Player"),
-                    font_10.clone(),
+                    font_12.clone(),
                     TextColor(GOLD_COLOR),
                     PlayerNameText,
                 ));
                 player.spawn((
                     Text::new("HP: 0/0"),
-                    font_8.clone(),
+                    font_10.clone(),
                     TextColor(TEXT_COLOR),
                     PlayerHpText,
                 ));
@@ -149,7 +150,7 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
             }).with_children(|log| {
                 log.spawn((
                     Text::new(""),
-                    font_7.clone(),
+                    font_9.clone(),
                     TextColor(LOG_COLOR),
                     CombatLogText,
                 ));
@@ -165,13 +166,13 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
             }).with_children(|enemy| {
                 enemy.spawn((
                     Text::new("Enemy"),
-                    font_10.clone(),
+                    font_12.clone(),
                     TextColor(Color::srgb(1.0, 0.4, 0.3)),
                     EnemyNameText,
                 ));
                 enemy.spawn((
                     Text::new("HP: 0/0"),
-                    font_8.clone(),
+                    font_10.clone(),
                     TextColor(TEXT_COLOR),
                     EnemyHpText,
                 ));
@@ -190,7 +191,7 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
         }).with_children(|bottom| {
             bottom.spawn((
                 Text::new(""),
-                font_7.clone(),
+                font_9.clone(),
                 TextColor(DIM_TEXT),
                 LevelInfoText,
             ));
@@ -209,7 +210,7 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
             )).with_children(|btn| {
                 btn.spawn((
                     Text::new("RUN AWAY"),
-                    font_8.clone(),
+                    font_10.clone(),
                     TextColor(TEXT_COLOR),
                 ));
             });
