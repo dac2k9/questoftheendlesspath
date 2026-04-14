@@ -18,7 +18,7 @@ impl Plugin for MusicPlugin {
         let catalog = load_catalog();
         app.insert_resource(MusicState::default())
             .insert_resource(catalog)
-            .add_systems(Update, update_music);
+            .add_systems(Update, (volume_controls, update_music, update_volume_display));
     }
 }
 
@@ -106,6 +106,10 @@ struct MusicState {
     switch_cooldown: f32,
     /// Music enabled.
     enabled: bool,
+    /// Master volume (0.0 - 1.0), scales all track volumes.
+    pub master_volume: f32,
+    /// Show volume indicator timer (fades out).
+    volume_display_timer: f32,
 }
 
 impl Default for MusicState {
@@ -121,6 +125,8 @@ impl Default for MusicState {
             target_volume: 0.7,
             switch_cooldown: 0.0,
             enabled: true,
+            master_volume: 0.7,
+            volume_display_timer: 0.0,
         }
     }
 }
@@ -236,12 +242,14 @@ fn update_music(
             (&music.channel_b, &music.channel_a)
         };
 
+        let master = music.master_volume as f64;
+
         // Fade out old track
-        let old_vol = (1.0 - music.fade_progress) as f64 * music.target_volume as f64;
+        let old_vol = (1.0 - music.fade_progress) as f64 * music.target_volume as f64 * master;
         set_volume(active, old_vol);
 
         // Fade in new track
-        let new_vol = music.fade_progress as f64 * music.target_volume as f64;
+        let new_vol = music.fade_progress as f64 * music.target_volume as f64 * master;
         set_volume(inactive, new_vol);
 
         if music.fade_progress >= 1.0 {
@@ -257,6 +265,90 @@ fn update_music(
             }
         }
     }
+
+    // Apply master volume to active channel even when not fading
+    if !music.fading {
+        let active = if music.active_is_a { &music.channel_a } else { &music.channel_b };
+        let vol = music.target_volume as f64 * music.master_volume as f64;
+        set_volume(active, vol);
+    }
+}
+
+fn volume_controls(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut music: ResMut<MusicState>,
+) {
+    let mut changed = false;
+    if keys.just_pressed(KeyCode::Equal) || keys.just_pressed(KeyCode::NumpadAdd) {
+        music.master_volume = (music.master_volume + 0.1).min(1.0);
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::Minus) || keys.just_pressed(KeyCode::NumpadSubtract) {
+        music.master_volume = (music.master_volume - 0.1).max(0.0);
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::KeyM) {
+        music.enabled = !music.enabled;
+        if !music.enabled {
+            set_volume(&music.channel_a, 0.0);
+            set_volume(&music.channel_b, 0.0);
+        }
+        changed = true;
+    }
+    if changed {
+        music.volume_display_timer = 2.0;
+    }
+}
+
+#[derive(Component)]
+struct VolumeIndicator;
+
+fn update_volume_display(
+    mut commands: Commands,
+    font: Res<crate::GameFont>,
+    time: Res<Time>,
+    mut music: ResMut<MusicState>,
+    existing: Query<Entity, With<VolumeIndicator>>,
+) {
+    music.volume_display_timer -= time.delta_secs();
+
+    if music.volume_display_timer <= 0.0 {
+        for entity in &existing {
+            commands.entity(entity).despawn_recursive();
+        }
+        return;
+    }
+
+    // Rebuild indicator
+    for entity in &existing {
+        commands.entity(entity).despawn_recursive();
+    }
+
+    let vol_pct = (music.master_volume * 100.0) as u32;
+    let label = if !music.enabled {
+        "Music: OFF".to_string()
+    } else {
+        format!("Vol: {}%", vol_pct)
+    };
+
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(36.0),
+            right: Val::Px(12.0),
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+        BorderRadius::all(Val::Px(4.0)),
+        VolumeIndicator,
+    )).with_children(|parent| {
+        parent.spawn((
+            Text::new(label),
+            TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
+            TextColor(Color::srgb(0.8, 0.8, 0.8)),
+        ));
+    });
 }
 
 fn determine_context(
