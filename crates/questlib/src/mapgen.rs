@@ -92,6 +92,13 @@ pub struct WorldMap {
     pub terrain: Vec<Vec<Biome>>,
     pub pois: Vec<PointOfInterest>,
     pub roads: Vec<Road>,
+    pub chests: Vec<(usize, usize)>,
+}
+
+/// Loot from opening a chest.
+pub struct ChestLoot {
+    pub gold: i32,
+    pub items: Vec<&'static str>,
 }
 
 // ── Generation ────────────────────────────────────────
@@ -109,6 +116,9 @@ impl WorldMap {
         // Step 3: Connect POIs with roads
         let roads = generate_roads(&pois, &terrain);
 
+        // Step 4: Place loot chests
+        let chests = place_chests(&mut rng, &terrain, &pois, &roads);
+
         WorldMap {
             seed,
             width: MAP_W,
@@ -116,6 +126,7 @@ impl WorldMap {
             terrain,
             pois,
             roads,
+            chests,
         }
     }
 
@@ -139,7 +150,29 @@ impl WorldMap {
             .any(|r| r.path.iter().any(|&(rx, ry)| rx == x && ry == y))
     }
 
-    /// Get POI at position (exact tile or adjacent — covers 3x3 village area).
+    /// Get chest index at position, if any.
+    pub fn chest_at(&self, x: usize, y: usize) -> Option<usize> {
+        self.chests.iter().position(|&(cx, cy)| cx == x && cy == y)
+    }
+
+    /// Generate deterministic loot for a chest based on its index.
+    pub fn chest_loot(&self, chest_idx: usize) -> ChestLoot {
+        let mut rng = SeededRng::new(self.seed.wrapping_add(chest_idx as u64).wrapping_add(7777));
+        let gold = 20 + (rng.next() % 81) as i32; // 20-100
+        let mut items = Vec::new();
+        // 40% chance: health potion
+        if rng.next() % 100 < 40 { items.push("health_potion"); }
+        // 15% chance: greater health potion
+        if rng.next() % 100 < 15 { items.push("greater_health_potion"); }
+        // 10% chance: equipment
+        if rng.next() % 100 < 10 {
+            let equip = ["wooden_club", "leather_vest", "ring_of_vigor", "speed_potion", "battle_elixir"];
+            items.push(equip[(rng.next() % equip.len() as u64) as usize]);
+        }
+        ChestLoot { gold, items }
+    }
+
+    /// Get POI at position (exact tile).
     pub fn poi_at(&self, x: usize, y: usize) -> Option<&PointOfInterest> {
         self.pois.iter().find(|p| p.x == x && p.y == y)
     }
@@ -408,6 +441,51 @@ fn find_poi_location(
         return Some((x, y));
     }
     None
+}
+
+// ── Chest Placement ──────────────────────────────────
+
+fn place_chests(
+    rng: &mut SeededRng,
+    terrain: &[Vec<Biome>],
+    pois: &[PointOfInterest],
+    roads: &[Road],
+) -> Vec<(usize, usize)> {
+    let mut chests = Vec::new();
+    let target = 40;
+
+    for _ in 0..target * 20 {
+        if chests.len() >= target { break; }
+        let x = (rng.next() % MAP_W as u64) as usize;
+        let y = (rng.next() % MAP_H as u64) as usize;
+        let biome = terrain[y][x];
+
+        // Must be walkable, not water
+        if matches!(biome, Biome::Water | Biome::DeepWater) { continue; }
+
+        // Not on a POI (3-tile distance)
+        let near_poi = pois.iter().any(|p| {
+            let dx = (p.x as i32 - x as i32).unsigned_abs() as usize;
+            let dy = (p.y as i32 - y as i32).unsigned_abs() as usize;
+            dx <= 3 && dy <= 3
+        });
+        if near_poi { continue; }
+
+        // Not on a road
+        let on_road = roads.iter().any(|r| r.path.contains(&(x, y)));
+        if on_road { continue; }
+
+        // Minimum 4 tiles from other chests
+        let too_close = chests.iter().any(|&(cx, cy)| {
+            let dx = (cx as i32 - x as i32).unsigned_abs() as usize;
+            let dy = (cy as i32 - y as i32).unsigned_abs() as usize;
+            dx <= 4 && dy <= 4
+        });
+        if too_close { continue; }
+
+        chests.push((x, y));
+    }
+    chests
 }
 
 // ── Road Generation ───────────────────────────────────

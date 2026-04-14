@@ -25,6 +25,7 @@ pub enum Overlay {
     Village,
     Bridge,
     Wheat,
+    Chest,
 }
 
 /// Combined terrain.
@@ -47,6 +48,7 @@ impl Terrain {
             Some(Overlay::Village) => 30,
             Some(Overlay::Wheat) => base + 10,
             Some(Overlay::Bridge) => 20,
+            Some(Overlay::Chest) => base, // no extra cost
             None => base,
         }
     }
@@ -64,6 +66,7 @@ impl Terrain {
             Some(Overlay::Village) => "Village",
             Some(Overlay::Bridge) => "Bridge",
             Some(Overlay::Wheat) => "Wheat Field",
+            Some(Overlay::Chest) => "Chest",
             None => self.ground.name(),
         }
     }
@@ -138,6 +141,7 @@ impl Overlay {
             Overlay::Village => 84,    // well_0_0 (placeholder)
             Overlay::Bridge => 71,     // bridge_1_1
             Overlay::Wheat => 61,      // wheat_0_0
+            Overlay::Chest => 80,      // crate/chest tile
         }
     }
 
@@ -146,6 +150,7 @@ impl Overlay {
         match self {
             Overlay::Tree => [31, 32, 33][h % 3],    // tree variants (green)
             Overlay::PineTree => [35, 36][h % 2],     // pine variants
+            Overlay::Chest => 80,                      // chest (no variants)
             _ => self.tile_index(),
         }
     }

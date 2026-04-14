@@ -109,6 +109,13 @@ impl WorldGrid {
             }
         }
 
+        // Place chest overlays
+        for &(cx, cy) in &map.chests {
+            if cx < WORLD_W && cy < WORLD_H {
+                cells[cy][cx].overlay = Some(Overlay::Chest);
+            }
+        }
+
         WorldGrid {
             cells,
             width: WORLD_W,

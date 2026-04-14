@@ -170,10 +170,40 @@ pub fn run_tick_dev(
             gold_delta = 0;
         }
 
+        // Check for loot chest at player's tile
+        let player_tx = new_tile.map(|(x, _)| x as usize).unwrap_or(player.map_tile_x as usize);
+        let player_ty = new_tile.map(|(_, y)| y as usize).unwrap_or(player.map_tile_y as usize);
+        let mut chest_loot: Option<(String, questlib::mapgen::ChestLoot)> = None;
+        if let Some(idx) = world.chest_at(player_tx, player_ty) {
+            let chest_id = format!("chest_{}", idx);
+            if !player.opened_chests.contains(&chest_id) {
+                let loot = world.chest_loot(idx);
+                info!("[{}] opened {} — +{} gold, items: {:?}", player.name, chest_id, loot.gold, loot.items);
+                chest_loot = Some((chest_id, loot));
+            }
+        }
+
         // Write changes back (re-acquire lock briefly)
         {
             let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
             if let Some(p) = lock.get_mut(player_id) {
+                // Apply chest loot
+                if let Some((chest_id, loot)) = chest_loot {
+                    p.opened_chests.push(chest_id);
+                    p.gold += loot.gold;
+                    let catalog = questlib::items::ItemCatalog::from_json(
+                        include_str!("../../../adventures/items.json")
+                    ).ok();
+                    let mut parts = vec![format!("+{} gold", loot.gold)];
+                    for item_id in &loot.items {
+                        questlib::items::add_item(&mut p.inventory, item_id, catalog.as_ref());
+                        let name = catalog.as_ref().and_then(|c| c.get(item_id)).map(|d| d.display_name.as_str()).unwrap_or(item_id);
+                        parts.push(name.to_string());
+                    }
+                    if let Ok(mut notifs) = shared_notifs.lock() {
+                        notifs.push(format!("Opened chest! {}", parts.join(", ")));
+                    }
+                }
                 // Debug walking: tick manages total_distance since handler only sets speed
                 if p.debug_walking {
                     p.total_distance_m += delta;

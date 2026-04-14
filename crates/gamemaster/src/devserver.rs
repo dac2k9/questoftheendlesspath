@@ -40,6 +40,8 @@ pub struct DevPlayerState {
     pub inventory: Vec<questlib::items::InventorySlot>,
     #[serde(default)]
     pub equipment: questlib::items::EquipmentLoadout,
+    #[serde(default)]
+    pub opened_chests: Vec<String>,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;

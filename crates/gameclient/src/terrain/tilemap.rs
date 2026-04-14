@@ -112,6 +112,7 @@ pub struct MyPlayerState {
     pub last_poll_tile: (i32, i32),
     pub inventory: Vec<questlib::items::InventorySlot>,
     pub equipment: questlib::items::EquipmentLoadout,
+    pub opened_chests: Vec<String>,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -315,6 +316,7 @@ fn apply_server_state(
     state.total_distance_m = me.total_distance_m;
     state.inventory = me.inventory.clone();
     state.equipment = me.equipment.clone();
+    state.opened_chests = me.opened_chests.clone();
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {

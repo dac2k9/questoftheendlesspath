@@ -49,6 +49,8 @@ pub struct PlayerRow {
     pub inventory: Vec<questlib::items::InventorySlot>,
     #[serde(default)]
     pub equipment: questlib::items::EquipmentLoadout,
+    #[serde(default)]
+    pub opened_chests: Vec<String>,
 }
 
 /// Long-poll response wrapper from server.
