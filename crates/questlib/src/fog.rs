@@ -77,6 +77,13 @@ impl FogBitfield {
         was == 0
     }
 
+    /// Merge another fog into this one (OR the bits).
+    pub fn merge(&mut self, other: &Self) {
+        for (a, b) in self.bits.iter_mut().zip(other.bits.iter()) {
+            *a |= *b;
+        }
+    }
+
     /// Reveal a circular area around a point.
     pub fn reveal_radius(&mut self, cx: usize, cy: usize, radius: usize) -> bool {
         let r = radius as i32;

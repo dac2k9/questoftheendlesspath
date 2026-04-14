@@ -156,6 +156,12 @@ pub fn run_tick_dev(
 
             // Fog
             let fog = player_fogs.get_mut(player_id).unwrap();
+            // Merge any fog reveals from event completions (applied to player state directly)
+            if !player.revealed_tiles.is_empty() {
+                if let Some(state_fog) = FogBitfield::from_base64(&player.revealed_tiles) {
+                    fog.merge(&state_fog);
+                }
+            }
             let tx = new_tile.map(|(x, _)| x as usize).unwrap_or(player.map_tile_x as usize);
             let ty = new_tile.map(|(_, y)| y as usize).unwrap_or(player.map_tile_y as usize);
             if fog.reveal_radius(tx, ty, 5) {
