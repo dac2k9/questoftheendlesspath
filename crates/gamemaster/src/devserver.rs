@@ -448,6 +448,11 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
 
     // POST /events/{id}/complete — mark event as completed and apply outcomes
     if first_line.contains("/events/") && first_line.contains("/complete") {
+        // Extract player_id from body (if provided)
+        let body_player_id = request.find("\r\n\r\n")
+            .and_then(|i| serde_json::from_str::<serde_json::Value>(&request[i + 4..]).ok())
+            .and_then(|v| v.get("player_id")?.as_str().map(|s| s.to_string()));
+
         // Extract event id from URL: POST /events/some_id/complete
         let parts: Vec<&str> = first_line.split('/').collect();
         if parts.len() >= 3 {
@@ -460,16 +465,20 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 let mut events_lock = events.lock().unwrap();
                 if let Some(event) = events_lock.get_mut(event_id) {
                     if event.transition(questlib::events::EventStatus::Completed).is_ok() {
-                        // Apply outcomes to the first player (dev mode simplification)
                         let outcomes = event.outcomes.clone();
                         let repeatable = event.repeatable;
-                        // Reset repeatable events (e.g. shops) to Pending
                         if repeatable {
                             event.force_status(questlib::events::EventStatus::Pending);
                         }
                         drop(events_lock);
                         let mut state_lock = state.lock().unwrap();
-                        if let Some(player) = state_lock.values_mut().next() {
+                        // Use player_id from body, or fall back to first player
+                        let player = if let Some(ref pid) = body_player_id {
+                            state_lock.get_mut(pid)
+                        } else {
+                            state_lock.values_mut().next()
+                        };
+                        if let Some(player) = player {
                             for outcome in &outcomes {
                                 match outcome {
                                     questlib::events::EventOutcome::Gold { amount } => {

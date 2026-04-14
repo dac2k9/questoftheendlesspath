@@ -172,6 +172,7 @@ fn handle_dialogue_input(
     mut state: ResMut<DialogueState>,
     mut commands: Commands,
     existing: Query<Entity, With<DialogueBox>>,
+    session: Res<crate::GameSession>,
     time: Res<Time>,
     mut debounce: Local<f32>,
 ) {
@@ -223,12 +224,15 @@ fn handle_dialogue_input(
             commands.entity(entity).despawn_recursive();
         }
 
-        // POST completion to dev server
+        // POST completion to dev server with player_id
         if !event_id.is_empty() {
             let url = format!("http://localhost:3001/events/{}/complete", event_id);
+            let player_id = session.player_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let client = reqwest::Client::new();
-                let _ = client.post(&url).send().await;
+                let _ = client.post(&url)
+                    .json(&serde_json::json!({"player_id": player_id}))
+                    .send().await;
             });
         }
     } else {
