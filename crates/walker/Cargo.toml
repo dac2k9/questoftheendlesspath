@@ -17,3 +17,13 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 tokio-stream = "0.1"
 futures = "0.3"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", features = ["ring"] }
+
+[[bin]]
+name = "walker"
+path = "src/main.rs"
+
+[[bin]]
+name = "walker-bridge"
+path = "src/bridge.rs"
