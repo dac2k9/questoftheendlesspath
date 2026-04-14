@@ -482,12 +482,14 @@ fn update_inventory(
         return;
     }
 
-    // Update content
+    // Only rebuild content when inventory changes (not every frame)
     let Ok(content_entity) = content_q.get_single() else { return; };
-    commands.entity(content_entity).despawn_descendants();
-    commands.entity(content_entity).with_children(|content| {
-        build_inventory_items(content, &state, &font, &catalog.0);
-    });
+    if state.is_changed() {
+        commands.entity(content_entity).despawn_descendants();
+        commands.entity(content_entity).with_children(|content| {
+            build_inventory_items(content, &state, &font, &catalog.0);
+        });
+    }
 }
 
 fn show_item_tooltip(
