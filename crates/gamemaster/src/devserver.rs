@@ -481,6 +481,15 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                         ).ok();
                                         questlib::items::add_item(&mut player.inventory, name, cat.as_ref());
                                     }
+                                    questlib::events::EventOutcome::RevealFog { x, y, radius } => {
+                                        let mut fog = if !player.revealed_tiles.is_empty() {
+                                            questlib::fog::FogBitfield::from_base64(&player.revealed_tiles).unwrap_or_default()
+                                        } else {
+                                            questlib::fog::FogBitfield::new()
+                                        };
+                                        fog.reveal_radius(*x, *y, *radius);
+                                        player.revealed_tiles = fog.to_base64();
+                                    }
                                     questlib::events::EventOutcome::Notification { text } => {
                                         if let Ok(mut n) = notifs.lock() {
                                             n.push(text.clone());
