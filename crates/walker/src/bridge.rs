@@ -19,7 +19,7 @@ const GAME_SERVER: &str = "http://localhost:3001/walker_update";
 
 #[derive(serde::Deserialize)]
 struct WsMessage {
-    segment: Segment,
+    segment: Option<Segment>,
 }
 
 #[derive(serde::Deserialize)]
@@ -94,7 +94,20 @@ async fn run_bridge(player_id: &str, walker_user_id: &str, cookie: &str) -> Resu
             continue;
         };
 
-        let seg = &data.segment;
+        let Some(seg) = &data.segment else {
+            // Segment closed (belt stopped) — send idle update
+            info!("STOPPED | Segment closed");
+            last_distance = None;
+            let body = serde_json::json!({
+                "player_id": player_id,
+                "speed": 0.0,
+                "distance": 0.0,
+                "steps": 0,
+                "actually_walking": false,
+            });
+            let _ = http.post(GAME_SERVER).json(&body).send().await;
+            continue;
+        };
 
         // Compute distance delta since last message
         let distance_delta = match last_distance {
