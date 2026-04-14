@@ -18,7 +18,7 @@ impl Plugin for MusicPlugin {
         let catalog = load_catalog();
         app.insert_resource(MusicState::default())
             .insert_resource(catalog)
-            .add_systems(Update, (volume_controls, update_music, update_volume_display));
+            .add_systems(Update, (volume_controls, update_music, update_volume_display, update_music_button));
     }
 }
 
@@ -104,8 +104,10 @@ struct MusicState {
     target_volume: f32,
     /// Cooldown to prevent rapid switching.
     switch_cooldown: f32,
-    /// Music enabled.
+    /// Music enabled by user.
     enabled: bool,
+    /// User has clicked to activate audio (browser autoplay policy).
+    user_activated: bool,
     /// Master volume (0.0 - 1.0), scales all track volumes.
     pub master_volume: f32,
     /// Show volume indicator timer (fades out).
@@ -125,6 +127,7 @@ impl Default for MusicState {
             target_volume: 0.7,
             switch_cooldown: 0.0,
             enabled: true,
+            user_activated: false,
             master_volume: 0.7,
             volume_display_timer: 0.0,
         }
@@ -137,7 +140,9 @@ fn create_audio(src: &str, volume: f64, looping: bool) -> Option<web_sys::HtmlAu
     let audio = web_sys::HtmlAudioElement::new_with_src(src).ok()?;
     audio.set_volume(0.0); // start silent, fade in
     audio.set_loop(looping);
-    let _ = audio.play().ok()?;
+    // play() returns a Promise — use wasm_bindgen_futures to handle it
+    let promise = audio.play().ok()?;
+    let _ = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise));
     Some(audio)
 }
 
@@ -183,7 +188,7 @@ fn update_music(
     catalog: Res<MusicCatalog>,
     mut music: ResMut<MusicState>,
 ) {
-    if !music.enabled || catalog.tracks.is_empty() { return; }
+    if !music.enabled || !music.user_activated || catalog.tracks.is_empty() { return; }
 
     let dt = time.delta_secs();
     music.switch_cooldown = (music.switch_cooldown - dt).max(0.0);
@@ -288,7 +293,12 @@ fn volume_controls(
         changed = true;
     }
     if keys.just_pressed(KeyCode::KeyM) {
-        music.enabled = !music.enabled;
+        if !music.user_activated {
+            music.user_activated = true;
+            music.enabled = true;
+        } else {
+            music.enabled = !music.enabled;
+        }
         if !music.enabled {
             set_volume(&music.channel_a, 0.0);
             set_volume(&music.channel_b, 0.0);
@@ -408,4 +418,85 @@ fn pick_track<'a>(catalog: &'a MusicCatalog, context: &MusicContext, speed: f32)
     });
 
     Some(candidates[0])
+}
+
+// ── Music Button (top-right HUD) ────────────────────
+
+#[derive(Component)]
+struct MusicButton;
+
+#[derive(Component)]
+struct MusicButtonText;
+
+fn update_music_button(
+    mut commands: Commands,
+    font: Res<crate::GameFont>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut music: ResMut<MusicState>,
+    btn_q: Query<&Interaction, With<MusicButton>>,
+    text_q: Query<Entity, With<MusicButtonText>>,
+    existing: Query<Entity, With<MusicButton>>,
+) {
+    // Handle click
+    if mouse.just_pressed(MouseButton::Left) {
+        for interaction in &btn_q {
+            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+                if !music.user_activated {
+                    music.user_activated = true;
+                    music.enabled = true;
+                } else {
+                    music.enabled = !music.enabled;
+                    if !music.enabled {
+                        set_volume(&music.channel_a, 0.0);
+                        set_volume(&music.channel_b, 0.0);
+                    }
+                }
+                music.volume_display_timer = 2.0;
+            }
+        }
+    }
+
+    // Spawn button if it doesn't exist
+    if existing.is_empty() {
+        commands.spawn((
+            Button,
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(4.0),
+                right: Val::Px(130.0),
+                padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.4)),
+            BorderRadius::all(Val::Px(3.0)),
+            MusicButton,
+        )).with_children(|btn| {
+            let label = if !music.user_activated {
+                "[M]usic"
+            } else if music.enabled {
+                "[M] On"
+            } else {
+                "[M] Off"
+            };
+            btn.spawn((
+                Text::new(label),
+                TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                TextColor(Color::srgb(0.7, 0.7, 0.7)),
+                MusicButtonText,
+            ));
+        });
+        return;
+    }
+
+    // Update button text
+    for entity in &text_q {
+        let label = if !music.user_activated {
+            "[M]usic"
+        } else if music.enabled {
+            "[M] On"
+        } else {
+            "[M] Off"
+        };
+        commands.entity(entity).insert(Text::new(label));
+    }
 }
