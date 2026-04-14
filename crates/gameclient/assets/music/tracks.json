@@ -1,0 +1,84 @@
+{
+  "tracks": [
+    {
+      "id": "title",
+      "file": "title.mp3",
+      "context": "title",
+      "recommended_kmh": 0.0,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "village_calm",
+      "file": "village_calm.mp3",
+      "context": "village",
+      "recommended_kmh": 0.0,
+      "volume": 0.6,
+      "loop": true
+    },
+    {
+      "id": "grassland_walk",
+      "file": "grassland_walk.mp3",
+      "context": "grassland",
+      "recommended_kmh": 3.0,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "grassland_jog",
+      "file": "grassland_jog.mp3",
+      "context": "grassland",
+      "recommended_kmh": 5.0,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "forest_mystery",
+      "file": "forest_mystery.mp3",
+      "context": "forest",
+      "recommended_kmh": 3.0,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "mountain_epic",
+      "file": "mountain_epic.mp3",
+      "context": "mountain",
+      "recommended_kmh": 3.0,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "swamp_eerie",
+      "file": "swamp_eerie.mp3",
+      "context": "swamp",
+      "recommended_kmh": 3.0,
+      "volume": 0.6,
+      "loop": true
+    },
+    {
+      "id": "combat_normal",
+      "file": "combat_normal.mp3",
+      "context": "combat",
+      "recommended_kmh": 3.0,
+      "volume": 0.8,
+      "loop": true
+    },
+    {
+      "id": "combat_boss",
+      "file": "combat_boss.mp3",
+      "context": "boss",
+      "recommended_kmh": 3.0,
+      "volume": 0.85,
+      "loop": true
+    },
+    {
+      "id": "victory",
+      "file": "victory.mp3",
+      "context": "victory",
+      "recommended_kmh": 0.0,
+      "volume": 0.8,
+      "loop": false
+    }
+  ]
+}

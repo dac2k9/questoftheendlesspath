@@ -4,6 +4,7 @@ use wasm_bindgen::prelude::*;
 mod combat;
 mod dialogue;
 mod hud;
+mod music;
 mod states;
 pub mod supabase;
 pub mod terrain;
@@ -47,6 +48,7 @@ pub fn start() {
         .add_plugins(hud::HudPlugin)
         .add_plugins(dialogue::DialoguePlugin)
         .add_plugins(combat::CombatPlugin)
+        .add_plugins(music::MusicPlugin)
         .insert_resource(UiHovered(false))
         .add_systems(Update, (detect_ui_hover, update_cursor))
         .run();

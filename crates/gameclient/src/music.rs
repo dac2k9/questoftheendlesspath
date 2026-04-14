@@ -1,0 +1,319 @@
+//! Music system — context-aware music with crossfading.
+//!
+//! Uses two HTML audio elements for seamless crossfading between tracks.
+//! Music context is determined by biome, combat state, and walking speed.
+
+use bevy::prelude::*;
+use serde::Deserialize;
+use wasm_bindgen::JsCast;
+
+use crate::states::AppState;
+use crate::terrain::tilemap::MyPlayerState;
+use crate::terrain::world::WorldGrid;
+
+pub struct MusicPlugin;
+
+impl Plugin for MusicPlugin {
+    fn build(&self, app: &mut App) {
+        let catalog = load_catalog();
+        app.insert_resource(MusicState::default())
+            .insert_resource(catalog)
+            .add_systems(Update, update_music);
+    }
+}
+
+// ── Data ────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TrackDef {
+    pub id: String,
+    pub file: String,
+    pub context: String,
+    pub recommended_kmh: f32,
+    pub volume: f32,
+    #[serde(default = "default_true")]
+    pub r#loop: bool,
+}
+
+fn default_true() -> bool { true }
+
+#[derive(Resource)]
+struct MusicCatalog {
+    tracks: Vec<TrackDef>,
+}
+
+fn load_catalog() -> MusicCatalog {
+    let json = include_str!("../assets/music/tracks.json");
+    #[derive(Deserialize)]
+    struct Data { tracks: Vec<TrackDef> }
+    let data: Data = serde_json::from_str(json).unwrap_or(Data { tracks: vec![] });
+    MusicCatalog { tracks: data.tracks }
+}
+
+// ── Music Context ───────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+enum MusicContext {
+    Title,
+    Village,
+    Grassland,
+    Forest,
+    Mountain,
+    Swamp,
+    Combat,
+    Boss,
+    Victory,
+    Silent,
+}
+
+impl MusicContext {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Title => "title",
+            Self::Village => "village",
+            Self::Grassland => "grassland",
+            Self::Forest => "forest",
+            Self::Mountain => "mountain",
+            Self::Swamp => "swamp",
+            Self::Combat => "combat",
+            Self::Boss => "boss",
+            Self::Victory => "victory",
+            Self::Silent => "",
+        }
+    }
+}
+
+// ── State ───────────────────────────────────────────
+
+#[derive(Resource)]
+struct MusicState {
+    /// Currently playing track ID.
+    current_track: Option<String>,
+    /// Current music context.
+    current_context: MusicContext,
+    /// The two audio channels for crossfading.
+    channel_a: Option<web_sys::HtmlAudioElement>,
+    channel_b: Option<web_sys::HtmlAudioElement>,
+    /// Which channel is active (true = A, false = B).
+    active_is_a: bool,
+    /// Crossfade progress (0.0 = old track full, 1.0 = new track full).
+    fade_progress: f32,
+    /// Whether we're currently crossfading.
+    fading: bool,
+    /// Target volume for the new track.
+    target_volume: f32,
+    /// Cooldown to prevent rapid switching.
+    switch_cooldown: f32,
+    /// Music enabled.
+    enabled: bool,
+}
+
+impl Default for MusicState {
+    fn default() -> Self {
+        Self {
+            current_track: None,
+            current_context: MusicContext::Silent,
+            channel_a: None,
+            channel_b: None,
+            active_is_a: true,
+            fade_progress: 1.0,
+            fading: false,
+            target_volume: 0.7,
+            switch_cooldown: 0.0,
+            enabled: true,
+        }
+    }
+}
+
+// ── Audio Helpers ────────────────────────────────────
+
+fn create_audio(src: &str, volume: f64, looping: bool) -> Option<web_sys::HtmlAudioElement> {
+    let audio = web_sys::HtmlAudioElement::new_with_src(src).ok()?;
+    audio.set_volume(0.0); // start silent, fade in
+    audio.set_loop(looping);
+    let _ = audio.play().ok()?;
+    Some(audio)
+}
+
+fn set_volume(audio: &Option<web_sys::HtmlAudioElement>, vol: f64) {
+    if let Some(a) = audio {
+        a.set_volume(vol.clamp(0.0, 1.0));
+    }
+}
+
+fn stop_audio(audio: &mut Option<web_sys::HtmlAudioElement>) {
+    if let Some(a) = audio.take() {
+        a.pause().ok();
+        a.set_src("");
+    }
+}
+
+// ── Base URL for music files ────────────────────────
+
+fn music_base_url() -> String {
+    // Derive from current page URL
+    if let Some(window) = web_sys::window() {
+        if let Ok(href) = window.location().href() {
+            // href is like http://localhost:9090/crates/gameclient/index.html
+            if let Some(idx) = href.rfind('/') {
+                return format!("{}/assets/music/", &href[..idx]);
+            }
+        }
+    }
+    "assets/music/".to_string()
+}
+
+// ── Update System ───────────────────────────────────
+
+const FADE_DURATION: f32 = 1.5; // seconds
+const SWITCH_COOLDOWN: f32 = 3.0; // minimum seconds between track changes
+
+fn update_music(
+    time: Res<Time>,
+    state: Res<State<AppState>>,
+    player: Option<Res<MyPlayerState>>,
+    world: Option<Res<WorldGrid>>,
+    combat: Option<Res<crate::combat::CombatUiState>>,
+    catalog: Res<MusicCatalog>,
+    mut music: ResMut<MusicState>,
+) {
+    if !music.enabled || catalog.tracks.is_empty() { return; }
+
+    let dt = time.delta_secs();
+    music.switch_cooldown = (music.switch_cooldown - dt).max(0.0);
+
+    // Determine desired context
+    let desired_context = determine_context(&state, &player, &world, &combat);
+    let speed = player.as_ref().map(|p| p.speed_kmh).unwrap_or(0.0);
+
+    // Find best track for this context + speed
+    let desired_track = pick_track(&catalog, &desired_context, speed);
+
+    // Check if we need to switch
+    let should_switch = desired_track.as_ref().map(|t| &t.id) != music.current_track.as_ref();
+
+    if should_switch && music.switch_cooldown <= 0.0 {
+        if let Some(track) = &desired_track {
+            let base = music_base_url();
+            let src = format!("{}{}", base, track.file);
+
+            // Start new track on inactive channel
+            let new_channel = if music.active_is_a {
+                stop_audio(&mut music.channel_b);
+                music.channel_b = create_audio(&src, 0.0, track.r#loop);
+                &music.channel_b
+            } else {
+                stop_audio(&mut music.channel_a);
+                music.channel_a = create_audio(&src, 0.0, track.r#loop);
+                &music.channel_a
+            };
+
+            if new_channel.is_some() {
+                music.fading = true;
+                music.fade_progress = 0.0;
+                music.target_volume = track.volume;
+                music.current_track = Some(track.id.clone());
+                music.current_context = desired_context;
+                music.switch_cooldown = SWITCH_COOLDOWN;
+            }
+        } else {
+            // Fade to silence
+            music.fading = true;
+            music.fade_progress = 0.0;
+            music.target_volume = 0.0;
+            music.current_track = None;
+            music.current_context = MusicContext::Silent;
+        }
+    }
+
+    // Process crossfade
+    if music.fading {
+        music.fade_progress = (music.fade_progress + dt / FADE_DURATION).min(1.0);
+
+        let (active, inactive) = if music.active_is_a {
+            (&music.channel_a, &music.channel_b)
+        } else {
+            (&music.channel_b, &music.channel_a)
+        };
+
+        // Fade out old track
+        let old_vol = (1.0 - music.fade_progress) as f64 * music.target_volume as f64;
+        set_volume(active, old_vol);
+
+        // Fade in new track
+        let new_vol = music.fade_progress as f64 * music.target_volume as f64;
+        set_volume(inactive, new_vol);
+
+        if music.fade_progress >= 1.0 {
+            // Crossfade complete — swap channels
+            music.fading = false;
+            music.active_is_a = !music.active_is_a;
+
+            // Stop the old channel
+            if music.active_is_a {
+                stop_audio(&mut music.channel_b);
+            } else {
+                stop_audio(&mut music.channel_a);
+            }
+        }
+    }
+}
+
+fn determine_context(
+    app_state: &State<AppState>,
+    player: &Option<Res<MyPlayerState>>,
+    world: &Option<Res<WorldGrid>>,
+    combat: &Option<Res<crate::combat::CombatUiState>>,
+) -> MusicContext {
+    if **app_state == AppState::Title {
+        return MusicContext::Title;
+    }
+
+    // Combat overrides everything
+    if let Some(combat) = combat {
+        if combat.active && combat.state.is_some() {
+            let difficulty = combat.state.as_ref().map(|s| s.difficulty).unwrap_or(0);
+            return if difficulty >= 6 { MusicContext::Boss } else { MusicContext::Combat };
+        }
+    }
+
+    let Some(player) = player else { return MusicContext::Silent };
+    let Some(world) = world else { return MusicContext::Silent };
+
+    // Check if at a village/town POI
+    if let Some(poi) = world.map.poi_at(player.tile_x as usize, player.tile_y as usize) {
+        if matches!(poi.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village) {
+            return MusicContext::Village;
+        }
+    }
+
+    // Biome-based
+    let biome = world.map.biome_at(player.tile_x as usize, player.tile_y as usize);
+    match biome {
+        questlib::mapgen::Biome::Grassland | questlib::mapgen::Biome::Desert => MusicContext::Grassland,
+        questlib::mapgen::Biome::Forest | questlib::mapgen::Biome::DenseForest => MusicContext::Forest,
+        questlib::mapgen::Biome::Mountain | questlib::mapgen::Biome::Snow => MusicContext::Mountain,
+        questlib::mapgen::Biome::Swamp => MusicContext::Swamp,
+        _ => MusicContext::Grassland,
+    }
+}
+
+fn pick_track<'a>(catalog: &'a MusicCatalog, context: &MusicContext, speed: f32) -> Option<&'a TrackDef> {
+    let context_str = context.as_str();
+    if context_str.is_empty() { return None; }
+
+    let mut candidates: Vec<&TrackDef> = catalog.tracks.iter()
+        .filter(|t| t.context == context_str)
+        .collect();
+
+    if candidates.is_empty() { return None; }
+
+    // Pick the track with closest recommended_kmh to current speed
+    candidates.sort_by(|a, b| {
+        let da = (a.recommended_kmh - speed).abs();
+        let db = (b.recommended_kmh - speed).abs();
+        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Some(candidates[0])
+}
