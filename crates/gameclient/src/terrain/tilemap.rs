@@ -371,8 +371,16 @@ fn spawn_world(
     }
 
     // Player character (hidden until server sends position)
-    let champion_tex: Handle<Image> = asset_server.load("sprites/Katan.png");
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, None, None);
+    let champion_bytes = include_bytes!("../../assets/sprites/Katan.png");
+    let champion_dyn = image::load_from_memory(champion_bytes).expect("player sprite");
+    let champion_rgba = champion_dyn.to_rgba8();
+    let (cw, ch) = champion_rgba.dimensions();
+    let champion_tex = images.add(Image::new(
+        Extent3d { width: cw, height: ch, depth_or_array_layers: 1 },
+        TextureDimension::D2, champion_rgba.into_raw(), TextureFormat::Rgba8UnormSrgb, default(),
+    ));
+    // 1px padding between frames (18x18 slots, 16x16 content, 1px offset)
+    let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, Some(UVec2::new(2, 2)), Some(UVec2::new(1, 1)));
     let layout_handle = atlases.add(layout);
     commands.spawn((
         Sprite { image: champion_tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
@@ -972,7 +980,7 @@ fn update_other_players(
                 Extent3d { width: w, height: h, depth_or_array_layers: 1 },
                 TextureDimension::D2, rgba.into_raw(), TextureFormat::Rgba8UnormSrgb, default(),
             ));
-            let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, None, None);
+            let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, Some(UVec2::new(2, 2)), Some(UVec2::new(1, 1)));
             let layout_handle = atlases.add(layout);
             let pos = target_pos;
             commands.spawn((
