@@ -327,8 +327,12 @@ pub fn run_tick_dev(
         if let Some(event) = events_lock.get_mut(victory_event_id) {
             if event.transition(EventStatus::Completed).is_ok() {
                 let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-                for (pid, p) in lock.iter_mut() {
-                    if let Some(fog) = player_fogs.get_mut(pid) {
+                // Apply outcomes to the first walking player (the one who fought)
+                let fighting_pid = lock.iter()
+                    .find(|(_, p)| p.is_walking)
+                    .map(|(id, _)| id.clone());
+                if let Some(pid) = fighting_pid {
+                    if let (Some(p), Some(fog)) = (lock.get_mut(&pid), player_fogs.get_mut(&pid)) {
                         for outcome in &event.outcomes {
                             apply_outcome(outcome, p, fog);
                             if let EventOutcome::Notification { text } = outcome {
