@@ -70,6 +70,7 @@ struct MonsterSprite(usize); // monster index
 struct MonsterAnimation {
     timer: Timer,
     frame: usize,
+    cols: usize, // number of columns in this sprite sheet
 }
 
 #[derive(Component)]
@@ -312,7 +313,7 @@ fn spawn_world(
         ];
 
         // Load sprite sheets as full textures + create atlas layouts
-        let mut sprite_map: HashMap<MonsterType, (Handle<Image>, Handle<TextureAtlasLayout>)> = HashMap::new();
+        let mut sprite_map: HashMap<MonsterType, (Handle<Image>, Handle<TextureAtlasLayout>, usize)> = HashMap::new();
         for (mtype, bytes) in monster_files {
             let dyn_img = image::load_from_memory(bytes).expect("monster sprite");
             let rgba = dyn_img.to_rgba8();
@@ -324,11 +325,11 @@ fn spawn_world(
             let cols = (w / 16) as u32;
             let rows = (h / 16) as u32;
             let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), cols, rows, None, None);
-            sprite_map.insert(*mtype, (images.add(img), atlases.add(layout)));
+            sprite_map.insert(*mtype, (images.add(img), atlases.add(layout), cols as usize));
         }
 
         for (i, monster) in world.map.monsters.iter().enumerate() {
-            if let Some((tex, layout)) = sprite_map.get(&monster.monster_type) {
+            if let Some((tex, layout, cols)) = sprite_map.get(&monster.monster_type) {
                 let pos = WorldGrid::tile_to_world(monster.x, monster.y);
                 commands.spawn((
                     Sprite {
@@ -338,7 +339,7 @@ fn spawn_world(
                     },
                     Transform::from_xyz(pos.x, pos.y, 1.5),
                     MonsterSprite(i),
-                    MonsterAnimation { timer: Timer::from_seconds(0.3, TimerMode::Repeating), frame: 0 },
+                    MonsterAnimation { timer: Timer::from_seconds(0.3, TimerMode::Repeating), frame: 0, cols: *cols },
                 ));
             }
         }
@@ -890,19 +891,18 @@ fn animate_monsters(
 
     for (mut anim, mut sprite) in &mut monsters {
         if is_walking {
-            // Animation speed synced to player walking speed
             let speed_factor = speed.clamp(0.5, 6.0);
             anim.timer.set_duration(std::time::Duration::from_secs_f32(0.3 / speed_factor));
             anim.timer.tick(time.delta());
             if anim.timer.just_finished() {
-                anim.frame = (anim.frame % 4) + 1;
+                // Cycle through frames 1..cols-1 (skip frame 0 = idle)
+                let max_frame = anim.cols.saturating_sub(1).max(1);
+                anim.frame = (anim.frame % max_frame) + 1;
             }
-            // Row 0 = facing down, frames 0-5
             if let Some(ref mut atlas) = sprite.texture_atlas {
                 atlas.index = anim.frame;
             }
         } else {
-            // Idle — show frame 0
             anim.frame = 0;
             if let Some(ref mut atlas) = sprite.texture_atlas {
                 atlas.index = 0;
