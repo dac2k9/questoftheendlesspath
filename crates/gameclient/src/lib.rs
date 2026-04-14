@@ -41,11 +41,6 @@ pub fn start() {
             0x2e as f32 / 255.0,
         )))
         .init_state::<AppState>()
-        .insert_resource(GameSession {
-            player_id: "a0000000-0000-0000-0000-000000000001".to_string(),
-            player_name: "Dac".to_string(),
-            ..Default::default()
-        })
         .add_plugins(title::TitlePlugin)
         .add_plugins(terrain::tilemap::TilemapPlugin)
         .add_plugins(supabase::SupabasePlugin)
