@@ -183,6 +183,30 @@ pub fn run_tick_dev(
             }
         }
 
+        // Check for world monster at player's tile
+        if let Some(idx) = world.monster_at(player_tx, player_ty) {
+            let monster_id = format!("monster_{}", idx);
+            if !player.defeated_monsters.contains(&monster_id) {
+                let m = &world.monsters[idx];
+                // Start combat with this monster
+                let combat_event_id = monster_id.clone();
+                let kind = questlib::events::kind::EventKind::RandomEncounter {
+                    enemy_name: m.monster_type.display_name().to_string(),
+                    description: format!("A wild {} blocks your path!", m.monster_type.display_name()),
+                    difficulty: m.difficulty,
+                };
+                let catalog = questlib::items::ItemCatalog::from_json(
+                    include_str!("../../../adventures/items.json")
+                ).unwrap_or_default();
+                let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog);
+                // Only start if no combat already active
+                if server_combat::get_active_combat(shared_combat).is_none() {
+                    server_combat::start_combat(shared_combat, &combat_event_id, &kind, player.total_distance_m as u64, eq_bonus);
+                    info!("[{}] Monster encounter: {} (difficulty {})", player.name, m.monster_type.display_name(), m.difficulty);
+                }
+            }
+        }
+
         // Write changes back (re-acquire lock briefly)
         {
             let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -354,13 +378,48 @@ pub fn run_tick_dev(
 
     for victory_event_id in &victories {
         info!("Combat victory: {}", victory_event_id);
-        if let Some(event) = events_lock.get_mut(victory_event_id) {
+
+        if victory_event_id.starts_with("monster_") {
+            // World monster victory — mark defeated, give loot
+            let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let fighting_pid = lock.iter().find(|(_, p)| p.is_walking).map(|(id, _)| id.clone());
+            if let Some(pid) = fighting_pid {
+                if let Some(p) = lock.get_mut(&pid) {
+                    p.defeated_monsters.push(victory_event_id.clone());
+                    // Loot based on monster difficulty
+                    let idx: usize = victory_event_id.strip_prefix("monster_").and_then(|s| s.parse().ok()).unwrap_or(0);
+                    let difficulty = world.monsters.get(idx).map(|m| m.difficulty).unwrap_or(1);
+                    let name = world.monsters.get(idx).map(|m| m.monster_type.display_name()).unwrap_or("Monster");
+                    let gold = 30 + (difficulty as i32 * 20);
+                    p.gold += gold;
+                    // Item drop based on difficulty
+                    let catalog = questlib::items::ItemCatalog::from_json(
+                        include_str!("../../../adventures/items.json")
+                    ).ok();
+                    let drop = match difficulty {
+                        1 => Some("health_potion"),
+                        2 => Some("health_potion"),
+                        3 => Some("iron_sword"),
+                        4 => Some("chainmail"),
+                        5.. => Some("greater_health_potion"),
+                        _ => None,
+                    };
+                    let mut msg = format!("{} defeated! +{} gold", name, gold);
+                    if let Some(item) = drop {
+                        questlib::items::add_item(&mut p.inventory, item, catalog.as_ref());
+                        let item_name = catalog.as_ref().and_then(|c| c.get(item)).map(|d| d.display_name.as_str()).unwrap_or(item);
+                        msg.push_str(&format!(", +{}", item_name));
+                    }
+                    if let Ok(mut notifs) = shared_notifs.lock() {
+                        notifs.push(msg);
+                    }
+                }
+            }
+        } else if let Some(event) = events_lock.get_mut(victory_event_id) {
+            // Quest event victory
             if event.transition(EventStatus::Completed).is_ok() {
                 let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-                // Apply outcomes to the first walking player (the one who fought)
-                let fighting_pid = lock.iter()
-                    .find(|(_, p)| p.is_walking)
-                    .map(|(id, _)| id.clone());
+                let fighting_pid = lock.iter().find(|(_, p)| p.is_walking).map(|(id, _)| id.clone());
                 if let Some(pid) = fighting_pid {
                     if let (Some(p), Some(fog)) = (lock.get_mut(&pid), player_fogs.get_mut(&pid)) {
                         for outcome in &event.outcomes {

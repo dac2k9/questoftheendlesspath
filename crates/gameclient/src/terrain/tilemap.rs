@@ -63,6 +63,9 @@ pub struct PlayerSprite;
 struct ChestSprite(usize); // chest index
 
 #[derive(Component)]
+struct MonsterSprite(usize); // monster index
+
+#[derive(Component)]
 struct TileInfoText;
 
 #[derive(Component)]
@@ -117,6 +120,7 @@ pub struct MyPlayerState {
     pub inventory: Vec<questlib::items::InventorySlot>,
     pub equipment: questlib::items::EquipmentLoadout,
     pub opened_chests: Vec<String>,
+    pub defeated_monsters: Vec<String>,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -282,6 +286,59 @@ fn spawn_world(
         }
     }
 
+    // Spawn monster sprites
+    {
+        use questlib::mapgen::MonsterType;
+        use std::collections::HashMap;
+
+        // Load each monster sprite sheet and extract first frame (16x16 at top-left)
+        let monster_files: &[(MonsterType, &[u8])] = &[
+            (MonsterType::Slime, include_bytes!("../../assets/sprites/monsters/Slime.png")),
+            (MonsterType::ClubGoblin, include_bytes!("../../assets/sprites/monsters/ClubGoblin.png")),
+            (MonsterType::ArcherGoblin, include_bytes!("../../assets/sprites/monsters/ArcherGoblin.png")),
+            (MonsterType::GiantCrab, include_bytes!("../../assets/sprites/monsters/GiantCrab.png")),
+            (MonsterType::Minotaur, include_bytes!("../../assets/sprites/monsters/Minotaur.png")),
+            (MonsterType::Yeti, include_bytes!("../../assets/sprites/monsters/Yeti.png")),
+            (MonsterType::Wendigo, include_bytes!("../../assets/sprites/monsters/Wendigo.png")),
+            (MonsterType::PurpleDemon, include_bytes!("../../assets/sprites/monsters/PurpleDemon.png")),
+            (MonsterType::Necromancer, include_bytes!("../../assets/sprites/monsters/Necromancer.png")),
+            (MonsterType::SkeletonSoldier, include_bytes!("../../assets/sprites/monsters/Skeleton-Soldier.png")),
+        ];
+
+        let mut texture_map: HashMap<MonsterType, Handle<Image>> = HashMap::new();
+        for (mtype, bytes) in monster_files {
+            let dyn_img = image::load_from_memory(bytes).expect("monster sprite");
+            let rgba = dyn_img.to_rgba8();
+            // Extract first 16x16 frame from the sprite sheet
+            let mut frame = vec![0u8; 16 * 16 * 4];
+            let src_w = rgba.width() as usize;
+            let src_data = rgba.as_raw();
+            for py in 0..16 { for px in 0..16 {
+                let si = (py * src_w + px) * 4;
+                let di = (py * 16 + px) * 4;
+                if si + 3 < src_data.len() {
+                    frame[di..di+4].copy_from_slice(&src_data[si..si+4]);
+                }
+            }}
+            let img = Image::new(
+                Extent3d { width: 16, height: 16, depth_or_array_layers: 1 },
+                TextureDimension::D2, frame, TextureFormat::Rgba8UnormSrgb, default(),
+            );
+            texture_map.insert(*mtype, images.add(img));
+        }
+
+        for (i, monster) in world.map.monsters.iter().enumerate() {
+            if let Some(handle) = texture_map.get(&monster.monster_type) {
+                let pos = WorldGrid::tile_to_world(monster.x, monster.y);
+                commands.spawn((
+                    Sprite { image: handle.clone(), ..default() },
+                    Transform::from_xyz(pos.x, pos.y, 1.5),
+                    MonsterSprite(i),
+                ));
+            }
+        }
+    }
+
     // Player character (hidden until server sends position)
     let champion_tex: Handle<Image> = asset_server.load("sprites/Katan.png");
     let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, None, None);
@@ -350,6 +407,7 @@ fn apply_server_state(
     state.inventory = me.inventory.clone();
     state.equipment = me.equipment.clone();
     state.opened_chests = me.opened_chests.clone();
+    state.defeated_monsters = me.defeated_monsters.clone();
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {
@@ -821,10 +879,17 @@ fn update_chest_sprites(
     mut commands: Commands,
     state: Res<MyPlayerState>,
     chests: Query<(Entity, &ChestSprite)>,
+    monsters: Query<(Entity, &MonsterSprite)>,
 ) {
     for (entity, chest) in &chests {
         let chest_id = format!("chest_{}", chest.0);
         if state.opened_chests.contains(&chest_id) {
+            commands.entity(entity).despawn();
+        }
+    }
+    for (entity, monster) in &monsters {
+        let monster_id = format!("monster_{}", monster.0);
+        if state.defeated_monsters.contains(&monster_id) {
             commands.entity(entity).despawn();
         }
     }

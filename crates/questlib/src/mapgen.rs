@@ -93,12 +93,96 @@ pub struct WorldMap {
     pub pois: Vec<PointOfInterest>,
     pub roads: Vec<Road>,
     pub chests: Vec<(usize, usize)>,
+    pub monsters: Vec<WorldMonster>,
 }
 
 /// Loot from opening a chest.
 pub struct ChestLoot {
     pub gold: i32,
     pub items: Vec<&'static str>,
+}
+
+/// A monster placed on the world map.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldMonster {
+    pub x: usize,
+    pub y: usize,
+    pub monster_type: MonsterType,
+    pub difficulty: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MonsterType {
+    Slime,
+    ClubGoblin,
+    ArcherGoblin,
+    GiantCrab,
+    Minotaur,
+    Yeti,
+    Wendigo,
+    PurpleDemon,
+    Necromancer,
+    SkeletonSoldier,
+}
+
+impl MonsterType {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Slime => "Slime",
+            Self::ClubGoblin => "Goblin",
+            Self::ArcherGoblin => "Goblin Archer",
+            Self::GiantCrab => "Giant Crab",
+            Self::Minotaur => "Minotaur",
+            Self::Yeti => "Yeti",
+            Self::Wendigo => "Wendigo",
+            Self::PurpleDemon => "Demon",
+            Self::Necromancer => "Necromancer",
+            Self::SkeletonSoldier => "Skeleton",
+        }
+    }
+
+    pub fn sprite_file(self) -> &'static str {
+        match self {
+            Self::Slime => "Slime.png",
+            Self::ClubGoblin => "ClubGoblin.png",
+            Self::ArcherGoblin => "ArcherGoblin.png",
+            Self::GiantCrab => "GiantCrab.png",
+            Self::Minotaur => "Minotaur.png",
+            Self::Yeti => "Yeti.png",
+            Self::Wendigo => "Wendigo.png",
+            Self::PurpleDemon => "PurpleDemon.png",
+            Self::Necromancer => "Necromancer.png",
+            Self::SkeletonSoldier => "Skeleton-Soldier.png",
+        }
+    }
+
+    /// Pick a monster type appropriate for a biome.
+    fn for_biome(biome: Biome, rng: &mut SeededRng) -> (Self, u32) {
+        match biome {
+            Biome::Grassland | Biome::Desert => {
+                let choices = [(Self::Slime, 1), (Self::ClubGoblin, 2), (Self::GiantCrab, 2)];
+                choices[(rng.next() % choices.len() as u64) as usize]
+            }
+            Biome::Forest => {
+                let choices = [(Self::ClubGoblin, 2), (Self::ArcherGoblin, 3), (Self::GiantCrab, 2)];
+                choices[(rng.next() % choices.len() as u64) as usize]
+            }
+            Biome::DenseForest => {
+                let choices = [(Self::ArcherGoblin, 3), (Self::Minotaur, 4), (Self::SkeletonSoldier, 3)];
+                choices[(rng.next() % choices.len() as u64) as usize]
+            }
+            Biome::Mountain | Biome::Snow => {
+                let choices = [(Self::Yeti, 4), (Self::Wendigo, 5)];
+                choices[(rng.next() % choices.len() as u64) as usize]
+            }
+            Biome::Swamp => {
+                let choices = [(Self::PurpleDemon, 4), (Self::Necromancer, 5), (Self::SkeletonSoldier, 3)];
+                choices[(rng.next() % choices.len() as u64) as usize]
+            }
+            _ => (Self::Slime, 1),
+        }
+    }
 }
 
 // ── Generation ────────────────────────────────────────
@@ -119,6 +203,9 @@ impl WorldMap {
         // Step 4: Place loot chests
         let chests = place_chests(&mut rng, &terrain, &pois, &roads);
 
+        // Step 5: Place monsters
+        let monsters = place_monsters(&mut rng, &terrain, &pois, &roads, &chests);
+
         WorldMap {
             seed,
             width: MAP_W,
@@ -127,6 +214,7 @@ impl WorldMap {
             pois,
             roads,
             chests,
+            monsters,
         }
     }
 
@@ -148,6 +236,11 @@ impl WorldMap {
         self.roads
             .iter()
             .any(|r| r.path.iter().any(|&(rx, ry)| rx == x && ry == y))
+    }
+
+    /// Get monster index at position, if any.
+    pub fn monster_at(&self, x: usize, y: usize) -> Option<usize> {
+        self.monsters.iter().position(|m| m.x == x && m.y == y)
     }
 
     /// Get chest index at position, if any.
@@ -486,6 +579,55 @@ fn place_chests(
         chests.push((x, y));
     }
     chests
+}
+
+// ── Monster Placement ────────────────────────────────
+
+fn place_monsters(
+    rng: &mut SeededRng,
+    terrain: &[Vec<Biome>],
+    pois: &[PointOfInterest],
+    roads: &[Road],
+    chests: &[(usize, usize)],
+) -> Vec<WorldMonster> {
+    let mut monsters = Vec::new();
+    let target = 25;
+
+    for _ in 0..target * 20 {
+        if monsters.len() >= target { break; }
+        let x = (rng.next() % MAP_W as u64) as usize;
+        let y = (rng.next() % MAP_H as u64) as usize;
+        let biome = terrain[y][x];
+
+        if matches!(biome, Biome::Water | Biome::DeepWater) { continue; }
+
+        // Not near POIs
+        let near_poi = pois.iter().any(|p| {
+            let dx = (p.x as i32 - x as i32).unsigned_abs() as usize;
+            let dy = (p.y as i32 - y as i32).unsigned_abs() as usize;
+            dx <= 3 && dy <= 3
+        });
+        if near_poi { continue; }
+
+        // Not on road
+        let on_road = roads.iter().any(|r| r.path.contains(&(x, y)));
+        if on_road { continue; }
+
+        // Not on chest
+        if chests.contains(&(x, y)) { continue; }
+
+        // Min distance from other monsters
+        let too_close = monsters.iter().any(|m: &WorldMonster| {
+            let dx = (m.x as i32 - x as i32).unsigned_abs() as usize;
+            let dy = (m.y as i32 - y as i32).unsigned_abs() as usize;
+            dx <= 5 && dy <= 5
+        });
+        if too_close { continue; }
+
+        let (monster_type, difficulty) = MonsterType::for_biome(biome, rng);
+        monsters.push(WorldMonster { x, y, monster_type, difficulty });
+    }
+    monsters
 }
 
 // ── Road Generation ───────────────────────────────────
