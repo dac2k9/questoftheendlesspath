@@ -318,14 +318,25 @@ fn spawn_world(
             let dyn_img = image::load_from_memory(bytes).expect("monster sprite");
             let rgba = dyn_img.to_rgba8();
             let (w, h) = rgba.dimensions();
+            let cols = (w / 16) as usize;
+            let rows = (h / 16) as usize;
+            // Count non-empty frames in row 0 before consuming rgba
+            let raw_data = rgba.as_raw();
+            let mut anim_frames = 0usize;
+            for c in 0..cols {
+                let mut has_pixels = false;
+                for py in 0..16 { for px in 0..16 {
+                    let si = (py * w as usize + c * 16 + px) * 4;
+                    if si + 3 < raw_data.len() && raw_data[si + 3] > 10 { has_pixels = true; }
+                }}
+                if has_pixels { anim_frames = c + 1; }
+            }
             let img = Image::new(
                 Extent3d { width: w, height: h, depth_or_array_layers: 1 },
                 TextureDimension::D2, rgba.into_raw(), TextureFormat::Rgba8UnormSrgb, default(),
             );
-            let cols = (w / 16) as u32;
-            let rows = (h / 16) as u32;
-            let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), cols, rows, None, None);
-            sprite_map.insert(*mtype, (images.add(img), atlases.add(layout), cols as usize));
+            let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), cols as u32, rows as u32, None, None);
+            sprite_map.insert(*mtype, (images.add(img), atlases.add(layout), anim_frames));
         }
 
         for (i, monster) in world.map.monsters.iter().enumerate() {
