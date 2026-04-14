@@ -128,7 +128,7 @@ impl Default for MusicState {
             switch_cooldown: 0.0,
             enabled: true,
             user_activated: false,
-            master_volume: 0.7,
+            master_volume: 0.35,
             volume_display_timer: 0.0,
         }
     }
