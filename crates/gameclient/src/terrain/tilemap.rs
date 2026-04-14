@@ -39,6 +39,7 @@ impl Plugin for TilemapPlugin {
                     update_fog_texture,
                     update_camera,
                     handle_debug_menu,
+                    update_chest_sprites,
                 ).run_if(in_state(AppState::InGame)),
             );
     }
@@ -57,6 +58,9 @@ struct PathMarker;
 
 #[derive(Component)]
 pub struct PlayerSprite;
+
+#[derive(Component)]
+struct ChestSprite(usize); // chest index
 
 #[derive(Component)]
 struct TileInfoText;
@@ -248,6 +252,35 @@ fn spawn_world(
     let fog_img = create_fog_texture(&fog, &debug);
     let fog_handle = images.add(fog_img);
     commands.spawn((Sprite { image: fog_handle, ..default() }, Transform::from_xyz(map_cx, map_cy, 2.0), Visibility::Hidden, FogSprite));
+
+    // Spawn chest sprites (above map, below fog)
+    {
+        let chest_tile_idx = super::Overlay::Chest.tile_index();
+        let ts_cols = tileset_img.width() as usize / 20;
+        let tc = chest_tile_idx % ts_cols;
+        let tr = chest_tile_idx / ts_cols;
+        let sx = tc * 20 + 2;
+        let sy = tr * 20 + 2;
+        let ts_data = &tileset_img.data;
+        let ts_w = tileset_img.width() as usize;
+        let mut chest_pixels = vec![0u8; 16 * 16 * 4];
+        for py in 0..16 { for px in 0..16 {
+            let si = ((sy + py) * ts_w + (sx + px)) * 4;
+            let di = (py * 16 + px) * 4;
+            if si + 3 < ts_data.len() { chest_pixels[di..di+4].copy_from_slice(&ts_data[si..si+4]); }
+        }}
+        let chest_img = Image::new(Extent3d { width: 16, height: 16, depth_or_array_layers: 1 }, TextureDimension::D2, chest_pixels, TextureFormat::Rgba8UnormSrgb, default());
+        let chest_handle = images.add(chest_img);
+
+        for (i, &(cx, cy)) in world.map.chests.iter().enumerate() {
+            let pos = WorldGrid::tile_to_world(cx, cy);
+            commands.spawn((
+                Sprite { image: chest_handle.clone(), ..default() },
+                Transform::from_xyz(pos.x, pos.y, 1.5),
+                ChestSprite(i),
+            ));
+        }
+    }
 
     // Player character (hidden until server sends position)
     let champion_tex: Handle<Image> = asset_server.load("sprites/Katan.png");
@@ -782,6 +815,19 @@ fn update_camera(
     let ps = 1.0 / proj.scale;
     cam.translation.x = (cam.translation.x * ps).round() / ps;
     cam.translation.y = (cam.translation.y * ps).round() / ps;
+}
+
+fn update_chest_sprites(
+    mut commands: Commands,
+    state: Res<MyPlayerState>,
+    chests: Query<(Entity, &ChestSprite)>,
+) {
+    for (entity, chest) in &chests {
+        let chest_id = format!("chest_{}", chest.0);
+        if state.opened_chests.contains(&chest_id) {
+            commands.entity(entity).despawn();
+        }
+    }
 }
 
 fn handle_debug_menu(

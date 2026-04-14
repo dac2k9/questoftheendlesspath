@@ -109,12 +109,8 @@ impl WorldGrid {
             }
         }
 
-        // Place chest overlays
-        for &(cx, cy) in &map.chests {
-            if cx < WORLD_W && cy < WORLD_H {
-                cells[cy][cx].overlay = Some(Overlay::Chest);
-            }
-        }
+        // Chests are spawned as separate sprites (not baked into map texture)
+        // so they can be despawned when opened.
 
         WorldGrid {
             cells,
