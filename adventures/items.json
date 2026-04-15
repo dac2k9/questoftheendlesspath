@@ -327,6 +327,120 @@
       "display_name": "Rope",
       "description": "Essential for accessing dungeons and deep caves.",
       "category": "key_item"
+    },
+    {
+      "id": "dragonslayer",
+      "display_name": "Dragonslayer",
+      "description": "An ancient blade that hums with power. ATK +12",
+      "category": "equipment",
+      "slot": "weapon",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 12
+        }
+      ]
+    },
+    {
+      "id": "stormbringer",
+      "display_name": "Stormbringer",
+      "description": "Crackles with lightning. ATK +10, DEF +3",
+      "category": "equipment",
+      "slot": "weapon",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 10
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 3
+        }
+      ]
+    },
+    {
+      "id": "mythril_plate",
+      "display_name": "Mythril Plate",
+      "description": "Lighter than steel, stronger than iron. DEF +9, HP +40",
+      "category": "equipment",
+      "slot": "armor",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 9
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "max_hp",
+          "amount": 40
+        }
+      ]
+    },
+    {
+      "id": "phoenix_robe",
+      "display_name": "Phoenix Robe",
+      "description": "Woven from phoenix feathers. DEF +5, HP +60",
+      "category": "equipment",
+      "slot": "armor",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 5
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "max_hp",
+          "amount": 60
+        }
+      ]
+    },
+    {
+      "id": "amulet_of_kings",
+      "display_name": "Amulet of Kings",
+      "description": "Bestows the strength of fallen kings. ATK +5, DEF +3, HP +25",
+      "category": "equipment",
+      "slot": "accessory",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 5
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 3
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "max_hp",
+          "amount": 25
+        }
+      ]
+    },
+    {
+      "id": "soulreaper_pendant",
+      "display_name": "Soulreaper Pendant",
+      "description": "Whispers of the dead empower you. ATK +8, DEF -2",
+      "category": "equipment",
+      "slot": "accessory",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 8
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": -2
+        }
+      ]
     }
   ]
 }

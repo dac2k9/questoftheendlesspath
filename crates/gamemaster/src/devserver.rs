@@ -594,10 +594,14 @@ fn sell_price(item_id: &str) -> i32 {
     let base = match item_id {
         "wooden_club" => 40, "iron_sword" => 120, "fire_blade" => 200, "frost_axe" => 180,
         "leather_vest" => 50, "chainmail" => 150, "dragonscale_armor" => 300,
-        "warm_cloak" => 60, "bog_charm" => 60, "ring_of_vigor" => 100, "berserker_pendant" => 80,
+        "warm_cloak" => 60, "bog_charm" => 60, "ring_of_vigor" => 400, "berserker_pendant" => 500,
         "health_potion" => 30, "greater_health_potion" => 60, "speed_potion" => 80,
         "mystery_potion" => 40, "battle_elixir" => 120,
         "torch" => 20, "compass" => 60, "explorers_map" => 180,
+        // Legendary gear
+        "dragonslayer" => 2500, "stormbringer" => 1500,
+        "mythril_plate" => 1800, "phoenix_robe" => 2000,
+        "amulet_of_kings" => 1200, "soulreaper_pendant" => 1000,
         _ => 20,
     };
     (base / 2).max(5)

@@ -369,22 +369,52 @@
       "description": "A grand town by the sea.",
       "kind": {
         "type": "shop",
-        "merchant_name": "Coastal Merchant",
+        "merchant_name": "Royal Outfitter",
         "items": [
           {
-            "name": "health_potion",
-            "cost": 25,
+            "name": "greater_health_potion",
+            "cost": 50,
             "effect": "heal"
           },
           {
-            "name": "compass",
-            "cost": 60,
+            "name": "explorers_map",
+            "cost": 180,
             "effect": "reveal_fog"
           },
           {
-            "name": "explorers_map",
-            "cost": 200,
-            "effect": "reveal_fog"
+            "name": "battle_elixir",
+            "cost": 100,
+            "effect": "buff"
+          },
+          {
+            "name": "stormbringer",
+            "cost": 1500,
+            "effect": "equip"
+          },
+          {
+            "name": "mythril_plate",
+            "cost": 1800,
+            "effect": "equip"
+          },
+          {
+            "name": "amulet_of_kings",
+            "cost": 1200,
+            "effect": "equip"
+          },
+          {
+            "name": "dragonslayer",
+            "cost": 2500,
+            "effect": "equip"
+          },
+          {
+            "name": "phoenix_robe",
+            "cost": 2000,
+            "effect": "equip"
+          },
+          {
+            "name": "soulreaper_pendant",
+            "cost": 1000,
+            "effect": "equip"
           }
         ]
       },
@@ -724,6 +754,16 @@
             "name": "battle_elixir",
             "cost": 120,
             "effect": "buff"
+          },
+          {
+            "name": "ring_of_vigor",
+            "cost": 400,
+            "effect": "equip"
+          },
+          {
+            "name": "berserker_pendant",
+            "cost": 500,
+            "effect": "equip"
           }
         ]
       },
