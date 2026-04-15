@@ -17,6 +17,7 @@ impl Plugin for HudPlugin {
             include_str!("../../../../adventures/items.json")
         ).unwrap_or_default();
         app.insert_resource(InventoryOpen(false))
+            .insert_resource(LastInventorySnapshot::default())
             .insert_resource(ItemCatalogRes(catalog))
             .add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
@@ -303,6 +304,13 @@ struct InventoryPanel;
 #[derive(Component)]
 struct InventoryContent;
 
+/// Tracks last known inventory to detect changes without rebuilding every frame.
+#[derive(Resource, Default)]
+struct LastInventorySnapshot {
+    inventory: Vec<questlib::items::InventorySlot>,
+    equipment: questlib::items::EquipmentLoadout,
+}
+
 #[derive(Component)]
 pub struct InventoryItemRow(pub String); // item_id
 
@@ -410,6 +418,7 @@ fn update_inventory(
     state: Res<MyPlayerState>,
     font: Res<GameFont>,
     catalog: Res<ItemCatalogRes>,
+    mut snapshot: ResMut<LastInventorySnapshot>,
     panel_q: Query<Entity, With<InventoryPanel>>,
     content_q: Query<Entity, With<InventoryContent>>,
 ) {
@@ -482,9 +491,12 @@ fn update_inventory(
         return;
     }
 
-    // Only rebuild content when inventory changes (not every frame)
+    // Only rebuild content when inventory/equipment actually changes
     let Ok(content_entity) = content_q.get_single() else { return; };
-    if state.is_changed() {
+    let changed = snapshot.inventory != state.inventory || snapshot.equipment != state.equipment;
+    if changed {
+        snapshot.inventory = state.inventory.clone();
+        snapshot.equipment = state.equipment.clone();
         commands.entity(content_entity).despawn_descendants();
         commands.entity(content_entity).with_children(|content| {
             build_inventory_items(content, &state, &font, &catalog.0);
