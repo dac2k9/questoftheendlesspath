@@ -17,18 +17,18 @@ pub fn start_combat(
     kind: &EventKind,
     total_distance_m: u64,
     equipment_bonuses: (i32, i32, i32),
+    player_id: &str,
 ) {
-    let state = combat::init_combat(event_id, kind, total_distance_m, equipment_bonuses);
+    let state = combat::init_combat(event_id, kind, total_distance_m, equipment_bonuses, player_id);
     let mut lock = shared.lock().unwrap();
     lock.insert(event_id.to_string(), state);
 }
 
-/// Tick all active combats. Returns event IDs of combats that ended in Victory.
-/// Defeat and Fled combats are removed but do NOT complete the event.
+/// Tick all active combats using per-player speeds. `player_speeds` is
+/// (player_id, speed_kmh, incline_pct).
 pub fn tick_all(
     shared: &SharedCombat,
-    player_speed_kmh: f32,
-    player_incline: f32,
+    player_speeds: &[(String, f32, f32)],
     delta_secs: f32,
 ) -> (Vec<String>, Vec<String>) {
     let mut lock = shared.lock().unwrap();
@@ -36,7 +36,11 @@ pub fn tick_all(
     let mut retreats = Vec::new();
 
     for (event_id, state) in lock.iter_mut() {
-        combat::tick_combat(state, player_speed_kmh, player_incline, delta_secs);
+        let (speed, incline) = player_speeds.iter()
+            .find(|(pid, _, _)| pid == &state.player_id)
+            .map(|(_, s, i)| (*s, *i))
+            .unwrap_or((0.0, 0.0));
+        combat::tick_combat(state, speed, incline, delta_secs);
         match state.status {
             combat::CombatStatus::Victory => victories.push(event_id.clone()),
             combat::CombatStatus::Defeat | combat::CombatStatus::Fled => retreats.push(event_id.clone()),
@@ -47,10 +51,16 @@ pub fn tick_all(
     (victories, retreats)
 }
 
-/// Get the first active combat state.
-pub fn get_active_combat(shared: &SharedCombat) -> Option<CombatState> {
+/// Get the active combat for a specific player, if any.
+pub fn get_combat_for_player(shared: &SharedCombat, player_id: &str) -> Option<CombatState> {
     let lock = shared.lock().unwrap();
-    lock.values().next().cloned()
+    lock.values().find(|c| c.player_id == player_id).cloned()
+}
+
+/// Check if this player is currently in combat.
+pub fn player_in_combat(shared: &SharedCombat, player_id: &str) -> bool {
+    let lock = shared.lock().unwrap();
+    lock.values().any(|c| c.player_id == player_id)
 }
 
 /// Player runs away from combat.

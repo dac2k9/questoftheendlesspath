@@ -12,6 +12,7 @@ const POLL_INTERVAL: f32 = 1.0;
 pub fn poll_combat_state(
     time: Res<Time>,
     state: Res<MyPlayerState>,
+    session: Res<crate::GameSession>,
     mut combat: ResMut<CombatUiState>,
 ) {
     combat.poll_timer += time.delta_secs();
@@ -47,9 +48,11 @@ pub fn poll_combat_state(
         let fetched = combat.fetched.clone();
         let server_cleared = combat.server_cleared.clone();
         let was_active = combat.active;
+        let player_id = session.player_id.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
-            if let Ok(resp) = client.get("http://localhost:3001/combat").send().await {
+            let url = format!("http://localhost:3001/combat?player_id={}", player_id);
+            if let Ok(resp) = client.get(&url).send().await {
                 if let Ok(text) = resp.text().await {
                     if text == "null" || text.is_empty() {
                         if was_active {
@@ -81,10 +84,11 @@ pub fn poll_combat_state(
 }
 
 /// Send flee request to the server.
-pub fn send_flee(fetched: Arc<Mutex<Option<questlib::combat::CombatState>>>) {
+pub fn send_flee(fetched: Arc<Mutex<Option<questlib::combat::CombatState>>>, player_id: String) {
     wasm_bindgen_futures::spawn_local(async move {
         let client = reqwest::Client::new();
         if let Ok(resp) = client.post("http://localhost:3001/combat/flee")
+            .json(&serde_json::json!({"player_id": player_id}))
             .send()
             .await
         {

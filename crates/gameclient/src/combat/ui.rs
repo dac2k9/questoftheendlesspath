@@ -322,6 +322,7 @@ pub fn handle_combat_input(
     mut combat: ResMut<CombatUiState>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    session: Res<crate::GameSession>,
     flee_btn: Query<&Interaction, With<FleeButton>>,
 ) {
     let Some(ref cs) = combat.state else { return };
@@ -347,6 +348,6 @@ pub fn handle_combat_input(
 
     if should_flee {
         combat.action_pending = true;
-        super::poll::send_flee(combat.fetched.clone());
+        super::poll::send_flee(combat.fetched.clone(), session.player_id.clone());
     }
 }

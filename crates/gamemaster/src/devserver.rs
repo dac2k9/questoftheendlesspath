@@ -331,7 +331,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                             questlib::items::ItemEffect::Heal { amount } => {
                                 // Apply heal to active combat if any
                                 if let Ok(mut combat_lock) = combat.lock() {
-                                    if let Some(cs) = combat_lock.values_mut().next() {
+                                    if let Some(cs) = combat_lock.values_mut().find(|c| c.player_id == req.player_id) {
                                         let old_hp = cs.player_hp;
                                         cs.player_hp = (cs.player_hp + amount).min(cs.player_max_hp);
                                         let healed = cs.player_hp - old_hp;
@@ -348,7 +348,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                             questlib::items::ItemEffect::StatBonus { stat, amount } => {
                                 // Apply to active combat as a temporary boost
                                 if let Ok(mut combat_lock) = combat.lock() {
-                                    if let Some(cs) = combat_lock.values_mut().next() {
+                                    if let Some(cs) = combat_lock.values_mut().find(|c| c.player_id == req.player_id) {
                                         match stat {
                                             questlib::items::StatType::Attack => { cs.player_attack += amount; messages.push(format!("+{} ATK", amount)); }
                                             questlib::items::StatType::Defense => { cs.player_defense += amount; messages.push(format!("+{} DEF", amount)); }
@@ -561,18 +561,14 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
     }
 
-    // GET /combat — current combat state (or null)
-    if first_line.starts_with("GET /combat") {
-        if let Some(state) = crate::combat::get_active_combat(combat) {
-            let json = serde_json::to_string(&state).unwrap_or_default();
-            return ("200 OK", json);
-        }
-        return ("200 OK", "null".to_string());
-    }
-
-    // POST /combat/flee — player runs away
+    // POST /combat/flee — player runs away (check before GET /combat)
     if first_line.starts_with("POST /combat/flee") {
-        let event_id = crate::combat::get_active_combat(combat).map(|c| c.event_id);
+        // Extract player_id from body
+        let body_player_id = request.find("\r\n\r\n")
+            .and_then(|i| serde_json::from_str::<serde_json::Value>(&request[i + 4..]).ok())
+            .and_then(|v| v.get("player_id")?.as_str().map(|s| s.to_string()));
+        let pid = body_player_id.unwrap_or_default();
+        let event_id = crate::combat::get_combat_for_player(combat, &pid).map(|c| c.event_id);
         if let Some(eid) = event_id {
             if let Some(updated) = crate::combat::flee(combat, &eid) {
                 let json = serde_json::to_string(&updated).unwrap_or_default();
@@ -580,6 +576,20 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             }
         }
         return ("400 Bad Request", r#"{"error":"no active combat"}"#.to_string());
+    }
+
+    // GET /combat?player_id=<uuid> — combat state for a specific player (or null)
+    if first_line.starts_with("GET /combat") {
+        let player_id = first_line.split('?').nth(1)
+            .and_then(|qs| qs.split('&').find(|p| p.starts_with("player_id=")))
+            .and_then(|p| p.strip_prefix("player_id="))
+            .and_then(|v| v.split_whitespace().next())
+            .unwrap_or("");
+        if let Some(state) = crate::combat::get_combat_for_player(combat, player_id) {
+            let json = serde_json::to_string(&state).unwrap_or_default();
+            return ("200 OK", json);
+        }
+        return ("200 OK", "null".to_string());
     }
 
     // POST /heartbeat — mark player browser as open (no-op for dev)

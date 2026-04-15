@@ -35,6 +35,9 @@ pub struct CombatLogEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CombatState {
     pub event_id: String,
+    /// Which player is fighting this combat.
+    #[serde(default)]
+    pub player_id: String,
     pub status: CombatStatus,
     /// Encounter description shown at combat start.
     #[serde(default)]
@@ -203,7 +206,7 @@ pub fn recommended_level(kind: &EventKind) -> u32 {
 // ── Combat Initialization ────────────────────────────
 
 /// Create a new combat state from event data and player distance.
-pub fn init_combat(event_id: &str, kind: &EventKind, total_distance_m: u64, equipment_bonuses: (i32, i32, i32)) -> CombatState {
+pub fn init_combat(event_id: &str, kind: &EventKind, total_distance_m: u64, equipment_bonuses: (i32, i32, i32), player_id: &str) -> CombatState {
     let player_level = leveling::level_from_meters(total_distance_m);
     let stats = leveling::CharacterStats::new_at_level(player_level);
     let enemy = enemy_stats_from_event(kind, player_level);
@@ -216,6 +219,7 @@ pub fn init_combat(event_id: &str, kind: &EventKind, total_distance_m: u64, equi
 
     CombatState {
         event_id: event_id.to_string(),
+        player_id: player_id.to_string(),
         status: CombatStatus::Fighting,
         description: desc,
         player_hp: stats.max_hp + eq_hp,
@@ -341,7 +345,7 @@ mod tests {
             description: "A weak slime".into(),
             difficulty: 1,
         };
-        let mut combat = init_combat("test", &kind, 5000, (0, 0, 0));
+        let mut combat = init_combat("test", &kind, 5000, (0, 0, 0), "player1");
         assert_eq!(combat.status, CombatStatus::Fighting);
 
         // Simulate at 3 km/h until combat ends
@@ -364,7 +368,7 @@ mod tests {
             description: "test".into(),
             difficulty: 5,
         };
-        let mut combat = init_combat("test", &kind, 100, (0, 0, 0));
+        let mut combat = init_combat("test", &kind, 100, (0, 0, 0), "player1");
 
         flee_combat(&mut combat);
         assert_eq!(combat.status, CombatStatus::Fled);
@@ -395,7 +399,7 @@ mod tests {
             description: "test".into(),
             difficulty: 1,
         };
-        let mut combat = init_combat("test", &kind, 100, (0, 0, 0));
+        let mut combat = init_combat("test", &kind, 100, (0, 0, 0), "player1");
 
         // Force defeat
         combat.player_hp = 1;

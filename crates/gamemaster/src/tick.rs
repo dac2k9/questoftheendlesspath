@@ -85,9 +85,9 @@ pub fn run_tick_dev(
             continue;
         }
 
-        // Blocking event check — also block during active combat
+        // Blocking event check — also block during THIS player's combat
         let has_blocking = events_lock.active_events().iter().any(|e| e.requires_browser)
-            || server_combat::get_active_combat(shared_combat).is_some();
+            || server_combat::player_in_combat(shared_combat, player_id);
 
         // Parse route
         let route_tiles = if !player.planned_route.is_empty() {
@@ -205,9 +205,9 @@ pub fn run_tick_dev(
                     include_str!("../../../adventures/items.json")
                 ).unwrap_or_default();
                 let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog);
-                // Only start if no combat already active
-                if server_combat::get_active_combat(shared_combat).is_none() {
-                    server_combat::start_combat(shared_combat, &combat_event_id, &kind, player.total_distance_m as u64, eq_bonus);
+                // Only start if THIS player isn't already in combat
+                if !server_combat::player_in_combat(shared_combat, player_id) {
+                    server_combat::start_combat(shared_combat, &combat_event_id, &kind, player.total_distance_m as u64, eq_bonus, player_id);
                     info!("[{}] Monster encounter: {} (difficulty {})", player.name, m.monster_type.display_name(), m.difficulty);
                 }
             }
@@ -340,6 +340,7 @@ pub fn run_tick_dev(
                             &event.kind,
                             player.total_distance_m as u64,
                             eq_bonus,
+                            player_id,
                         );
                         info!("  Combat started: {}", event.name);
                     } else {
@@ -370,27 +371,25 @@ pub fn run_tick_dev(
         }
     }
 
-    // Tick active combats once per game tick (not per player).
-    // Use the max walking speed across all players.
-    // Tick active combats once per game tick.
-    let combat_speed = players.iter()
-        .filter(|p| p.is_walking)
-        .map(|p| p.current_speed_kmh)
-        .fold(0.0_f32, f32::max);
-    let combat_incline = players.iter()
-        .filter(|p| p.is_walking)
-        .map(|p| p.current_incline)
-        .fold(0.0_f32, f32::max);
-    let (victories, retreats) = server_combat::tick_all(shared_combat, combat_speed, combat_incline, 1.0);
+    // Tick active combats using each player's own walking speed
+    let player_speeds: Vec<(String, f32, f32)> = players.iter()
+        .map(|p| (p.id.clone(), if p.is_walking { p.current_speed_kmh } else { 0.0 }, p.current_incline))
+        .collect();
+    let (victories, retreats) = server_combat::tick_all(shared_combat, &player_speeds, 1.0);
 
     for victory_event_id in &victories {
         info!("Combat victory: {}", victory_event_id);
 
+        // Get the player_id from the combat state before removing
+        let fighter_pid = {
+            let lock = shared_combat.lock().unwrap();
+            lock.get(victory_event_id).map(|c| c.player_id.clone())
+        };
+
         if victory_event_id.starts_with("monster_") {
             // World monster victory — mark defeated, give loot
             let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let fighting_pid = lock.iter().find(|(_, p)| p.is_walking).map(|(id, _)| id.clone());
-            if let Some(pid) = fighting_pid {
+            if let Some(pid) = fighter_pid.clone() {
                 if let Some(p) = lock.get_mut(&pid) {
                     p.defeated_monsters.push(victory_event_id.clone());
                     // Loot based on monster difficulty
@@ -426,8 +425,7 @@ pub fn run_tick_dev(
             // Quest event victory
             if event.transition(EventStatus::Completed).is_ok() {
                 let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-                let fighting_pid = lock.iter().find(|(_, p)| p.is_walking).map(|(id, _)| id.clone());
-                if let Some(pid) = fighting_pid {
+                if let Some(pid) = fighter_pid.clone() {
                     if let (Some(p), Some(fog)) = (lock.get_mut(&pid), player_fogs.get_mut(&pid)) {
                         for outcome in &event.outcomes {
                             apply_outcome(outcome, p, fog);
@@ -447,14 +445,20 @@ pub fn run_tick_dev(
     // Defeat/Fled: push player back one tile (away from the monster/enemy)
     for retreat_event_id in &retreats {
         info!("Combat retreat: {}", retreat_event_id);
+
+        // Get player_id before removing the combat
+        let fighter_pid = {
+            let combat_lock = shared_combat.lock().unwrap();
+            combat_lock.get(retreat_event_id).map(|c| c.player_id.clone())
+        };
+
         if let Some(event) = events_lock.get_mut(retreat_event_id) {
             event.force_status(EventStatus::Dismissed);
         }
 
         // Push player back to where they came from
         let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let fighting_pid = lock.iter().find(|(_, p)| p.is_walking).map(|(id, _)| id.clone());
-        if let Some(pid) = fighting_pid {
+        if let Some(pid) = fighter_pid {
             if let Some(p) = lock.get_mut(&pid) {
                 if let Some((prev_x, prev_y)) = p.prev_tile {
                     info!("[{}] retreated back to ({},{}) (previous tile)", p.name, prev_x, prev_y);
