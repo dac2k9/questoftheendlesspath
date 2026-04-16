@@ -13,7 +13,7 @@ RUN cargo build --release -p gamemaster
 FROM rust:1.85-slim AS wasm-build
 WORKDIR /app
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install wasm-bindgen-cli --version 0.2.100
+RUN cargo install wasm-bindgen-cli --version 0.2.114
 COPY crates/gameclient crates/gameclient
 COPY crates/questlib crates/questlib
 COPY adventures adventures
