@@ -250,22 +250,21 @@ async fn handle_join(
         lookup_walker_uuid(&name).await
     };
 
-    if walker_uuid.is_none() {
-        return ("403 Forbidden", r#"{"error":"Could not find your Walker account. Make sure your name matches your walker.akerud.se profile, or provide your Walker ID."}"#.to_string());
-    }
-    let walker_uuid = walker_uuid.unwrap();
+    // Walker account is optional — play without treadmill if not found
+    let walker_uuid = walker_uuid;
 
     // Find existing player or create new one
     let (player_id, player_name) = {
         let mut lock = state.lock().unwrap();
 
-        // Check by walker_uuid first
-        let existing = lock.values()
-            .find(|p| p.walker_uuid.as_deref() == Some(&walker_uuid))
-            .map(|p| (p.id.clone(), p.name.clone()));
+        // Check by walker_uuid first (if we have one)
+        let existing = walker_uuid.as_ref().and_then(|wid| {
+            lock.values()
+                .find(|p| p.walker_uuid.as_deref() == Some(wid))
+                .map(|p| (p.id.clone(), p.name.clone()))
+        });
 
         if let Some((pid, pname)) = existing {
-            // Update name if changed
             if let Some(p) = lock.get_mut(&pid) {
                 if !name.eq_ignore_ascii_case(&pname) {
                     p.name = name.clone();
@@ -273,17 +272,17 @@ async fn handle_join(
             }
             (pid, name)
         } else {
-            // Also check by name (backward compat)
+            // Check by name
             let by_name = lock.values()
                 .find(|p| p.name.eq_ignore_ascii_case(&name))
                 .map(|p| (p.id.clone(), p.name.clone()));
 
-            if let Some((pid, pname)) = by_name {
-                // Link walker_uuid to existing player
-                if let Some(p) = lock.get_mut(&pid) {
-                    p.walker_uuid = Some(walker_uuid.clone());
+            if let Some((pid, _pname)) = by_name {
+                // Link walker_uuid if we found one
+                if let (Some(p), Some(wid)) = (lock.get_mut(&pid), walker_uuid.as_ref()) {
+                    p.walker_uuid = Some(wid.clone());
                 }
-                (pid, pname)
+                (pid, name)
             } else {
                 // Create new player
                 let player_id = uuid::Uuid::new_v4().to_string();
@@ -296,7 +295,7 @@ async fn handle_join(
                     name: name.clone(),
                     map_tile_x: start.0,
                     map_tile_y: start.1,
-                    walker_uuid: Some(walker_uuid.clone()),
+                    walker_uuid: walker_uuid.clone(),
                     ..Default::default()
                 });
                 tracing::info!("New player joined: {} ({})", name, player_id);
@@ -305,8 +304,10 @@ async fn handle_join(
         }
     };
 
-    // Spawn Walker bridge if not already running
-    crate::walker_bridge::ensure_bridge(state.clone(), bridged_players.clone(), &player_id, &walker_uuid);
+    // Spawn Walker bridge if we have a walker_uuid
+    if let Some(ref wid) = walker_uuid {
+        crate::walker_bridge::ensure_bridge(state.clone(), bridged_players.clone(), &player_id, wid);
+    }
 
     ("200 OK", format!(r#"{{"player_id":"{}","name":"{}"}}"#, player_id, player_name))
 }
