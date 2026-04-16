@@ -51,7 +51,7 @@ pub fn poll_combat_state(
         let player_id = session.player_id.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
-            let url = format!("http://localhost:3001/combat?player_id={}", player_id);
+            let url = format!("/combat?player_id={}", player_id);
             if let Ok(resp) = client.get(&url).send().await {
                 if let Ok(text) = resp.text().await {
                     if text == "null" || text.is_empty() {
@@ -87,7 +87,7 @@ pub fn poll_combat_state(
 pub fn send_flee(fetched: Arc<Mutex<Option<questlib::combat::CombatState>>>, player_id: String) {
     wasm_bindgen_futures::spawn_local(async move {
         let client = reqwest::Client::new();
-        if let Ok(resp) = client.post("http://localhost:3001/combat/flee")
+        if let Ok(resp) = client.post("/combat/flee")
             .json(&serde_json::json!({"player_id": player_id}))
             .send()
             .await

@@ -244,7 +244,7 @@ fn start_game(
             "name": name,
             "walker_uuid": if walker_uuid.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(walker_uuid) },
         });
-        if let Ok(resp) = client.post("http://localhost:3001/join").json(&body).send().await {
+        if let Ok(resp) = client.post("/join").json(&body).send().await {
             if let Ok(text) = resp.text().await {
                 if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
                     if let Some(pid) = data.get("player_id").and_then(|v| v.as_str()) {

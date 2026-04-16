@@ -689,7 +689,7 @@ fn handle_inventory_click(
                 // Use the item
                 wasm_bindgen_futures::spawn_local(async move {
                     let client = reqwest::Client::new();
-                    let _ = client.post("http://localhost:3001/use_item")
+                    let _ = client.post("/use_item")
                         .json(&serde_json::json!({"player_id": player_id, "item_id": item_id}))
                         .send().await;
                 });
@@ -698,7 +698,7 @@ fn handle_inventory_click(
                 // Equip the item
                 wasm_bindgen_futures::spawn_local(async move {
                     let client = reqwest::Client::new();
-                    let _ = client.post("http://localhost:3001/equip_item")
+                    let _ = client.post("/equip_item")
                         .json(&serde_json::json!({"player_id": player_id, "item_id": item_id}))
                         .send().await;
                 });

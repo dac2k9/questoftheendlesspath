@@ -105,7 +105,7 @@ fn check_long_poll(
 
     wasm_bindgen_futures::spawn_local(async move {
         let client = reqwest::Client::new();
-        let url = format!("http://localhost:3001/players/poll?after={}", last_tick);
+        let url = format!("/players/poll?after={}", last_tick);
         let resp = client.get(&url).send().await;
 
         if let Ok(resp) = resp {
@@ -137,7 +137,7 @@ pub fn write_planned_route(
         return;
     }
 
-    let url = "http://localhost:3001/set_route".to_string();
+    let url = "/set_route".to_string();
 
     #[derive(Serialize)]
     struct Params {

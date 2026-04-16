@@ -226,7 +226,7 @@ fn handle_dialogue_input(
 
         // POST completion to dev server with player_id
         if !event_id.is_empty() {
-            let url = format!("http://localhost:3001/events/{}/complete", event_id);
+            let url = format!("/events/{}/complete", event_id);
             let player_id = session.player_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let client = reqwest::Client::new();
@@ -507,7 +507,7 @@ fn handle_shop_input(
                 let cost = item.cost;
                 wasm_bindgen_futures::spawn_local(async move {
                     let client = reqwest::Client::new();
-                    let _ = client.post("http://localhost:3001/buy_item")
+                    let _ = client.post("/buy_item")
                         .json(&serde_json::json!({
                             "player_id": player_id,
                             "item_id": item_id,
@@ -527,7 +527,7 @@ fn handle_shop_input(
         let item_id = sell_btn.0.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
-            let _ = client.post("http://localhost:3001/sell_item")
+            let _ = client.post("/sell_item")
                 .json(&serde_json::json!({"player_id": player_id, "item_id": item_id}))
                 .send().await;
         });
