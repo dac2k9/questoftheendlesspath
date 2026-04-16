@@ -293,7 +293,10 @@ async fn handle_join(
         }
     };
 
-    // Find existing player or create new one
+    // Require Walker account — no treadmill, no game
+    if walker_uuid.is_none() {
+        return ("403 Forbidden", r#"{"error":"No Walker account found. Use your walker.akerud.se display name."}"#.to_string());
+    }
     let (player_id, player_name) = {
         let mut lock = state.lock().unwrap();
 
