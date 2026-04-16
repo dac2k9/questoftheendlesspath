@@ -1,0 +1,14 @@
+target/
+.git/
+.env
+dev_state.json
+dev_state_old.json
+*.DS_Store
+.idea/
+.vscode/
+.claude/
+assets/MiniWorldSprites/
+assets/MiniWorldSprites.zip
+assets/Character-Customizer.zip
+assets/nintendo-nes/
+xxhash.setscan.json

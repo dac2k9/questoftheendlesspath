@@ -133,6 +133,46 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                 handle_request(&request, &state, &events, &notifs, &world, &combat)
             };
 
+            // Serve static files for the game client
+            let path = first_line.split_whitespace().nth(1).unwrap_or("/");
+            if first_line.starts_with("GET /") && !path.starts_with("/api")
+                && !path.starts_with("/players") && !path.starts_with("/events")
+                && !path.starts_with("/combat") && !path.starts_with("/set_route")
+                && !path.starts_with("/walker_update") && !path.starts_with("/debug_walk")
+                && !path.starts_with("/buy_item") && !path.starts_with("/sell_item")
+                && !path.starts_with("/use_item") && !path.starts_with("/equip_item")
+                && !path.starts_with("/unequip_item") && !path.starts_with("/heartbeat")
+                && !path.starts_with("/notifications")
+                && status == "404 Not Found"
+            {
+                let file_path = if path == "/" {
+                    "crates/gameclient/index.html".to_string()
+                } else {
+                    format!("crates/gameclient{}", path.split('?').next().unwrap_or(path))
+                };
+                if let Ok(contents) = tokio::fs::read(&file_path).await {
+                    let content_type = if file_path.ends_with(".html") { "text/html" }
+                        else if file_path.ends_with(".js") { "application/javascript" }
+                        else if file_path.ends_with(".wasm") { "application/wasm" }
+                        else if file_path.ends_with(".mp3") { "audio/mpeg" }
+                        else if file_path.ends_with(".png") { "image/png" }
+                        else if file_path.ends_with(".json") { "application/json" }
+                        else { "application/octet-stream" };
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\n\
+                         Content-Type: {}\r\n\
+                         Content-Length: {}\r\n\
+                         Access-Control-Allow-Origin: *\r\n\
+                         Cache-Control: no-cache\r\n\
+                         \r\n",
+                        content_type, contents.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes()).await;
+                    let _ = stream.write_all(&contents).await;
+                    return;
+                }
+            }
+
             let response = format!(
                 "HTTP/1.1 {}\r\n\
                  Content-Type: application/json\r\n\
