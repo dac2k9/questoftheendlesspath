@@ -81,8 +81,9 @@ impl TickSignal {
 }
 
 pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal) -> Result<()> {
-    let listener = TcpListener::bind("0.0.0.0:3001").await?;
-    tracing::info!("Dev server listening on http://127.0.0.1:3001");
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3001".to_string());
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+    tracing::info!("Dev server listening on http://127.0.0.1:{}", port);
 
     loop {
         let (mut stream, _) = listener.accept().await?;
