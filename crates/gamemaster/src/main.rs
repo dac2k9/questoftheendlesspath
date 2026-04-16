@@ -15,7 +15,7 @@ use tracing::{error, info};
 use devserver::{DevPlayerState, SharedState};
 
 pub type SharedEvents = Arc<Mutex<EventCatalog>>;
-pub type SharedNotifs = Arc<Mutex<Vec<String>>>;
+pub type SharedNotifs = Arc<Mutex<HashMap<String, Vec<String>>>>;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SaveData {
@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
         })
     ));
 
-    let shared_notifs: SharedNotifs = Arc::new(Mutex::new(Vec::new()));
+    let shared_notifs: SharedNotifs = Arc::new(Mutex::new(HashMap::new()));
     let shared_combat: combat::SharedCombat = Arc::new(Mutex::new(HashMap::new()));
     let tick_signal = devserver::new_tick_signal();
 

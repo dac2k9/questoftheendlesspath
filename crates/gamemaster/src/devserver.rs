@@ -56,7 +56,7 @@ pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
 use crate::SharedEvents;
 
 /// Start the dev HTTP server on port 3001.
-pub type SharedNotifs = Arc<Mutex<Vec<String>>>;
+pub type SharedNotifs = Arc<Mutex<HashMap<String, Vec<String>>>>;
 
 /// Tick signal: generation counter + notify. The counter avoids the race where
 /// a notification fires between client disconnect and reconnect.
@@ -515,7 +515,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     player.gold += price;
                     if let Ok(mut n) = notifs.lock() {
                         let name = catalog.as_ref().and_then(|c| c.get(&req.item_id)).map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
-                        n.push(format!("Sold {} for {} gold", name, price));
+                        n.entry(req.player_id.clone()).or_default().push(format!("Sold {} for {} gold", name, price));
                     }
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
@@ -589,7 +589,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                 drop(lock);
                                 // Can't easily access fog here — push a notification instead
                                 if let Ok(mut n) = notifs.lock() {
-                                    n.push(format!("Used {}! Area revealed.", def.map(|d| d.display_name.as_str()).unwrap_or("item")));
+                                    n.entry(req.player_id.clone()).or_default().push(format!("Used {}! Area revealed.", def.map(|d| d.display_name.as_str()).unwrap_or("item")));
                                 }
                                 return ("200 OK", serde_json::to_string(&serde_json::json!({"ok": true, "reveal_fog": {"x": px, "y": py, "radius": radius}})).unwrap());
                             }
@@ -597,7 +597,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     }
                     if let Ok(mut n) = notifs.lock() {
                         let item_name = def.map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
-                        n.push(format!("Used {}! {}", item_name, messages.join(", ")));
+                        n.entry(req.player_id.clone()).or_default().push(format!("Used {}! {}", item_name, messages.join(", ")));
                     }
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
@@ -622,7 +622,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                         Ok(_old) => {
                             if let Ok(mut n) = notifs.lock() {
                                 let name = catalog.get(&req.item_id).map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
-                                n.push(format!("Equipped {}!", name));
+                                n.entry(req.player_id.clone()).or_default().push(format!("Equipped {}!", name));
                             }
                             return ("200 OK", r#"{"ok":true}"#.to_string());
                         }
@@ -730,8 +730,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                         player.revealed_tiles = fog.to_base64();
                                     }
                                     questlib::events::EventOutcome::Notification { text } => {
-                                        if let Ok(mut n) = notifs.lock() {
-                                            n.push(text.clone());
+                                        if let (Ok(mut n), Some(ref pid)) = (notifs.lock(), &body_player_id) {
+                                            n.entry(pid.clone()).or_default().push(text.clone());
                                         }
                                     }
                                     _ => {}
@@ -746,11 +746,16 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("400 Bad Request", r#"{"error":"invalid event"}"#.to_string());
     }
 
-    // GET /notifications — fetch and clear pending notifications
+    // GET /notifications?player_id=X — fetch and clear pending notifications for a player
     if first_line.starts_with("GET /notifications") {
+        let player_id = first_line.split('?').nth(1)
+            .and_then(|qs| qs.split('&').find(|p| p.starts_with("player_id=")))
+            .and_then(|p| p.strip_prefix("player_id="))
+            .and_then(|v| v.split_whitespace().next())
+            .unwrap_or("");
         let mut lock = notifs.lock().unwrap();
-        let json = serde_json::to_string(&*lock).unwrap_or_default();
-        lock.clear();
+        let msgs = lock.remove(player_id).unwrap_or_default();
+        let json = serde_json::to_string(&msgs).unwrap_or_default();
         return ("200 OK", json);
     }
 

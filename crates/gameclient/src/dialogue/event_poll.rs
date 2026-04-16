@@ -42,6 +42,7 @@ pub fn poll_active_events(
     mut notifications: ResMut<NotificationQueue>,
     mut shop: ResMut<super::ShopState>,
     player: Res<crate::terrain::tilemap::MyPlayerState>,
+    session: Res<crate::GameSession>,
     world: Option<Res<crate::terrain::world::WorldGrid>>,
 ) {
     // Initialize timer
@@ -223,12 +224,14 @@ pub fn poll_active_events(
         notifications.pending.push(NotificationData { text, duration: 4.0 });
     }
 
-    // Poll server notifications
+    // Poll server notifications (per-player)
     if just_finished {
         let notif_ref = poll.fetched_notifs.clone();
+        let pid = session.player_id.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
-            if let Ok(resp) = client.get(&crate::api_url("/notifications")).send().await {
+            let url = crate::api_url(&format!("/notifications?player_id={}", pid));
+            if let Ok(resp) = client.get(&url).send().await {
                 if let Ok(notifs) = resp.json::<Vec<String>>().await {
                     if let Ok(mut lock) = notif_ref.lock() {
                         lock.extend(notifs);

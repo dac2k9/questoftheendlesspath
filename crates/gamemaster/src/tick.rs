@@ -231,7 +231,7 @@ pub fn run_tick_dev(
                         parts.push(name.to_string());
                     }
                     if let Ok(mut notifs) = shared_notifs.lock() {
-                        notifs.push(format!("Opened chest! {}", parts.join(", ")));
+                        notifs.entry(player_id.clone()).or_default().push(format!("Opened chest! {}", parts.join(", ")));
                     }
                 }
                 // Debug walking: tick manages total_distance since handler only sets speed
@@ -279,15 +279,7 @@ pub fn run_tick_dev(
                     p.interp_duration_secs = 0.0;
                 }
 
-                // Check for level up
-                let old_level = questlib::leveling::level_from_meters((p.total_distance_m - delta).max(0.0) as u64);
-                let new_level = questlib::leveling::level_from_meters(p.total_distance_m as u64);
-                if new_level > old_level {
-                    info!("[{}] leveled up! {} → {}", p.name, old_level, new_level);
-                    if let Ok(mut notifs) = shared_notifs.lock() {
-                        notifs.push(format!("Level up! You are now level {}!", new_level));
-                    }
-                }
+                // Level up detected client-side (HUD detect_level_up system)
             }
         }
 
@@ -391,7 +383,7 @@ pub fn run_tick_dev(
                                 apply_outcome(outcome, p, fog);
                                 if let EventOutcome::Notification { text } = outcome {
                                     if let Ok(mut notifs) = shared_notifs.lock() {
-                                        notifs.push(text.clone());
+                                        notifs.entry(pid.clone()).or_default().push(text.clone());
                                     }
                                 }
                             }
@@ -452,7 +444,7 @@ pub fn run_tick_dev(
                         msg.push_str(&format!(", +{}", item_name));
                     }
                     if let Ok(mut notifs) = shared_notifs.lock() {
-                        notifs.push(msg);
+                        notifs.entry(pid.clone()).or_default().push(msg);
                     }
                 }
             }
@@ -468,11 +460,13 @@ pub fn run_tick_dev(
                         }
                     }
                 }
-                // Notifications only once (shared)
+                // Notifications to all participants
                 for outcome in &event.outcomes {
                     if let EventOutcome::Notification { text } = outcome {
                         if let Ok(mut notifs) = shared_notifs.lock() {
-                            notifs.push(text.clone());
+                            for pid in &participants {
+                                notifs.entry(pid.clone()).or_default().push(text.clone());
+                            }
                         }
                     }
                 }
