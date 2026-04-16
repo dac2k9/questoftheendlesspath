@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use futures_util::StreamExt;
 use tokio_tungstenite::tungstenite;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::devserver::{DevPlayerState, SharedState};
 
