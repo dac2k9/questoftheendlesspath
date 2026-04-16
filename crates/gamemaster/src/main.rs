@@ -74,37 +74,11 @@ async fn main() -> Result<()> {
 
     let shared_events: SharedEvents = Arc::new(Mutex::new(catalog));
 
-    // Initialize shared player state — load from disk if available
+    // Initialize shared player state — load from disk or start empty
     let state: SharedState = Arc::new(Mutex::new(
         load_state(save_path).unwrap_or_else(|| {
-            info!("No saved state found, creating fresh players");
-            let start = world.pois.iter()
-                .find(|p| matches!(p.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village))
-                .map(|p| (p.x as i32, p.y as i32))
-                .unwrap_or((50, 40));
-
-            let mut map = HashMap::new();
-            map.insert(
-                "a0000000-0000-0000-0000-000000000001".to_string(),
-                DevPlayerState {
-                    id: "a0000000-0000-0000-0000-000000000001".to_string(),
-                    name: "Dac".to_string(),
-                    map_tile_x: start.0,
-                    map_tile_y: start.1,
-                    ..Default::default()
-                },
-            );
-            map.insert(
-                "b0000000-0000-0000-0000-000000000002".to_string(),
-                DevPlayerState {
-                    id: "b0000000-0000-0000-0000-000000000002".to_string(),
-                    name: "Apanloco".to_string(),
-                    map_tile_x: start.0,
-                    map_tile_y: start.1,
-                    ..Default::default()
-                },
-            );
-            map
+            info!("No saved state found, players will join via /join");
+            HashMap::new()
         })
     ));
 
@@ -129,13 +103,17 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Start Walker bridges for players configured in .env
-    let walker_config = walker_bridge::build_config();
-    if !walker_config.is_empty() {
-        info!("Starting Walker bridges for {} player(s) from .env", walker_config.len());
-        for (pid, wid) in &walker_config {
-            info!("  {} -> walker:{}", pid, wid);
+    // Start Walker bridges for saved players that have walker_uuid
+    {
+        let pairs: Vec<(String, String, String)> = {
+            let lock = state.lock().unwrap();
+            lock.iter()
+                .filter_map(|(pid, p)| p.walker_uuid.as_ref().map(|wid| (pid.clone(), wid.clone(), p.name.clone())))
+                .collect()
+        };
+        for (pid, wid, name) in &pairs {
             walker_bridge::ensure_bridge(state.clone(), bridged_players.clone(), pid, wid);
+            info!("Restored Walker bridge: {} -> {}", name, wid);
         }
     }
 
