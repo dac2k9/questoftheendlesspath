@@ -54,6 +54,15 @@ pub fn start() {
         .run();
 }
 
+/// Get the server base URL from the current page origin.
+/// Returns e.g. "http://localhost:3001" or "https://questoftheendlesspath.onrender.com"
+pub fn api_url(path: &str) -> String {
+    let base = web_sys::window()
+        .and_then(|w| w.location().origin().ok())
+        .unwrap_or_else(|| "http://localhost:3001".to_string());
+    format!("{}{}", base, path)
+}
+
 /// True when the mouse is over any UI element with Interaction.
 /// Map clicks should be suppressed when this is true.
 #[derive(Resource)]

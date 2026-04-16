@@ -185,7 +185,7 @@ pub fn poll_active_events(
         let fetched = poll.fetched.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
-            if let Ok(resp) = client.get("/events/active").send().await {
+            if let Ok(resp) = client.get(&crate::api_url("/events/active")).send().await {
                 if let Ok(events) = resp.json::<Vec<ActiveEvent>>().await {
                     if let Ok(mut lock) = fetched.lock() {
                         *lock = Some(events);
@@ -228,7 +228,7 @@ pub fn poll_active_events(
         let notif_ref = poll.fetched_notifs.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
-            if let Ok(resp) = client.get("/notifications").send().await {
+            if let Ok(resp) = client.get(&crate::api_url("/notifications")).send().await {
                 if let Ok(notifs) = resp.json::<Vec<String>>().await {
                     if let Ok(mut lock) = notif_ref.lock() {
                         lock.extend(notifs);

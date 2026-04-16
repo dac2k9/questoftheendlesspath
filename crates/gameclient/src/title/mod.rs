@@ -244,8 +244,9 @@ fn start_game(
             "name": name,
             "walker_uuid": if walker_uuid.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(walker_uuid) },
         });
-        log::info!("[join] Sending join request for '{}'", name);
-        match client.post("/join").json(&body).send().await {
+        let url = crate::api_url("/join");
+        log::info!("[join] Sending join request for '{}' to {}", name, url);
+        match client.post(&url).json(&body).send().await {
             Ok(resp) => {
                 let status = resp.status();
                 log::info!("[join] Response status: {}", status);
