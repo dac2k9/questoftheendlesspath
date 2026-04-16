@@ -303,6 +303,7 @@ fn spawn_world(
             commands.spawn((
                 Sprite { image: chest_handle.clone(), ..default() },
                 Transform::from_xyz(pos.x, pos.y, 1.5),
+                Visibility::Hidden,
                 ChestSprite(i),
             ));
         }
@@ -363,6 +364,7 @@ fn spawn_world(
                         ..default()
                     },
                     Transform::from_xyz(pos.x, pos.y, 1.5),
+                    Visibility::Hidden,
                     MonsterSprite(i),
                     MonsterAnimation { timer: Timer::from_seconds(0.3, TimerMode::Repeating), frame: 0, cols: *cols },
                 ));
@@ -1050,19 +1052,24 @@ fn animate_monsters(
 fn update_chest_sprites(
     mut commands: Commands,
     state: Res<MyPlayerState>,
-    chests: Query<(Entity, &ChestSprite)>,
-    monsters: Query<(Entity, &MonsterSprite)>,
+    mut chests: Query<(Entity, &ChestSprite, &mut Visibility), Without<MonsterSprite>>,
+    mut monsters: Query<(Entity, &MonsterSprite, &mut Visibility), Without<ChestSprite>>,
 ) {
-    for (entity, chest) in &chests {
+    if !state.initialized { return; }
+    for (entity, chest, mut vis) in &mut chests {
         let chest_id = format!("chest_{}", chest.0);
         if state.opened_chests.contains(&chest_id) {
             commands.entity(entity).despawn();
+        } else {
+            *vis = Visibility::Visible;
         }
     }
-    for (entity, monster) in &monsters {
+    for (entity, monster, mut vis) in &mut monsters {
         let monster_id = format!("monster_{}", monster.0);
         if state.defeated_monsters.contains(&monster_id) {
             commands.entity(entity).despawn();
+        } else {
+            *vis = Visibility::Visible;
         }
     }
 }

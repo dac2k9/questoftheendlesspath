@@ -27,7 +27,7 @@ struct TitleForm {
 
 impl Default for TitleForm {
     fn default() -> Self {
-        Self { walker_uuid: String::new(), display_name: "Adventurer".to_string(), active_field: 0 }
+        Self { walker_uuid: String::new(), display_name: String::new(), active_field: 0 }
     }
 }
 
@@ -90,7 +90,7 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
             TextColor(Color::srgb(0.6, 0.6, 0.6)),
         ));
         parent.spawn((
-            Text::new("> Adventurer_"),
+            Text::new("> _"),
             TextFont { font: f.clone(), font_size: 12.0, ..default() },
             TextColor(Color::srgb(0.77, 0.64, 0.35)),
             NameText,
