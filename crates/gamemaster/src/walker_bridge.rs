@@ -88,6 +88,7 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
     let (_, mut read) = ws_stream.split();
     let mut last_distance: Option<f32> = None;
     let mut last_update = Instant::now();
+    let mut last_movement = Instant::now(); // last time distance actually changed
 
     while let Some(msg) = read.next().await {
         let msg = msg?;
@@ -120,14 +121,19 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
         }
         last_update = Instant::now();
 
-        let speed = if seg.moving { seg.speed_kmh } else { 0.0 };
+        // Track actual movement — if no distance change for 10s, consider idle
+        if distance_delta > 0.1 {
+            last_movement = Instant::now();
+        }
+        let actually_moving = seg.moving && last_movement.elapsed().as_secs() < 10;
+        let speed = if actually_moving { seg.speed_kmh } else { 0.0 };
 
         if let Ok(mut lock) = state.lock() {
             if let Some(player) = lock.get_mut(player_id) {
                 if !player.debug_walking {
                     player.current_speed_kmh = speed;
                     player.total_distance_m += distance_delta;
-                    player.is_walking = seg.moving;
+                    player.is_walking = actually_moving;
                 }
             }
         }
