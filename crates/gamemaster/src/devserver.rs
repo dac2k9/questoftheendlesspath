@@ -202,10 +202,22 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
 /// Look up a name on the Walker leaderboard, return their UUID if found.
 async fn lookup_walker_uuid(name: &str) -> Option<String> {
     let client = reqwest::Client::new();
-    let resp = client.get("https://walker.akerud.se/api/leaderboard")
+    let resp = match client.get("https://walker.akerud.se/api/leaderboard")
         .timeout(std::time::Duration::from_secs(5))
-        .send().await.ok()?;
-    let data: serde_json::Value = resp.json().await.ok()?;
+        .send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("[walker lookup] Failed to reach walker.akerud.se: {}", e);
+            return None;
+        }
+    };
+    let data: serde_json::Value = match resp.json().await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("[walker lookup] Failed to parse leaderboard: {}", e);
+            return None;
+        }
+    };
     // Search all time periods
     for period in ["today", "weekly", "all_time"] {
         if let Some(entries) = data.get(period).and_then(|v| v.as_array()) {
@@ -237,21 +249,30 @@ async fn handle_join(
     };
 
     let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    tracing::info!("[join] Request from: '{}'", name);
     if name.is_empty() {
+        tracing::warn!("[join] Empty name rejected");
         return ("400 Bad Request", r#"{"error":"name required"}"#.to_string());
     }
 
     // Try to auto-detect Walker UUID from the leaderboard by name
     let explicit_uuid = data.get("walker_uuid").and_then(|v| v.as_str()).map(|s| s.to_string());
     let walker_uuid = if let Some(uuid) = explicit_uuid.filter(|s| !s.is_empty()) {
+        tracing::info!("[join] Explicit Walker UUID provided: {}", uuid);
         Some(uuid)
     } else {
-        // Auto-lookup from Walker leaderboard
-        lookup_walker_uuid(&name).await
+        tracing::info!("[join] Looking up '{}' on Walker leaderboard...", name);
+        match lookup_walker_uuid(&name).await {
+            Some(uuid) => {
+                tracing::info!("[join] Found Walker UUID: {}", uuid);
+                Some(uuid)
+            }
+            None => {
+                tracing::info!("[join] No Walker account found for '{}'", name);
+                None
+            }
+        }
     };
-
-    // Walker account is optional — play without treadmill if not found
-    let walker_uuid = walker_uuid;
 
     // Find existing player or create new one
     let (player_id, player_name) = {
@@ -265,6 +286,7 @@ async fn handle_join(
         });
 
         if let Some((pid, pname)) = existing {
+            tracing::info!("[join] Found existing player by Walker UUID: {} ({})", pname, pid);
             if let Some(p) = lock.get_mut(&pid) {
                 if !name.eq_ignore_ascii_case(&pname) {
                     p.name = name.clone();

@@ -244,20 +244,30 @@ fn start_game(
             "name": name,
             "walker_uuid": if walker_uuid.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(walker_uuid) },
         });
-        if let Ok(resp) = client.post("/join").json(&body).send().await {
-            if let Ok(text) = resp.text().await {
-                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
-                    if let Some(pid) = data.get("player_id").and_then(|v| v.as_str()) {
-                        let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
-                        if let Ok(mut lock) = result_ref.lock() {
-                            *lock = Some((pid.to_string(), pname.to_string()));
+        log::info!("[join] Sending join request for '{}'", name);
+        match client.post("/join").json(&body).send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                log::info!("[join] Response status: {}", status);
+                if let Ok(text) = resp.text().await {
+                    log::info!("[join] Response body: {}", text);
+                    if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if let Some(pid) = data.get("player_id").and_then(|v| v.as_str()) {
+                            let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
+                            if let Ok(mut lock) = result_ref.lock() {
+                                *lock = Some((pid.to_string(), pname.to_string()));
+                            }
+                            return;
                         }
-                        return;
                     }
                 }
             }
+            Err(e) => {
+                log::error!("[join] Request failed: {}", e);
+            }
         }
         // Fallback
+        log::warn!("[join] Using fallback player ID");
         if let Ok(mut lock) = result_ref.lock() {
             *lock = Some(("a0000000-0000-0000-0000-000000000001".to_string(), name));
         }
