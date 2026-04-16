@@ -159,10 +159,24 @@ pub fn ensure_bridge(state: SharedState, bridged: BridgedPlayers, player_id: &st
     let wid = walker_user_id.to_string();
     let bridged_clone = bridged.clone();
     tokio::spawn(async move {
+        let mut consecutive_failures = 0u32;
         loop {
             if let Err(e) = run_bridge(&state, &pid, &wid).await {
-                error!("[Walker bridge {}] Error: {:#}. Reconnecting in 5s...", pid, e);
+                consecutive_failures += 1;
+                error!("[Walker bridge {}] Error (#{}): {:#}. Reconnecting in 5s...",
+                    pid, consecutive_failures, e);
+                // After extended failure (~5 min), give up the slot so a fresh
+                // join attempt can retry cleanly rather than being silently skipped.
+                if consecutive_failures >= 60 {
+                    error!("[Walker bridge {}] Giving up after {} failures", pid, consecutive_failures);
+                    if let Ok(mut lock) = bridged_clone.lock() {
+                        lock.remove(&pid);
+                    }
+                    return;
+                }
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            } else {
+                consecutive_failures = 0;
             }
         }
     });

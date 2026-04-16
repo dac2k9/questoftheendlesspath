@@ -193,10 +193,14 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                 && !path.starts_with("/notifications")
                 && status == "404 Not Found"
             {
+                let clean_path = path.split('?').next().unwrap_or(path);
+                // Reject path traversal attempts — no "..", no absolute paths, no null bytes
                 let file_path = if path == "/" {
                     "crates/gameclient/index.html".to_string()
+                } else if clean_path.contains("..") || clean_path.contains('\0') || clean_path.contains('\\') {
+                    String::new() // will fail to read, falls through to 404
                 } else {
-                    format!("crates/gameclient{}", path.split('?').next().unwrap_or(path))
+                    format!("crates/gameclient{}", clean_path)
                 };
                 if let Ok(contents) = tokio::fs::read(&file_path).await {
                     let content_type = if file_path.ends_with(".html") { "text/html" }
@@ -471,14 +475,12 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     if player.gold < req.cost {
                         return ("400 Bad Request", r#"{"error":"not enough gold"}"#.to_string());
                     }
-                    let catalog = questlib::items::ItemCatalog::from_json(
-                        include_str!("../../../adventures/items.json")
-                    ).ok();
+                    let catalog = Some(crate::item_catalog());
                     // Can't buy equipment that's already equipped
                     if player.equipment.has_equipped(&req.item_id) {
                         return ("400 Bad Request", r#"{"error":"already equipped"}"#.to_string());
                     }
-                    if questlib::items::add_item(&mut player.inventory, &req.item_id, catalog.as_ref()) {
+                    if questlib::items::add_item(&mut player.inventory, &req.item_id, catalog) {
                         player.gold -= req.cost;
                         return ("200 OK", r#"{"ok":true}"#.to_string());
                     } else {
@@ -497,13 +499,11 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             #[derive(Deserialize)]
             struct SellReq { player_id: String, item_id: String }
             if let Ok(req) = serde_json::from_str::<SellReq>(body) {
-                let catalog = questlib::items::ItemCatalog::from_json(
-                    include_str!("../../../adventures/items.json")
-                ).ok();
+                let catalog = Some(crate::item_catalog());
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
                     // Can't sell key items
-                    let is_key = catalog.as_ref()
+                    let is_key = catalog
                         .and_then(|c| c.get(&req.item_id))
                         .map_or(false, |d| d.category == questlib::items::ItemCategory::KeyItem);
                     if is_key {
@@ -517,8 +517,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     questlib::items::remove_item(&mut player.inventory, &req.item_id);
                     player.gold += price;
                     if let Ok(mut n) = notifs.lock() {
-                        let name = catalog.as_ref().and_then(|c| c.get(&req.item_id)).map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
-                        n.entry(req.player_id.clone()).or_default().push(format!("Sold {} for {} gold", name, price));
+                        let name = catalog.and_then(|c| c.get(&req.item_id)).map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
+                        crate::push_notif(&mut n, &req.player_id, format!("Sold {} for {} gold", name, price));
                     }
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
@@ -534,10 +534,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             #[derive(Deserialize)]
             struct UseReq { player_id: String, item_id: String }
             if let Ok(req) = serde_json::from_str::<UseReq>(body) {
-                let catalog = questlib::items::ItemCatalog::from_json(
-                    include_str!("../../../adventures/items.json")
-                ).ok();
-                let cat = catalog.as_ref();
+                let catalog = Some(crate::item_catalog());
+                let cat = catalog;
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
                     if !questlib::items::has_item(&player.inventory, &req.item_id) {
@@ -592,7 +590,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                 drop(lock);
                                 // Can't easily access fog here — push a notification instead
                                 if let Ok(mut n) = notifs.lock() {
-                                    n.entry(req.player_id.clone()).or_default().push(format!("Used {}! Area revealed.", def.map(|d| d.display_name.as_str()).unwrap_or("item")));
+                                    crate::push_notif(&mut n, &req.player_id, format!("Used {}! Area revealed.", def.map(|d| d.display_name.as_str()).unwrap_or("item")));
                                 }
                                 return ("200 OK", serde_json::to_string(&serde_json::json!({"ok": true, "reveal_fog": {"x": px, "y": py, "radius": radius}})).unwrap());
                             }
@@ -600,7 +598,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     }
                     if let Ok(mut n) = notifs.lock() {
                         let item_name = def.map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
-                        n.entry(req.player_id.clone()).or_default().push(format!("Used {}! {}", item_name, messages.join(", ")));
+                        crate::push_notif(&mut n, &req.player_id, format!("Used {}! {}", item_name, messages.join(", ")));
                     }
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
@@ -616,16 +614,14 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             #[derive(Deserialize)]
             struct EquipReq { player_id: String, item_id: String }
             if let Ok(req) = serde_json::from_str::<EquipReq>(body) {
-                let catalog = questlib::items::ItemCatalog::from_json(
-                    include_str!("../../../adventures/items.json")
-                ).unwrap();
+                let catalog = crate::item_catalog();
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
                     match questlib::items::equip_item(&mut player.equipment, &mut player.inventory, &req.item_id, &catalog) {
                         Ok(_old) => {
                             if let Ok(mut n) = notifs.lock() {
                                 let name = catalog.get(&req.item_id).map(|d| d.display_name.as_str()).unwrap_or(&req.item_id);
-                                n.entry(req.player_id.clone()).or_default().push(format!("Equipped {}!", name));
+                                crate::push_notif(&mut n, &req.player_id, format!("Equipped {}!", name));
                             }
                             return ("200 OK", r#"{"ok":true}"#.to_string());
                         }
@@ -644,9 +640,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             #[derive(Deserialize)]
             struct UnequipReq { player_id: String, slot: questlib::items::EquipmentSlot }
             if let Ok(req) = serde_json::from_str::<UnequipReq>(body) {
-                let catalog = questlib::items::ItemCatalog::from_json(
-                    include_str!("../../../adventures/items.json")
-                ).unwrap();
+                let catalog = crate::item_catalog();
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
                     if questlib::items::unequip_item(&mut player.equipment, &mut player.inventory, req.slot, &catalog) {
@@ -724,10 +718,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                         player.gold += amount;
                                     }
                                     questlib::events::EventOutcome::Item { name } => {
-                                        let cat = questlib::items::ItemCatalog::from_json(
-                                            include_str!("../../../adventures/items.json")
-                                        ).ok();
-                                        questlib::items::add_item(&mut player.inventory, name, cat.as_ref());
+                                        let cat = Some(crate::item_catalog());
+                                        questlib::items::add_item(&mut player.inventory, name, cat);
                                     }
                                     questlib::events::EventOutcome::RevealFog { x, y, radius } => {
                                         let mut fog = if !player.revealed_tiles.is_empty() {
@@ -740,7 +732,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                     }
                                     questlib::events::EventOutcome::Notification { text } => {
                                         if let (Ok(mut n), Some(ref pid)) = (notifs.lock(), &body_player_id) {
-                                            n.entry(pid.clone()).or_default().push(text.clone());
+                                            crate::push_notif(&mut n, &pid, text.clone());
                                         }
                                     }
                                     _ => {}
@@ -762,8 +754,15 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             .and_then(|p| p.strip_prefix("player_id="))
             .and_then(|v| v.split_whitespace().next())
             .unwrap_or("");
-        let mut lock = notifs.lock().unwrap();
-        let msgs = lock.remove(player_id).unwrap_or_default();
+        // Validate player_id exists in state — prevents arbitrary enumeration.
+        // (Not real auth: anyone who can guess/learn an ID can read notifications.)
+        let known = state.lock().map(|s| s.contains_key(player_id)).unwrap_or(false);
+        if !known {
+            return ("200 OK", "[]".to_string());
+        }
+        let msgs = notifs.lock()
+            .map(|mut n| n.remove(player_id).unwrap_or_default())
+            .unwrap_or_default();
         let json = serde_json::to_string(&msgs).unwrap_or_default();
         return ("200 OK", json);
     }

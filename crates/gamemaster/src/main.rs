@@ -17,6 +17,29 @@ use devserver::{DevPlayerState, SharedState};
 pub type SharedEvents = Arc<Mutex<EventCatalog>>;
 pub type SharedNotifs = Arc<Mutex<HashMap<String, Vec<String>>>>;
 
+/// Max pending notifications per player — oldest dropped beyond this.
+/// Prevents the queue growing unbounded for players who never poll.
+pub const NOTIF_QUEUE_MAX: usize = 100;
+
+/// Push a notification to a player's queue, capped at NOTIF_QUEUE_MAX.
+pub fn push_notif(notifs: &mut HashMap<String, Vec<String>>, player_id: &str, msg: String) {
+    let q = notifs.entry(player_id.to_string()).or_default();
+    q.push(msg);
+    if q.len() > NOTIF_QUEUE_MAX {
+        let drop = q.len() - NOTIF_QUEUE_MAX;
+        q.drain(..drop);
+    }
+}
+
+/// Lazy-loaded, process-wide item catalog. Parsed once from the embedded JSON.
+pub fn item_catalog() -> &'static questlib::items::ItemCatalog {
+    static CATALOG: std::sync::OnceLock<questlib::items::ItemCatalog> = std::sync::OnceLock::new();
+    CATALOG.get_or_init(|| {
+        questlib::items::ItemCatalog::from_json(include_str!("../../../adventures/items.json"))
+            .unwrap_or_default()
+    })
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SaveData {
     players: Vec<DevPlayerState>,

@@ -49,14 +49,18 @@ pub fn run_tick_dev(
             player_fogs.insert(player_id.clone(), fog);
         }
 
-        // Init last distance
-        if !player_last_distance.contains_key(player_id) {
-            player_last_distance.insert(player_id.clone(), player.total_distance_m);
+        // When the player isn't walking, drop last_dist tracking. On the next
+        // walking tick, it's re-synced to the current snapshot total — the first
+        // walking tick advances nothing, preventing bursts when the bridge has
+        // accumulated distance between ticks (e.g. during WS connect/buffering).
+        if !player.is_walking {
+            player_last_distance.remove(player_id);
+            continue;
         }
 
-        if !player.is_walking {
+        // First walking tick (after join or after a not-walking period): sync to current.
+        if !player_last_distance.contains_key(player_id) {
             player_last_distance.insert(player_id.clone(), player.total_distance_m);
-            continue;
         }
 
         info!(
@@ -154,8 +158,8 @@ pub fn run_tick_dev(
                 clear_route = true;
             }
 
-            // Fog
-            let fog = player_fogs.get_mut(player_id).unwrap();
+            // Fog — should always exist (initialized above), but guard defensively.
+            let Some(fog) = player_fogs.get_mut(player_id) else { continue };
             // Merge any fog reveals from event completions (applied to player state directly)
             if !player.revealed_tiles.is_empty() {
                 if let Some(state_fog) = FogBitfield::from_base64(&player.revealed_tiles) {
@@ -201,9 +205,7 @@ pub fn run_tick_dev(
                     description: format!("A wild {} blocks your path!", m.monster_type.display_name()),
                     difficulty: m.difficulty,
                 };
-                let catalog = questlib::items::ItemCatalog::from_json(
-                    include_str!("../../../adventures/items.json")
-                ).unwrap_or_default();
+                let catalog = crate::item_catalog();
                 let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog);
                 // Only start if THIS player isn't already in combat
                 if !server_combat::player_in_combat(shared_combat, player_id) {
@@ -221,17 +223,15 @@ pub fn run_tick_dev(
                 if let Some((chest_id, loot)) = chest_loot {
                     p.opened_chests.push(chest_id);
                     p.gold += loot.gold;
-                    let catalog = questlib::items::ItemCatalog::from_json(
-                        include_str!("../../../adventures/items.json")
-                    ).ok();
+                    let catalog = Some(crate::item_catalog());
                     let mut parts = vec![format!("+{} gold", loot.gold)];
                     for item_id in &loot.items {
-                        questlib::items::add_item(&mut p.inventory, item_id, catalog.as_ref());
-                        let name = catalog.as_ref().and_then(|c| c.get(item_id)).map(|d| d.display_name.as_str()).unwrap_or(item_id);
+                        questlib::items::add_item(&mut p.inventory, item_id, catalog);
+                        let name = catalog.and_then(|c| c.get(item_id)).map(|d| d.display_name.as_str()).unwrap_or(item_id);
                         parts.push(name.to_string());
                     }
                     if let Ok(mut notifs) = shared_notifs.lock() {
-                        notifs.entry(player_id.clone()).or_default().push(format!("Opened chest! {}", parts.join(", ")));
+                        crate::push_notif(&mut notifs, &player_id, format!("Opened chest! {}", parts.join(", ")));
                     }
                 }
                 // Debug walking: tick manages total_distance since handler only sets speed
@@ -319,7 +319,7 @@ pub fn run_tick_dev(
             .collect();
 
         for event_id in &triggered_ids {
-            let event = events_lock.get_mut(event_id).unwrap();
+            let Some(event) = events_lock.get_mut(event_id) else { continue };
             // Force to Active for this player's trigger
             event.force_status(EventStatus::Active);
             {
@@ -353,9 +353,7 @@ pub fn run_tick_dev(
                             continue;
                         }
 
-                        let catalog = questlib::items::ItemCatalog::from_json(
-                            include_str!("../../../adventures/items.json")
-                        ).unwrap_or_default();
+                        let catalog = crate::item_catalog();
                         let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog);
                         server_combat::start_combat(
                             shared_combat,
@@ -384,7 +382,7 @@ pub fn run_tick_dev(
                 if event.auto_completes() {
                     if event.transition(EventStatus::Completed).is_ok() {
                         info!("  Auto-completed: {}", event.name);
-                        let fog = player_fogs.get_mut(player_id).unwrap();
+                        let Some(fog) = player_fogs.get_mut(player_id) else { continue };
                         let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
                         if let Some(p) = lock.get_mut(player_id) {
                             p.completed_events.push(event_id.clone());
@@ -392,7 +390,7 @@ pub fn run_tick_dev(
                                 apply_outcome(outcome, p, fog);
                                 if let EventOutcome::Notification { text } = outcome {
                                     if let Ok(mut notifs) = shared_notifs.lock() {
-                                        notifs.entry(player_id.clone()).or_default().push(text.clone());
+                                        crate::push_notif(&mut notifs, &player_id, text.clone());
                                     }
                                 }
                             }
@@ -435,9 +433,7 @@ pub fn run_tick_dev(
                     let gold = 30 + (difficulty as i32 * 20);
                     p.gold += gold;
                     // Item drop based on difficulty
-                    let catalog = questlib::items::ItemCatalog::from_json(
-                        include_str!("../../../adventures/items.json")
-                    ).ok();
+                    let catalog = Some(crate::item_catalog());
                     let drop = match difficulty {
                         1 => Some("health_potion"),
                         2 => Some("health_potion"),
@@ -448,12 +444,12 @@ pub fn run_tick_dev(
                     };
                     let mut msg = format!("{} defeated! +{} gold", name, gold);
                     if let Some(item) = drop {
-                        questlib::items::add_item(&mut p.inventory, item, catalog.as_ref());
-                        let item_name = catalog.as_ref().and_then(|c| c.get(item)).map(|d| d.display_name.as_str()).unwrap_or(item);
+                        questlib::items::add_item(&mut p.inventory, item, catalog);
+                        let item_name = catalog.and_then(|c| c.get(item)).map(|d| d.display_name.as_str()).unwrap_or(item);
                         msg.push_str(&format!(", +{}", item_name));
                     }
                     if let Ok(mut notifs) = shared_notifs.lock() {
-                        notifs.entry(pid.clone()).or_default().push(msg);
+                        crate::push_notif(&mut notifs, &pid, msg);
                     }
                 }
             }
@@ -475,7 +471,7 @@ pub fn run_tick_dev(
                     if let EventOutcome::Notification { text } = outcome {
                         if let Ok(mut notifs) = shared_notifs.lock() {
                             for pid in &participants {
-                                notifs.entry(pid.clone()).or_default().push(text.clone());
+                                crate::push_notif(&mut notifs, &pid, text.clone());
                             }
                         }
                     }
@@ -545,7 +541,7 @@ fn make_test_state(players: Vec<DevPlayerState>) -> (SharedState, SharedEvents, 
     (
         Arc::new(Mutex::new(map)),
         Arc::new(Mutex::new(EventCatalog::default())),
-        Arc::new(Mutex::new(Vec::new())),
+        Arc::new(Mutex::new(HashMap::new())),
         Arc::new(Mutex::new(HashMap::new())),
     )
 }
@@ -557,10 +553,8 @@ fn apply_outcome(outcome: &EventOutcome, player: &mut DevPlayerState, fog: &mut 
             info!("  +{} gold", amount);
         }
         EventOutcome::Item { name } => {
-            let catalog = questlib::items::ItemCatalog::from_json(
-                include_str!("../../../adventures/items.json")
-            ).ok();
-            questlib::items::add_item(&mut player.inventory, name, catalog.as_ref());
+            let catalog = Some(crate::item_catalog());
+            questlib::items::add_item(&mut player.inventory, name, catalog);
             info!("  +item: {}", name);
         }
         EventOutcome::RevealFog { x, y, radius } => {
