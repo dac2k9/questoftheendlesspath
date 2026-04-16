@@ -633,7 +633,43 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", "null".to_string());
     }
 
-    // GET /login?name=X — find player by name, return player_id
+    // POST /join — create or find player by name, optionally link Walker
+    if first_line.starts_with("POST /join") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            let body = &request[body_start + 4..];
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(body) {
+                let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let walker_uuid = data.get("walker_uuid").and_then(|v| v.as_str()).map(|s| s.to_string());
+                if name.is_empty() {
+                    return ("400 Bad Request", r#"{"error":"name required"}"#.to_string());
+                }
+                let mut lock = state.lock().unwrap();
+                // Find existing player by name (case-insensitive)
+                let existing = lock.values().find(|p| p.name.eq_ignore_ascii_case(&name)).map(|p| (p.id.clone(), p.name.clone()));
+                if let Some((pid, pname)) = existing {
+                    return ("200 OK", format!(r#"{{"player_id":"{}","name":"{}"}}"#, pid, pname));
+                }
+                // Create new player at the first town POI
+                let player_id = uuid::Uuid::new_v4().to_string();
+                let start = world.pois.iter()
+                    .find(|p| matches!(p.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village))
+                    .map(|p| (p.x as i32, p.y as i32))
+                    .unwrap_or((50, 40));
+                lock.insert(player_id.clone(), DevPlayerState {
+                    id: player_id.clone(),
+                    name: name.clone(),
+                    map_tile_x: start.0,
+                    map_tile_y: start.1,
+                    ..Default::default()
+                });
+                tracing::info!("New player joined: {} ({})", name, player_id);
+                return ("200 OK", format!(r#"{{"player_id":"{}","name":"{}"}}"#, player_id, name));
+            }
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
+    // GET /login?name=X — find player by name, return player_id (legacy)
     if first_line.starts_with("GET /login") {
         let name = first_line.split('?').nth(1)
             .and_then(|qs| qs.split('&').find(|p| p.starts_with("name=")))
