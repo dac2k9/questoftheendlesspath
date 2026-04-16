@@ -13,6 +13,9 @@ use tracing::{error, info};
 
 use crate::devserver::{DevPlayerState, SharedState};
 
+/// Tracks which players already have a bridge running.
+pub type BridgedPlayers = Arc<Mutex<std::collections::HashSet<String>>>;
+
 /// Walker user ID mapping: game player_id -> walker user_id
 pub type WalkerConfig = Arc<HashMap<String, String>>;
 
@@ -140,4 +143,28 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
     }
 
     Err(anyhow::anyhow!("WebSocket stream ended"))
+}
+
+/// Spawn a bridge for a player if not already running.
+pub fn ensure_bridge(state: SharedState, bridged: BridgedPlayers, player_id: &str, walker_user_id: &str) {
+    {
+        let mut lock = bridged.lock().unwrap();
+        if lock.contains(player_id) {
+            return; // already running
+        }
+        lock.insert(player_id.to_string());
+    }
+
+    let pid = player_id.to_string();
+    let wid = walker_user_id.to_string();
+    let bridged_clone = bridged.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Err(e) = run_bridge(&state, &pid, &wid).await {
+                error!("[Walker bridge {}] Error: {:#}. Reconnecting in 5s...", pid, e);
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        }
+    });
+    info!("Walker bridge started for {} -> {}", player_id, walker_user_id);
 }

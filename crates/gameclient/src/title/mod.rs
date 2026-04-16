@@ -97,17 +97,11 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
             Node { margin: UiRect::bottom(Val::Px(12.0)), ..default() },
         ));
 
-        // Walker UUID field
+        // Hint about Walker
         parent.spawn((
-            Text::new("Walker ID (from walker.akerud.se):"),
-            TextFont { font: f.clone(), font_size: 8.0, ..default() },
-            TextColor(Color::srgb(0.5, 0.5, 0.5)),
-        ));
-        parent.spawn((
-            Text::new("  (optional)"),
-            TextFont { font: f.clone(), font_size: 10.0, ..default() },
+            Text::new("Use your walker.akerud.se name to link treadmill"),
+            TextFont { font: f.clone(), font_size: 7.0, ..default() },
             TextColor(Color::srgb(0.4, 0.4, 0.4)),
-            UuidText,
             Node { margin: UiRect::bottom(Val::Px(20.0)), ..default() },
         ));
 
@@ -134,7 +128,7 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
 
         // Hint
         parent.spawn((
-            Text::new("TAB to switch fields | ENTER or click Start"),
+            Text::new("Press ENTER or click Start"),
             TextFont { font: f.clone(), font_size: 7.0, ..default() },
             TextColor(Color::srgb(0.35, 0.35, 0.35)),
             Node { margin: UiRect::top(Val::Px(20.0)), ..default() },
@@ -145,24 +139,15 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
 fn handle_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut form: ResMut<TitleForm>,
-    mut name_q: Query<(&mut Text, &mut TextColor), (With<NameText>, Without<UuidText>)>,
-    mut uuid_q: Query<(&mut Text, &mut TextColor), (With<UuidText>, Without<NameText>)>,
+    mut name_q: Query<&mut Text, With<NameText>>,
     mut session: ResMut<GameSession>,
     mut next_state: ResMut<NextState<AppState>>,
     mut pending: ResMut<PendingLogin>,
 ) {
-    // TAB switches fields
-    if keys.just_pressed(KeyCode::Tab) {
-        form.active_field = if form.active_field == 0 { 1 } else { 0 };
-    }
-
-    // Backspace
     if keys.just_pressed(KeyCode::Backspace) {
-        if form.active_field == 0 { form.display_name.pop(); }
-        else { form.walker_uuid.pop(); }
+        form.display_name.pop();
     }
 
-    // Enter — join game
     if keys.just_pressed(KeyCode::Enter) && !form.display_name.is_empty() && !pending.waiting {
         start_game(&form, &mut session, &mut next_state, &mut pending);
         return;
@@ -185,50 +170,17 @@ fn handle_input(
     ];
 
     for (key, ch) in letter_keys {
-        if keys.just_pressed(key) {
+        if keys.just_pressed(key) && form.display_name.len() < 20 {
             let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-            if form.active_field == 0 {
-                // Name field — any letter/number
-                if form.display_name.len() < 20 {
-                    form.display_name.push(if shift { ch } else { ch.to_ascii_lowercase() });
-                }
-            } else {
-                // UUID field — hex only
-                if form.walker_uuid.len() < 36 {
-                    let c = ch.to_ascii_lowercase();
-                    if c.is_ascii_hexdigit() {
-                        form.walker_uuid.push(c);
-                    }
-                }
-            }
+            form.display_name.push(if shift { ch } else { ch.to_ascii_lowercase() });
         }
     }
-    // Space for name, hyphen for UUID
-    if keys.just_pressed(KeyCode::Space) && form.active_field == 0 && form.display_name.len() < 20 {
+    if keys.just_pressed(KeyCode::Space) && form.display_name.len() < 20 {
         form.display_name.push(' ');
     }
-    if keys.just_pressed(KeyCode::Minus) && form.active_field == 1 && form.walker_uuid.len() < 36 {
-        form.walker_uuid.push('-');
-    }
 
-    // Update displays
-    let active_color = Color::srgb(0.77, 0.64, 0.35);
-    let inactive_color = Color::srgb(0.4, 0.4, 0.4);
-    if let Ok((mut text, mut color)) = name_q.get_single_mut() {
-        let cursor = if form.active_field == 0 { "_" } else { "" };
-        let prefix = if form.active_field == 0 { "> " } else { "  " };
-        **text = format!("{}{}{}", prefix, form.display_name, cursor);
-        *color = TextColor(if form.active_field == 0 { active_color } else { inactive_color });
-    }
-    if let Ok((mut text, mut color)) = uuid_q.get_single_mut() {
-        let cursor = if form.active_field == 1 { "_" } else { "" };
-        let prefix = if form.active_field == 1 { "> " } else { "  " };
-        if form.walker_uuid.is_empty() && form.active_field != 1 {
-            **text = "  (optional)".to_string();
-        } else {
-            **text = format!("{}{}{}", prefix, form.walker_uuid, cursor);
-        }
-        *color = TextColor(if form.active_field == 1 { active_color } else { inactive_color });
+    if let Ok(mut text) = name_q.get_single_mut() {
+        **text = format!("> {}_", form.display_name);
     }
 }
 

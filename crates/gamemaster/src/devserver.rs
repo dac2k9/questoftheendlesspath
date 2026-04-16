@@ -44,6 +44,8 @@ pub struct DevPlayerState {
     pub opened_chests: Vec<String>,
     #[serde(default)]
     pub defeated_monsters: Vec<String>,
+    #[serde(default)]
+    pub walker_uuid: Option<String>,
     /// Previous tile before entering current tile (for retreat).
     #[serde(default)]
     pub prev_tile: Option<(i32, i32)>,
@@ -80,7 +82,7 @@ impl TickSignal {
     }
 }
 
-pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal) -> Result<()> {
+pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal, bridged_players: crate::walker_bridge::BridgedPlayers) -> Result<()> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".to_string());
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!("Dev server listening on http://127.0.0.1:{}", port);
@@ -93,6 +95,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
         let world = world.clone();
         let combat = combat.clone();
         let tick_signal = tick_signal.clone();
+        let bridged_players = bridged_players.clone();
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 16384];
@@ -130,6 +133,9 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                 // Include tick generation so client can send it back
                 let body = format!(r#"{{"tick":{},"players":{}}}"#, gen, json);
                 ("200 OK", body)
+            } else if first_line.starts_with("POST /join") {
+                // Handle join asynchronously (needs Walker API lookup)
+                handle_join(&request, &state, &world, &bridged_players).await
             } else {
                 handle_request(&request, &state, &events, &notifs, &world, &combat)
             };
@@ -191,6 +197,118 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
             let _ = stream.write_all(response.as_bytes()).await;
         });
     }
+}
+
+/// Look up a name on the Walker leaderboard, return their UUID if found.
+async fn lookup_walker_uuid(name: &str) -> Option<String> {
+    let client = reqwest::Client::new();
+    let resp = client.get("https://walker.akerud.se/api/leaderboard")
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await.ok()?;
+    let data: serde_json::Value = resp.json().await.ok()?;
+    // Search all time periods
+    for period in ["today", "weekly", "all_time"] {
+        if let Some(entries) = data.get(period).and_then(|v| v.as_array()) {
+            for entry in entries {
+                let entry_name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if entry_name.eq_ignore_ascii_case(name) {
+                    return entry.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Handle POST /join — async because it may call Walker API.
+async fn handle_join(
+    request: &str,
+    state: &SharedState,
+    world: &questlib::mapgen::WorldMap,
+    bridged_players: &crate::walker_bridge::BridgedPlayers,
+) -> (&'static str, String) {
+    let body = match request.find("\r\n\r\n") {
+        Some(i) => &request[i + 4..],
+        None => return ("400 Bad Request", r#"{"error":"no body"}"#.to_string()),
+    };
+    let data: serde_json::Value = match serde_json::from_str(body) {
+        Ok(d) => d,
+        Err(_) => return ("400 Bad Request", r#"{"error":"invalid json"}"#.to_string()),
+    };
+
+    let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    if name.is_empty() {
+        return ("400 Bad Request", r#"{"error":"name required"}"#.to_string());
+    }
+
+    // Try to auto-detect Walker UUID from the leaderboard by name
+    let explicit_uuid = data.get("walker_uuid").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let walker_uuid = if let Some(uuid) = explicit_uuid.filter(|s| !s.is_empty()) {
+        Some(uuid)
+    } else {
+        // Auto-lookup from Walker leaderboard
+        lookup_walker_uuid(&name).await
+    };
+
+    if walker_uuid.is_none() {
+        return ("403 Forbidden", r#"{"error":"Could not find your Walker account. Make sure your name matches your walker.akerud.se profile, or provide your Walker ID."}"#.to_string());
+    }
+    let walker_uuid = walker_uuid.unwrap();
+
+    // Find existing player or create new one
+    let (player_id, player_name) = {
+        let mut lock = state.lock().unwrap();
+
+        // Check by walker_uuid first
+        let existing = lock.values()
+            .find(|p| p.walker_uuid.as_deref() == Some(&walker_uuid))
+            .map(|p| (p.id.clone(), p.name.clone()));
+
+        if let Some((pid, pname)) = existing {
+            // Update name if changed
+            if let Some(p) = lock.get_mut(&pid) {
+                if !name.eq_ignore_ascii_case(&pname) {
+                    p.name = name.clone();
+                }
+            }
+            (pid, name)
+        } else {
+            // Also check by name (backward compat)
+            let by_name = lock.values()
+                .find(|p| p.name.eq_ignore_ascii_case(&name))
+                .map(|p| (p.id.clone(), p.name.clone()));
+
+            if let Some((pid, pname)) = by_name {
+                // Link walker_uuid to existing player
+                if let Some(p) = lock.get_mut(&pid) {
+                    p.walker_uuid = Some(walker_uuid.clone());
+                }
+                (pid, pname)
+            } else {
+                // Create new player
+                let player_id = uuid::Uuid::new_v4().to_string();
+                let start = world.pois.iter()
+                    .find(|p| matches!(p.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village))
+                    .map(|p| (p.x as i32, p.y as i32))
+                    .unwrap_or((50, 40));
+                lock.insert(player_id.clone(), DevPlayerState {
+                    id: player_id.clone(),
+                    name: name.clone(),
+                    map_tile_x: start.0,
+                    map_tile_y: start.1,
+                    walker_uuid: Some(walker_uuid.clone()),
+                    ..Default::default()
+                });
+                tracing::info!("New player joined: {} ({})", name, player_id);
+                (player_id, name)
+            }
+        }
+    };
+
+    // Spawn Walker bridge if not already running
+    crate::walker_bridge::ensure_bridge(state.clone(), bridged_players.clone(), &player_id, &walker_uuid);
+
+    ("200 OK", format!(r#"{{"player_id":"{}","name":"{}"}}"#, player_id, player_name))
 }
 
 fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat) -> (&'static str, String) {
@@ -631,42 +749,6 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             return ("200 OK", json);
         }
         return ("200 OK", "null".to_string());
-    }
-
-    // POST /join — create or find player by name, optionally link Walker
-    if first_line.starts_with("POST /join") {
-        if let Some(body_start) = request.find("\r\n\r\n") {
-            let body = &request[body_start + 4..];
-            if let Ok(data) = serde_json::from_str::<serde_json::Value>(body) {
-                let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let walker_uuid = data.get("walker_uuid").and_then(|v| v.as_str()).map(|s| s.to_string());
-                if name.is_empty() {
-                    return ("400 Bad Request", r#"{"error":"name required"}"#.to_string());
-                }
-                let mut lock = state.lock().unwrap();
-                // Find existing player by name (case-insensitive)
-                let existing = lock.values().find(|p| p.name.eq_ignore_ascii_case(&name)).map(|p| (p.id.clone(), p.name.clone()));
-                if let Some((pid, pname)) = existing {
-                    return ("200 OK", format!(r#"{{"player_id":"{}","name":"{}"}}"#, pid, pname));
-                }
-                // Create new player at the first town POI
-                let player_id = uuid::Uuid::new_v4().to_string();
-                let start = world.pois.iter()
-                    .find(|p| matches!(p.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village))
-                    .map(|p| (p.x as i32, p.y as i32))
-                    .unwrap_or((50, 40));
-                lock.insert(player_id.clone(), DevPlayerState {
-                    id: player_id.clone(),
-                    name: name.clone(),
-                    map_tile_x: start.0,
-                    map_tile_y: start.1,
-                    ..Default::default()
-                });
-                tracing::info!("New player joined: {} ({})", name, player_id);
-                return ("200 OK", format!(r#"{{"player_id":"{}","name":"{}"}}"#, player_id, name));
-            }
-        }
-        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
     }
 
     // GET /login?name=X — find player by name, return player_id (legacy)

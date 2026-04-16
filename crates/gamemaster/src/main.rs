@@ -113,26 +113,30 @@ async fn main() -> Result<()> {
     let tick_signal = devserver::new_tick_signal();
 
     // Start dev HTTP server
+    // Track which players have active Walker bridges
+    let bridged_players: walker_bridge::BridgedPlayers = Arc::new(Mutex::new(std::collections::HashSet::new()));
+
     let server_state = state.clone();
     let server_events = shared_events.clone();
     let server_notifs = shared_notifs.clone();
     let server_world = world.clone();
     let server_combat = shared_combat.clone();
     let server_tick_signal = tick_signal.clone();
+    let server_bridged = bridged_players.clone();
     tokio::spawn(async move {
-        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world, server_combat, server_tick_signal).await {
+        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world, server_combat, server_tick_signal, server_bridged).await {
             error!("Dev server error: {e}");
         }
     });
 
-    // Start Walker bridges for configured players
+    // Start Walker bridges for players configured in .env
     let walker_config = walker_bridge::build_config();
     if !walker_config.is_empty() {
-        info!("Starting Walker bridges for {} player(s)", walker_config.len());
+        info!("Starting Walker bridges for {} player(s) from .env", walker_config.len());
         for (pid, wid) in &walker_config {
             info!("  {} -> walker:{}", pid, wid);
+            walker_bridge::ensure_bridge(state.clone(), bridged_players.clone(), pid, wid);
         }
-        walker_bridge::spawn_bridges(state.clone(), std::sync::Arc::new(walker_config));
     }
 
     // Track per-player state
