@@ -633,12 +633,31 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", "null".to_string());
     }
 
+    // GET /login?name=X — find player by name, return player_id
+    if first_line.starts_with("GET /login") {
+        let name = first_line.split('?').nth(1)
+            .and_then(|qs| qs.split('&').find(|p| p.starts_with("name=")))
+            .and_then(|p| p.strip_prefix("name="))
+            .and_then(|v| v.split_whitespace().next())
+            .map(|s| urlencoding(s))
+            .unwrap_or_default();
+        let lock = state.lock().unwrap();
+        if let Some(player) = lock.values().find(|p| p.name.eq_ignore_ascii_case(&name)) {
+            return ("200 OK", format!(r#"{{"player_id":"{}","name":"{}"}}"#, player.id, player.name));
+        }
+        return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+    }
+
     // POST /heartbeat — mark player browser as open (no-op for dev)
     if first_line.starts_with("POST /heartbeat") {
         return ("200 OK", r#"{"ok":true}"#.to_string());
     }
 
     ("404 Not Found", r#"{"error":"not found"}"#.to_string())
+}
+
+fn urlencoding(s: &str) -> String {
+    s.replace("%20", " ").replace("+", " ")
 }
 
 fn sell_price(item_id: &str) -> i32 {

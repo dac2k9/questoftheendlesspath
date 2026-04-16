@@ -7,10 +7,11 @@ pub struct TitlePlugin;
 
 impl Plugin for TitlePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (setup_font, spawn_title).chain())
+        app.insert_resource(PendingLogin::default())
+            .add_systems(Startup, (setup_font, spawn_title).chain())
             .add_systems(
                 Update,
-                (handle_input, handle_start_click)
+                (handle_input, handle_start_click, check_login_result)
                     .run_if(in_state(AppState::Title)),
             )
             .add_systems(OnExit(AppState::Title), cleanup_title);
@@ -126,6 +127,7 @@ fn handle_input(
     mut username_q: Query<&mut Text, With<UsernameText>>,
     mut session: ResMut<GameSession>,
     mut next_state: ResMut<NextState<AppState>>,
+    mut pending: ResMut<PendingLogin>,
 ) {
     // Backspace
     if keys.just_pressed(KeyCode::Backspace) {
@@ -133,8 +135,8 @@ fn handle_input(
     }
 
     // Enter — start game
-    if keys.just_pressed(KeyCode::Enter) && !form.username.is_empty() {
-        start_game(&form, &mut session, &mut next_state);
+    if keys.just_pressed(KeyCode::Enter) && !form.username.is_empty() && !pending.waiting {
+        start_game(&form, &mut session, &mut next_state, &mut pending);
         return;
     }
 
@@ -180,25 +182,75 @@ fn handle_start_click(
     btn_q: Query<&Interaction, With<StartButton>>,
     mut session: ResMut<GameSession>,
     mut next_state: ResMut<NextState<AppState>>,
+    mut pending: ResMut<PendingLogin>,
 ) {
-    if !mouse.just_pressed(MouseButton::Left) { return; }
+    if !mouse.just_pressed(MouseButton::Left) || pending.waiting { return; }
     for interaction in &btn_q {
         if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
             if !form.username.is_empty() {
-                start_game(&form, &mut session, &mut next_state);
+                start_game(&form, &mut session, &mut next_state, &mut pending);
             }
         }
     }
+}
+
+fn check_login_result(
+    mut pending: ResMut<PendingLogin>,
+    mut session: ResMut<GameSession>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    if !pending.waiting { return; }
+    let result = {
+        let Ok(mut lock) = pending.result.lock() else { return };
+        lock.take()
+    };
+    if let Some((player_id, name)) = result {
+        pending.waiting = false;
+        session.player_id = player_id;
+        session.player_name = name;
+        next_state.set(AppState::InGame);
+    }
+}
+
+/// Holds async login result.
+#[derive(Resource, Default)]
+struct PendingLogin {
+    result: std::sync::Arc<std::sync::Mutex<Option<(String, String)>>>, // (player_id, name)
+    waiting: bool,
 }
 
 fn start_game(
     form: &TitleForm,
     session: &mut GameSession,
     next_state: &mut NextState<AppState>,
+    pending: &mut PendingLogin,
 ) {
-    session.player_name = form.username.clone();
-    session.player_id = "a0000000-0000-0000-0000-000000000001".to_string();
-    next_state.set(AppState::InGame);
+    // Start async login lookup
+    let name = form.username.clone();
+    let result_ref = pending.result.clone();
+    pending.waiting = true;
+
+    wasm_bindgen_futures::spawn_local(async move {
+        let client = reqwest::Client::new();
+        let url = format!("http://localhost:3001/login?name={}", name);
+        if let Ok(resp) = client.get(&url).send().await {
+            if let Ok(text) = resp.text().await {
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if let Some(pid) = data.get("player_id").and_then(|v| v.as_str()) {
+                        let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
+                        if let Ok(mut lock) = result_ref.lock() {
+                            *lock = Some((pid.to_string(), pname.to_string()));
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        // Fallback — use hardcoded ID for backward compat
+        if let Ok(mut lock) = result_ref.lock() {
+            *lock = Some(("a0000000-0000-0000-0000-000000000001".to_string(), name));
+        }
+    });
 }
 
 fn cleanup_title(mut commands: Commands, query: Query<Entity, With<TitleScreen>>) {
