@@ -508,32 +508,60 @@ fn show_item_tooltip(
     mut commands: Commands,
     font: Res<GameFont>,
     catalog: Res<ItemCatalogRes>,
-    item_q: Query<(&Interaction, &InventoryItemRow, &GlobalTransform)>,
+    item_q: Query<(&Interaction, &InventoryItemRow)>,
     tooltip_q: Query<Entity, With<ItemTooltip>>,
+    windows: Query<&Window>,
 ) {
     // Find hovered item
-    let hovered = item_q.iter().find(|(i, _, _)| **i == Interaction::Hovered);
+    let hovered = item_q.iter().find(|(i, _)| **i == Interaction::Hovered);
 
     // Remove old tooltip
     for entity in &tooltip_q {
         commands.entity(entity).despawn_recursive();
     }
 
-    let Some((_, row, gtf)) = hovered else { return };
+    let Some((_, row)) = hovered else { return };
     let Some(def) = catalog.0.get(&row.0) else { return };
 
-    let pos = gtf.translation();
+    // Use cursor position for tooltip placement
+    let (cx, cy) = windows.get_single().ok()
+        .and_then(|w| w.cursor_position())
+        .map(|p| (p.x, p.y))
+        .unwrap_or((100.0, 100.0));
+
     let category = match def.category {
         questlib::items::ItemCategory::Consumable => "Consumable",
         questlib::items::ItemCategory::Equipment => "Equipment",
         questlib::items::ItemCategory::KeyItem => "Key Item",
     };
 
+    // Show effects in tooltip
+    let mut effect_lines = Vec::new();
+    for effect in &def.effects {
+        match effect {
+            questlib::items::ItemEffect::StatBonus { stat, amount } => {
+                let sign = if *amount > 0 { "+" } else { "" };
+                let stat_name = match stat {
+                    questlib::items::StatType::Attack => "ATK",
+                    questlib::items::StatType::Defense => "DEF",
+                    questlib::items::StatType::MaxHp => "HP",
+                };
+                effect_lines.push(format!("{}{} {}", sign, amount, stat_name));
+            }
+            questlib::items::ItemEffect::Heal { amount } => {
+                effect_lines.push(format!("Heals {} HP", amount));
+            }
+            questlib::items::ItemEffect::RevealFog { radius } => {
+                effect_lines.push(format!("Reveals fog (radius {})", radius));
+            }
+        }
+    }
+
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(pos.y + 20.0),
-            left: Val::Px((pos.x - 100.0).max(10.0)),
+            top: Val::Px(cy + 15.0),
+            left: Val::Px((cx - 140.0).max(10.0)),
             width: Val::Px(280.0),
             padding: UiRect::all(Val::Px(10.0)),
             border: UiRect::all(Val::Px(1.0)),
@@ -566,6 +594,14 @@ fn show_item_tooltip(
             TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
             TextColor(Color::srgb(0.85, 0.85, 0.85)),
         ));
+        // Effects
+        if !effect_lines.is_empty() {
+            parent.spawn((
+                Text::new(effect_lines.join("  ")),
+                TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
+                TextColor(Color::srgb(0.4, 0.9, 0.4)),
+            ));
+        }
     });
 }
 
