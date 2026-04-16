@@ -23,7 +23,7 @@ RUN wasm-bindgen crates/gameclient/target/wasm32-unknown-unknown/release/gamecli
     --out-dir /app/web --target web --no-typescript
 
 # Stage 3: Runtime
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
