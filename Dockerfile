@@ -1,5 +1,5 @@
 # Stage 1: Build Game Master (server)
-FROM rust:1.83-slim AS server-build
+FROM rust:1.85-slim AS server-build
 WORKDIR /app
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
@@ -10,7 +10,7 @@ COPY adventures adventures
 RUN cargo build --release -p gamemaster
 
 # Stage 2: Build WASM client
-FROM rust:1.83-slim AS wasm-build
+FROM rust:1.85-slim AS wasm-build
 WORKDIR /app
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install wasm-bindgen-cli --version 0.2.100
