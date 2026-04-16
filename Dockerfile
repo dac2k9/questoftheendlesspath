@@ -14,8 +14,12 @@ FROM rust:slim AS wasm-build
 WORKDIR /app
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install wasm-bindgen-cli --version 0.2.114
-COPY crates/gameclient crates/gameclient
+# Need workspace root for questlib's workspace dependencies
+COPY Cargo.toml Cargo.lock ./
 COPY crates/questlib crates/questlib
+COPY crates/gamemaster crates/gamemaster
+COPY crates/walker crates/walker
+COPY crates/gameclient crates/gameclient
 COPY adventures adventures
 RUN cd crates/gameclient && cargo build --release --target wasm32-unknown-unknown
 RUN wasm-bindgen crates/gameclient/target/wasm32-unknown-unknown/release/gameclient.wasm \
