@@ -46,6 +46,9 @@ pub struct DevPlayerState {
     pub defeated_monsters: Vec<String>,
     #[serde(default)]
     pub walker_uuid: Option<String>,
+    /// Events this player has personally completed (for per-player quest triggers).
+    #[serde(default)]
+    pub completed_events: Vec<String>,
     /// Previous tile before entering current tile (for retreat).
     #[serde(default)]
     pub prev_tile: Option<(i32, i32)>,
@@ -709,6 +712,12 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                             state_lock.values_mut().next()
                         };
                         if let Some(player) = player {
+                            // Mark event as personally completed for this player
+                            if let Some(ref pid) = body_player_id {
+                                if !player.completed_events.contains(&event_id.to_string()) {
+                                    player.completed_events.push(event_id.to_string());
+                                }
+                            }
                             for outcome in &outcomes {
                                 match outcome {
                                     questlib::events::EventOutcome::Gold { amount } => {

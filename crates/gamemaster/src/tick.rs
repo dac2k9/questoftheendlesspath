@@ -301,20 +301,28 @@ pub fn run_tick_dev(
             rng_roll,
         };
 
-        let triggered_ids: Vec<String> = events_lock
-            .check_triggers(&ctx)
-            .iter()
+        // Check triggers against ALL events (not just Pending), but skip
+        // events this player has already completed personally.
+        let triggered_ids: Vec<String> = events_lock.events.iter()
+            .filter(|e| {
+                // Skip if this player already completed it
+                if player.completed_events.contains(&e.id) { return false; }
+                // Skip repeatable (shops etc — handled by client)
+                if e.repeatable { return false; }
+                // Must be Pending or Completed-by-another-player
+                if e.status != EventStatus::Pending && e.status != EventStatus::Completed {
+                    return false;
+                }
+                e.trigger.evaluate(&ctx)
+            })
             .map(|e| e.id.clone())
             .collect();
 
         for event_id in &triggered_ids {
             let event = events_lock.get_mut(event_id).unwrap();
-            // Repeatable events (shops, wells, etc.) are permanent POI features.
-            // They're not triggered as blocking events — the client handles them.
-            if event.repeatable {
-                continue;
-            }
-            if event.transition(EventStatus::Active).is_ok() {
+            // Force to Active for this player's trigger
+            event.force_status(EventStatus::Active);
+            {
                 info!("[{}] Event triggered: {} ({})", player.name, event.name, event.id);
 
                 // Start combat for Boss/RandomEncounter events
@@ -379,11 +387,12 @@ pub fn run_tick_dev(
                         let fog = player_fogs.get_mut(player_id).unwrap();
                         let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
                         if let Some(p) = lock.get_mut(player_id) {
+                            p.completed_events.push(event_id.clone());
                             for outcome in &event.outcomes {
                                 apply_outcome(outcome, p, fog);
                                 if let EventOutcome::Notification { text } = outcome {
                                     if let Ok(mut notifs) = shared_notifs.lock() {
-                                        notifs.entry(pid.clone()).or_default().push(text.clone());
+                                        notifs.entry(player_id.clone()).or_default().push(text.clone());
                                     }
                                 }
                             }
@@ -455,6 +464,7 @@ pub fn run_tick_dev(
                 let participants = if !coop_pids.is_empty() { coop_pids.clone() } else { fighter_pid.clone().into_iter().collect() };
                 for pid in &participants {
                     if let (Some(p), Some(fog)) = (lock.get_mut(pid), player_fogs.get_mut(pid)) {
+                        p.completed_events.push(victory_event_id.clone());
                         for outcome in &event.outcomes {
                             apply_outcome(outcome, p, fog);
                         }
