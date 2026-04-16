@@ -152,6 +152,25 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                 // Include tick generation so client can send it back
                 let body = format!(r#"{{"tick":{},"players":{}}}"#, gen, json);
                 ("200 OK", body)
+            } else if first_line.starts_with("GET /leaderboard") {
+                // Proxy Walker leaderboard to avoid CORS
+                match reqwest::Client::new()
+                    .get("https://walker.akerud.se/api/leaderboard")
+                    .timeout(std::time::Duration::from_secs(10))
+                    .send().await
+                {
+                    Ok(resp) => {
+                        if let Ok(text) = resp.text().await {
+                            ("200 OK", text)
+                        } else {
+                            ("502 Bad Gateway", r#"{"error":"failed to read leaderboard"}"#.to_string())
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("[leaderboard proxy] Failed: {}", e);
+                        ("502 Bad Gateway", format!(r#"{{"error":"{}"}}"#, e))
+                    }
+                }
             } else if first_line.starts_with("POST /join") {
                 // Handle join asynchronously (needs Walker API lookup)
                 handle_join(&request, &state, &world, &bridged_players).await

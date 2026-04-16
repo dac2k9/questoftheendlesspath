@@ -150,7 +150,8 @@ fn fetch_walker_players(
         let fetched = walkers.fetched.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
-            match client.get("https://walker.akerud.se/api/leaderboard")
+            let url = crate::api_url("/leaderboard");
+            match client.get(&url)
                 .timeout(std::time::Duration::from_secs(10))
                 .send().await
             {
