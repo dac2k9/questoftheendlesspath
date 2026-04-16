@@ -12,7 +12,7 @@ RUN cargo build --release -p gamemaster
 FROM rust:slim AS wasm-build
 WORKDIR /app
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install wasm-bindgen-cli --version 0.2.114
+RUN cargo install wasm-bindgen-cli --version 0.2.118
 COPY Cargo.toml Cargo.lock ./
 COPY crates/questlib crates/questlib
 COPY crates/gamemaster crates/gamemaster

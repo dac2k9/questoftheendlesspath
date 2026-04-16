@@ -3,7 +3,7 @@ target/
 
 # WASM build output
 crates/gameclient/web/
-crates/gameclient/Cargo.lock
+# crates/gameclient/Cargo.lock — committed for CI reproducibility
 
 # Node
 game/node_modules/
