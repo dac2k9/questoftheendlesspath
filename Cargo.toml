@@ -1,20 +1,17 @@
 [workspace]
-members = ["crates/*"]
+members = ["crates/questlib", "crates/gamemaster"]
 resolver = "2"
-# gameclient is WASM-only — exclude from default workspace builds
-exclude = ["crates/gameclient"]
+exclude = ["crates/gameclient", "crates/walker"]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml = "0.9"
 uuid = { version = "1", features = ["v4", "serde"] }
 dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-btleplug = "0.11"
 anyhow = "1"
 
 [profile.wasm-release]

@@ -5,7 +5,6 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 COPY Cargo.toml Cargo.lock ./
 COPY crates/questlib crates/questlib
 COPY crates/gamemaster crates/gamemaster
-COPY crates/walker crates/walker
 COPY adventures adventures
 RUN cargo build --release -p gamemaster
 
@@ -14,11 +13,9 @@ FROM rust:slim AS wasm-build
 WORKDIR /app
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install wasm-bindgen-cli --version 0.2.114
-# Need workspace root for questlib's workspace dependencies
 COPY Cargo.toml Cargo.lock ./
 COPY crates/questlib crates/questlib
 COPY crates/gamemaster crates/gamemaster
-COPY crates/walker crates/walker
 COPY crates/gameclient crates/gameclient
 COPY adventures adventures
 RUN cd crates/gameclient && cargo build --release --target wasm32-unknown-unknown
@@ -33,17 +30,14 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 # Copy server binary
 COPY --from=server-build /app/target/release/gamemaster /app/gamemaster
 
-# Copy WASM client
+# Copy WASM client + favicon
 COPY --from=wasm-build /app/web /app/crates/gameclient/web
 COPY --from=wasm-build /app/crates/gameclient/index.html /app/crates/gameclient/index.html
+COPY --from=wasm-build /app/crates/gameclient/favicon.png /app/crates/gameclient/favicon.png
 COPY --from=wasm-build /app/crates/gameclient/assets /app/crates/gameclient/assets
 
 # Copy adventure data
 COPY adventures /app/adventures
-
-# The game master serves both the HTTP API (:3001) and could serve static files
-# For now, we'll need a simple static file server for the client
-# Render can serve the client as a static site separately
 
 ENV MAP_SEED=12345
 ENV EVENTS_PATH=adventures/seed12345_events.json
