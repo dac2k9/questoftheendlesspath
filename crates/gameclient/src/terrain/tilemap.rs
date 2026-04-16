@@ -938,20 +938,35 @@ fn update_other_players(
         .collect();
 
     for other in &others {
-        let target_pos = WorldGrid::tile_to_world(
+        // Use route interpolation if the other player has a route
+        let tile_pos = WorldGrid::tile_to_world(
             other.map_tile_x.unwrap_or(0) as usize,
             other.map_tile_y.unwrap_or(0) as usize,
         );
+        let target_pos = if let Some(ref route_json) = other.planned_route {
+            if !route_json.is_empty() {
+                if let Some(route) = questlib::route::parse_route_json(route_json) {
+                    let meters = other.interp_meters_target.unwrap_or(
+                        other.route_meters_walked.unwrap_or(0.0)
+                    );
+                    position_from_route_meters(&route, meters, &world)
+                        .unwrap_or(tile_pos)
+                } else { tile_pos }
+            } else { tile_pos }
+        } else { tile_pos };
 
         // Find existing sprite for this player
         let found = existing.iter_mut().find(|(_, ops, _, _, _)| ops.0 == other.id);
 
         if let Some((_, _, mut tf, mut sprite, mut anim)) = found {
-            // Smooth position lerp
+            // Smooth interpolation toward target
             let dt = time.delta_secs();
-            let lerp = 1.0 - (-6.0_f32 * dt).exp();
+            let lerp = 1.0 - (-4.0_f32 * dt).exp();
             tf.translation.x += (target_pos.x - tf.translation.x) * lerp;
             tf.translation.y += (target_pos.y - tf.translation.y) * lerp;
+            // Snap to whole pixels
+            tf.translation.x = tf.translation.x.round();
+            tf.translation.y = tf.translation.y.round();
 
             // Animation
             let is_walking = other.is_walking && other.current_speed_kmh > 0.1;
