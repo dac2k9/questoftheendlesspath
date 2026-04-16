@@ -326,10 +326,33 @@ pub fn run_tick_dev(
                 info!("[{}] Event triggered: {} ({})", player.name, event.name, event.id);
 
                 // Start combat for Boss/RandomEncounter events
-                if matches!(event.kind, questlib::events::kind::EventKind::Boss { .. }
-                    | questlib::events::kind::EventKind::RandomEncounter { .. })
-                {
+                let is_combat = matches!(event.kind, questlib::events::kind::EventKind::Boss { .. }
+                    | questlib::events::kind::EventKind::RandomEncounter { .. });
+                let difficulty = match &event.kind {
+                    questlib::events::kind::EventKind::RandomEncounter { difficulty, .. } => *difficulty,
+                    questlib::events::kind::EventKind::Boss { .. } => 8,
+                    _ => 3,
+                };
+                let is_boss = difficulty >= 6;
+
+                if is_combat {
                     if !player.planned_route.is_empty() {
+                        // For bosses: wait until ALL online players are at the same POI
+                        let poi_pos = (player.map_tile_x, player.map_tile_y);
+                        let online_players: Vec<&DevPlayerState> = players.iter().collect();
+                        let all_here: Vec<String> = online_players.iter()
+                            .filter(|p| p.map_tile_x == poi_pos.0 && p.map_tile_y == poi_pos.1)
+                            .map(|p| p.id.clone())
+                            .collect();
+
+                        if is_boss && all_here.len() < online_players.len() {
+                            // Not everyone here yet — keep event Active, waiting
+                            info!("  Boss fight waiting: {}/{} players at ({},{})",
+                                all_here.len(), online_players.len(), poi_pos.0, poi_pos.1);
+                            event.force_status(EventStatus::Pending);
+                            continue;
+                        }
+
                         let catalog = questlib::items::ItemCatalog::from_json(
                             include_str!("../../../adventures/items.json")
                         ).unwrap_or_default();
@@ -342,9 +365,17 @@ pub fn run_tick_dev(
                             eq_bonus,
                             player_id,
                         );
+                        // For coop bosses, add all present players to the combat
+                        if is_boss {
+                            if let Ok(mut combat_lock) = shared_combat.lock() {
+                                if let Some(cs) = combat_lock.get_mut(&event.id) {
+                                    cs.coop_players = all_here.clone();
+                                    info!("  Coop boss fight started: {} players", all_here.len());
+                                }
+                            }
+                        }
                         info!("  Combat started: {}", event.name);
                     } else {
-                        // No route — can't fight, dismiss so it doesn't block forever
                         event.force_status(EventStatus::Dismissed);
                         info!("  Combat dismissed (no route): {}", event.name);
                     }
@@ -380,10 +411,14 @@ pub fn run_tick_dev(
     for victory_event_id in &victories {
         info!("Combat victory: {}", victory_event_id);
 
-        // Get the player_id from the combat state before removing
-        let fighter_pid = {
+        // Get the player_id(s) from the combat state before removing
+        let (fighter_pid, coop_pids) = {
             let lock = shared_combat.lock().unwrap();
-            lock.get(victory_event_id).map(|c| c.player_id.clone())
+            let c = lock.get(victory_event_id);
+            (
+                c.map(|c| c.player_id.clone()),
+                c.map(|c| c.coop_players.clone()).unwrap_or_default(),
+            )
         };
 
         if victory_event_id.starts_with("monster_") {
@@ -422,18 +457,22 @@ pub fn run_tick_dev(
                 }
             }
         } else if let Some(event) = events_lock.get_mut(victory_event_id) {
-            // Quest event victory
+            // Quest event victory — apply outcomes to ALL coop participants
             if event.transition(EventStatus::Completed).is_ok() {
                 let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-                if let Some(pid) = fighter_pid.clone() {
-                    if let (Some(p), Some(fog)) = (lock.get_mut(&pid), player_fogs.get_mut(&pid)) {
+                let participants = if !coop_pids.is_empty() { coop_pids.clone() } else { fighter_pid.clone().into_iter().collect() };
+                for pid in &participants {
+                    if let (Some(p), Some(fog)) = (lock.get_mut(pid), player_fogs.get_mut(pid)) {
                         for outcome in &event.outcomes {
                             apply_outcome(outcome, p, fog);
-                            if let EventOutcome::Notification { text } = outcome {
-                                if let Ok(mut notifs) = shared_notifs.lock() {
-                                    notifs.push(text.clone());
-                                }
-                            }
+                        }
+                    }
+                }
+                // Notifications only once (shared)
+                for outcome in &event.outcomes {
+                    if let EventOutcome::Notification { text } = outcome {
+                        if let Ok(mut notifs) = shared_notifs.lock() {
+                            notifs.push(text.clone());
                         }
                     }
                 }

@@ -36,10 +36,23 @@ pub fn tick_all(
     let mut retreats = Vec::new();
 
     for (event_id, state) in lock.iter_mut() {
-        let (speed, incline) = player_speeds.iter()
-            .find(|(pid, _, _)| pid == &state.player_id)
-            .map(|(_, s, i)| (*s, *i))
-            .unwrap_or((0.0, 0.0));
+        // Combine walking speeds from all coop players (sum for faster fights)
+        let (speed, incline) = if state.coop_players.len() > 1 {
+            let total_speed: f32 = state.coop_players.iter()
+                .filter_map(|pid| player_speeds.iter().find(|(id, _, _)| id == pid))
+                .map(|(_, s, _)| *s)
+                .sum();
+            let max_incline: f32 = state.coop_players.iter()
+                .filter_map(|pid| player_speeds.iter().find(|(id, _, _)| id == pid))
+                .map(|(_, _, i)| *i)
+                .fold(0.0_f32, f32::max);
+            (total_speed, max_incline)
+        } else {
+            player_speeds.iter()
+                .find(|(pid, _, _)| pid == &state.player_id)
+                .map(|(_, s, i)| (*s, *i))
+                .unwrap_or((0.0, 0.0))
+        };
         combat::tick_combat(state, speed, incline, delta_secs);
         match state.status {
             combat::CombatStatus::Victory => victories.push(event_id.clone()),
@@ -51,16 +64,18 @@ pub fn tick_all(
     (victories, retreats)
 }
 
-/// Get the active combat for a specific player, if any.
+/// Get the active combat for a specific player (solo or coop), if any.
 pub fn get_combat_for_player(shared: &SharedCombat, player_id: &str) -> Option<CombatState> {
     let lock = shared.lock().unwrap();
-    lock.values().find(|c| c.player_id == player_id).cloned()
+    lock.values()
+        .find(|c| c.player_id == player_id || c.coop_players.iter().any(|p| p == player_id))
+        .cloned()
 }
 
-/// Check if this player is currently in combat.
+/// Check if this player is currently in any combat (solo or coop).
 pub fn player_in_combat(shared: &SharedCombat, player_id: &str) -> bool {
     let lock = shared.lock().unwrap();
-    lock.values().any(|c| c.player_id == player_id)
+    lock.values().any(|c| c.player_id == player_id || c.coop_players.iter().any(|p| p == player_id))
 }
 
 /// Player runs away from combat.

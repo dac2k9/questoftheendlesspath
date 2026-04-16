@@ -38,6 +38,10 @@ pub struct CombatState {
     /// Which player is fighting this combat.
     #[serde(default)]
     pub player_id: String,
+    /// For co-op boss fights: additional players fighting alongside.
+    /// Empty for solo fights. The primary `player_id` is always included here too.
+    #[serde(default)]
+    pub coop_players: Vec<String>,
     pub status: CombatStatus,
     /// Encounter description shown at combat start.
     #[serde(default)]
@@ -220,6 +224,7 @@ pub fn init_combat(event_id: &str, kind: &EventKind, total_distance_m: u64, equi
     CombatState {
         event_id: event_id.to_string(),
         player_id: player_id.to_string(),
+        coop_players: vec![player_id.to_string()],
         status: CombatStatus::Fighting,
         description: desc,
         player_hp: stats.max_hp + eq_hp,
