@@ -98,9 +98,28 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
         let bridged_players = bridged_players.clone();
 
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 16384];
-            let n = stream.read(&mut buf).await.unwrap_or(0);
-            let request = String::from_utf8_lossy(&buf[..n]);
+            // Read headers + body (may arrive in separate TCP packets)
+            let mut buf = vec![0u8; 32768];
+            let mut total = 0;
+            loop {
+                let n = stream.read(&mut buf[total..]).await.unwrap_or(0);
+                if n == 0 { break; }
+                total += n;
+                // Check if we have the full request (headers + body)
+                let s = String::from_utf8_lossy(&buf[..total]);
+                if let Some(header_end) = s.find("\r\n\r\n") {
+                    // Parse Content-Length to know if body is complete
+                    let content_len: usize = s[..header_end].lines()
+                        .find(|l| l.to_lowercase().starts_with("content-length:"))
+                        .and_then(|l| l.split(':').nth(1))
+                        .and_then(|v| v.trim().parse().ok())
+                        .unwrap_or(0);
+                    let body_start = header_end + 4;
+                    if total >= body_start + content_len { break; }
+                }
+                if total >= buf.len() { break; }
+            }
+            let request = String::from_utf8_lossy(&buf[..total]);
             let first_line = request.lines().next().unwrap_or("");
 
             // Long-poll: GET /players/poll?after=N waits until tick generation > N
