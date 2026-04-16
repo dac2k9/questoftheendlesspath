@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use bevy::prelude::*;
 
 use crate::states::AppState;
@@ -8,40 +10,56 @@ pub struct TitlePlugin;
 impl Plugin for TitlePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PendingLogin::default())
+            .insert_resource(WalkerPlayers::default())
             .add_systems(Startup, (setup_font, spawn_title).chain())
             .add_systems(
                 Update,
-                (handle_input, handle_start_click, check_login_result)
+                (fetch_walker_players, handle_player_click, check_login_result)
                     .run_if(in_state(AppState::Title)),
             )
             .add_systems(OnExit(AppState::Title), cleanup_title);
     }
 }
 
-#[derive(Resource)]
-struct TitleForm {
-    walker_uuid: String,
-    display_name: String,
-    active_field: u8, // 0 = name, 1 = uuid
+// ── Resources ───────────────────────────────────────
+
+#[derive(Resource, Default)]
+struct PendingLogin {
+    result: Arc<Mutex<Option<(String, String)>>>,
+    waiting: bool,
 }
 
-impl Default for TitleForm {
-    fn default() -> Self {
-        Self { walker_uuid: String::new(), display_name: String::new(), active_field: 0 }
-    }
+#[derive(Clone)]
+struct WalkerPlayer {
+    id: String,
+    name: String,
+    status: String,
+    speed: f32,
 }
+
+#[derive(Resource, Default)]
+struct WalkerPlayers {
+    fetched: Arc<Mutex<Option<Vec<WalkerPlayer>>>>,
+    players: Vec<WalkerPlayer>,
+    loaded: bool,
+    fetch_started: bool,
+}
+
+// ── Components ──────────────────────────────────────
 
 #[derive(Component)]
 struct TitleScreen;
 
 #[derive(Component)]
-struct NameText;
+struct PlayerListContainer;
 
 #[derive(Component)]
-struct UuidText;
+struct PlayerButton(String, String); // (walker_id, name)
 
 #[derive(Component)]
-struct StartButton;
+struct StatusText;
+
+// ── Setup ───────────────────────────────────────────
 
 fn setup_font(mut commands: Commands, mut fonts: ResMut<Assets<Font>>) {
     commands.spawn(Camera2d);
@@ -53,10 +71,8 @@ fn setup_font(mut commands: Commands, mut fonts: ResMut<Assets<Font>>) {
 fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
     let f = font.0.clone();
 
-    commands.insert_resource(TitleForm::default());
     commands.insert_resource(GameSession::default());
 
-    // Dark background
     commands.spawn((
         Node {
             width: Val::Percent(100.0),
@@ -64,13 +80,13 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
             flex_direction: FlexDirection::Column,
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
-            row_gap: Val::Px(20.0),
+            row_gap: Val::Px(16.0),
             ..default()
         },
         BackgroundColor(Color::srgb(0.06, 0.06, 0.12)),
         TitleScreen,
     )).with_children(|parent| {
-        // Game title
+        // Title
         parent.spawn((
             Text::new("Quest of the"),
             TextFont { font: f.clone(), font_size: 14.0, ..default() },
@@ -83,124 +99,212 @@ fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
             Node { margin: UiRect::bottom(Val::Px(30.0)), ..default() },
         ));
 
-        // Name field
+        // "Select your walker" label
         parent.spawn((
-            Text::new("Your name:"),
-            TextFont { font: f.clone(), font_size: 10.0, ..default() },
+            Text::new("Select your Walker profile:"),
+            TextFont { font: f.clone(), font_size: 9.0, ..default() },
             TextColor(Color::srgb(0.6, 0.6, 0.6)),
         ));
-        parent.spawn((
-            Text::new("> _"),
-            TextFont { font: f.clone(), font_size: 12.0, ..default() },
-            TextColor(Color::srgb(0.77, 0.64, 0.35)),
-            NameText,
-            Node { margin: UiRect::bottom(Val::Px(12.0)), ..default() },
-        ));
 
-        // Hint about Walker
+        // Player list container (populated by fetch_walker_players)
         parent.spawn((
-            Text::new("Use your walker.akerud.se name to link treadmill"),
-            TextFont { font: f.clone(), font_size: 7.0, ..default() },
-            TextColor(Color::srgb(0.4, 0.4, 0.4)),
-            Node { margin: UiRect::bottom(Val::Px(20.0)), ..default() },
-        ));
-
-        // Start button
-        parent.spawn((
-            Button,
             Node {
-                padding: UiRect::axes(Val::Px(24.0), Val::Px(12.0)),
-                border: UiRect::all(Val::Px(2.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(8.0),
+                align_items: AlignItems::Center,
+                min_height: Val::Px(60.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.15, 0.12, 0.05, 0.9)),
-            BorderColor(Color::srgb(0.6, 0.5, 0.2)),
-            BorderRadius::all(Val::Px(6.0)),
-            StartButton,
-            TitleScreen,
-        )).with_children(|btn| {
-            btn.spawn((
-                Text::new("Start Journey"),
-                TextFont { font: f.clone(), font_size: 12.0, ..default() },
-                TextColor(Color::srgb(1.0, 0.85, 0.3)),
+            PlayerListContainer,
+        )).with_children(|list| {
+            list.spawn((
+                Text::new("Loading walkers..."),
+                TextFont { font: f.clone(), font_size: 8.0, ..default() },
+                TextColor(Color::srgb(0.4, 0.4, 0.4)),
+                StatusText,
             ));
         });
 
-        // Hint
+        // Footer hint
         parent.spawn((
-            Text::new("Press ENTER or click Start"),
+            Text::new("Walk on your treadmill to play"),
             TextFont { font: f.clone(), font_size: 7.0, ..default() },
-            TextColor(Color::srgb(0.35, 0.35, 0.35)),
-            Node { margin: UiRect::top(Val::Px(20.0)), ..default() },
+            TextColor(Color::srgb(0.3, 0.3, 0.3)),
+            Node { margin: UiRect::top(Val::Px(30.0)), ..default() },
         ));
     });
 }
 
-fn handle_input(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut form: ResMut<TitleForm>,
-    mut name_q: Query<&mut Text, With<NameText>>,
-    mut session: ResMut<GameSession>,
-    mut next_state: ResMut<NextState<AppState>>,
-    mut pending: ResMut<PendingLogin>,
+// ── Fetch Walker Leaderboard ────────────────────────
+
+fn fetch_walker_players(
+    mut commands: Commands,
+    font: Res<GameFont>,
+    mut walkers: ResMut<WalkerPlayers>,
+    container_q: Query<Entity, With<PlayerListContainer>>,
+    pending: Res<PendingLogin>,
 ) {
-    if keys.just_pressed(KeyCode::Backspace) {
-        form.display_name.pop();
+    // Start fetch on first frame
+    if !walkers.fetch_started {
+        walkers.fetch_started = true;
+        let fetched = walkers.fetched.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = reqwest::Client::new();
+            match client.get("https://walker.akerud.se/api/leaderboard")
+                .timeout(std::time::Duration::from_secs(10))
+                .send().await
+            {
+                Ok(resp) => {
+                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                        let mut players = Vec::new();
+                        let mut seen = std::collections::HashSet::new();
+                        for period in ["today", "weekly", "all_time"] {
+                            if let Some(entries) = data.get(period).and_then(|v| v.as_array()) {
+                                for entry in entries {
+                                    let id = entry.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                    if seen.contains(&id) { continue; }
+                                    seen.insert(id.clone());
+                                    players.push(WalkerPlayer {
+                                        id,
+                                        name: entry.get("name").and_then(|v| v.as_str()).unwrap_or("?").to_string(),
+                                        status: entry.get("status").and_then(|v| v.as_str()).unwrap_or("offline").to_string(),
+                                        speed: entry.get("speed_kmh").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                                    });
+                                }
+                            }
+                        }
+                        if let Ok(mut lock) = fetched.lock() {
+                            *lock = Some(players);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("[title] Failed to fetch Walker leaderboard: {}", e);
+                }
+            }
+        });
     }
 
-    if keys.just_pressed(KeyCode::Enter) && !form.display_name.is_empty() && !pending.waiting {
-        start_game(&form, &mut session, &mut next_state, &mut pending);
-        return;
-    }
+    // Check for fetched results
+    let new_players = {
+        let Ok(mut lock) = walkers.fetched.lock() else { return };
+        lock.take()
+    };
 
-    let letter_keys = [
-        (KeyCode::KeyA, 'A'), (KeyCode::KeyB, 'B'), (KeyCode::KeyC, 'C'),
-        (KeyCode::KeyD, 'D'), (KeyCode::KeyE, 'E'), (KeyCode::KeyF, 'F'),
-        (KeyCode::KeyG, 'G'), (KeyCode::KeyH, 'H'), (KeyCode::KeyI, 'I'),
-        (KeyCode::KeyJ, 'J'), (KeyCode::KeyK, 'K'), (KeyCode::KeyL, 'L'),
-        (KeyCode::KeyM, 'M'), (KeyCode::KeyN, 'N'), (KeyCode::KeyO, 'O'),
-        (KeyCode::KeyP, 'P'), (KeyCode::KeyQ, 'Q'), (KeyCode::KeyR, 'R'),
-        (KeyCode::KeyS, 'S'), (KeyCode::KeyT, 'T'), (KeyCode::KeyU, 'U'),
-        (KeyCode::KeyV, 'V'), (KeyCode::KeyW, 'W'), (KeyCode::KeyX, 'X'),
-        (KeyCode::KeyY, 'Y'), (KeyCode::KeyZ, 'Z'),
-        (KeyCode::Digit0, '0'), (KeyCode::Digit1, '1'), (KeyCode::Digit2, '2'),
-        (KeyCode::Digit3, '3'), (KeyCode::Digit4, '4'), (KeyCode::Digit5, '5'),
-        (KeyCode::Digit6, '6'), (KeyCode::Digit7, '7'), (KeyCode::Digit8, '8'),
-        (KeyCode::Digit9, '9'),
-    ];
+    if let Some(players) = new_players {
+        walkers.players = players;
+        walkers.loaded = true;
 
-    for (key, ch) in letter_keys {
-        if keys.just_pressed(key) && form.display_name.len() < 20 {
-            let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-            form.display_name.push(if shift { ch } else { ch.to_ascii_lowercase() });
+        // Rebuild player list UI
+        let Ok(container) = container_q.get_single() else { return };
+        commands.entity(container).despawn_descendants();
+
+        if walkers.players.is_empty() {
+            commands.entity(container).with_children(|list| {
+                list.spawn((
+                    Text::new("No walkers found"),
+                    TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                    TextColor(Color::srgb(0.5, 0.3, 0.3)),
+                ));
+            });
+            return;
         }
-    }
-    if keys.just_pressed(KeyCode::Space) && form.display_name.len() < 20 {
-        form.display_name.push(' ');
-    }
 
-    if let Ok(mut text) = name_q.get_single_mut() {
-        **text = format!("> {}_", form.display_name);
+        let f = font.0.clone();
+        commands.entity(container).with_children(|list| {
+            for player in &walkers.players {
+                let is_walking = player.status == "walking";
+                let status_dot = if is_walking { "* " } else { "  " };
+                let speed_text = if is_walking { format!(" ({:.1} km/h)", player.speed) } else { String::new() };
+
+                list.spawn((
+                    Button,
+                    Node {
+                        padding: UiRect::axes(Val::Px(20.0), Val::Px(10.0)),
+                        border: UiRect::all(Val::Px(2.0)),
+                        min_width: Val::Px(300.0),
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                    BackgroundColor(if is_walking {
+                        Color::srgba(0.1, 0.15, 0.05, 0.9)
+                    } else {
+                        Color::srgba(0.1, 0.1, 0.1, 0.7)
+                    }),
+                    BorderColor(if is_walking {
+                        Color::srgb(0.4, 0.6, 0.2)
+                    } else {
+                        Color::srgb(0.3, 0.3, 0.3)
+                    }),
+                    BorderRadius::all(Val::Px(6.0)),
+                    PlayerButton(player.id.clone(), player.name.clone()),
+                )).with_children(|btn| {
+                    btn.spawn((
+                        Text::new(format!("{}{}{}", status_dot, player.name, speed_text)),
+                        TextFont { font: f.clone(), font_size: 10.0, ..default() },
+                        TextColor(if is_walking {
+                            Color::srgb(0.5, 0.9, 0.4)
+                        } else {
+                            Color::srgb(0.6, 0.6, 0.6)
+                        }),
+                    ));
+                });
+            }
+        });
     }
 }
 
-fn handle_start_click(
+// ── Handle Player Click ─────────────────────────────
+
+fn handle_player_click(
     mouse: Res<ButtonInput<MouseButton>>,
-    form: Res<TitleForm>,
-    btn_q: Query<&Interaction, With<StartButton>>,
-    mut session: ResMut<GameSession>,
-    mut next_state: ResMut<NextState<AppState>>,
+    btn_q: Query<(&Interaction, &PlayerButton)>,
     mut pending: ResMut<PendingLogin>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) || pending.waiting { return; }
-    for interaction in &btn_q {
-        if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
-            if !form.display_name.is_empty() {
-                start_game(&form, &mut session, &mut next_state, &mut pending);
+
+    for (interaction, player_btn) in &btn_q {
+        if !matches!(interaction, Interaction::Hovered | Interaction::Pressed) { continue; }
+
+        let walker_id = player_btn.0.clone();
+        let name = player_btn.1.clone();
+        let result_ref = pending.result.clone();
+        pending.waiting = true;
+
+        log::info!("[join] Joining as '{}' (walker: {})", name, walker_id);
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = reqwest::Client::new();
+            let url = crate::api_url("/join");
+            let body = serde_json::json!({
+                "name": name,
+                "walker_uuid": walker_id,
+            });
+            match client.post(&url).json(&body).send().await {
+                Ok(resp) => {
+                    if let Ok(text) = resp.text().await {
+                        log::info!("[join] Response: {}", text);
+                        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(pid) = data.get("player_id").and_then(|v| v.as_str()) {
+                                let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
+                                if let Ok(mut lock) = result_ref.lock() {
+                                    *lock = Some((pid.to_string(), pname.to_string()));
+                                }
+                                return;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("[join] Request failed: {}", e);
+                }
             }
-        }
+        });
+        return;
     }
 }
+
+// ── Check Login Result ──────────────────────────────
 
 fn check_login_result(
     mut pending: ResMut<PendingLogin>,
@@ -218,61 +322,6 @@ fn check_login_result(
         session.player_name = name;
         next_state.set(AppState::InGame);
     }
-}
-
-/// Holds async login result.
-#[derive(Resource, Default)]
-struct PendingLogin {
-    result: std::sync::Arc<std::sync::Mutex<Option<(String, String)>>>, // (player_id, name)
-    waiting: bool,
-}
-
-fn start_game(
-    form: &TitleForm,
-    session: &mut GameSession,
-    _next_state: &mut NextState<AppState>,
-    pending: &mut PendingLogin,
-) {
-    let name = form.display_name.clone();
-    let walker_uuid = form.walker_uuid.clone();
-    let result_ref = pending.result.clone();
-    pending.waiting = true;
-
-    wasm_bindgen_futures::spawn_local(async move {
-        let client = reqwest::Client::new();
-        let body = serde_json::json!({
-            "name": name,
-            "walker_uuid": if walker_uuid.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(walker_uuid) },
-        });
-        let url = crate::api_url("/join");
-        log::info!("[join] Sending join request for '{}' to {}", name, url);
-        match client.post(&url).json(&body).send().await {
-            Ok(resp) => {
-                let status = resp.status();
-                log::info!("[join] Response status: {}", status);
-                if let Ok(text) = resp.text().await {
-                    log::info!("[join] Response body: {}", text);
-                    if let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) {
-                        if let Some(pid) = data.get("player_id").and_then(|v| v.as_str()) {
-                            let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
-                            if let Ok(mut lock) = result_ref.lock() {
-                                *lock = Some((pid.to_string(), pname.to_string()));
-                            }
-                            return;
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                log::error!("[join] Request failed: {}", e);
-            }
-        }
-        // Fallback
-        log::warn!("[join] Using fallback player ID");
-        if let Ok(mut lock) = result_ref.lock() {
-            *lock = Some(("a0000000-0000-0000-0000-000000000001".to_string(), name));
-        }
-    });
 }
 
 fn cleanup_title(mut commands: Commands, query: Query<Entity, With<TitleScreen>>) {
