@@ -159,12 +159,9 @@ rm dev_state.json  # Delete save, Game Master creates fresh on restart
 
 ## TODO
 
-- Smooth character interpolation improvements (still occasional jumps)
-- Wire leveling into Game Master + HUD (show level, XP bar)
+- Persistent state on Render (free tier wipes dev_state.json on deploy)
 - LLM adventure skill (`/adventure` generates events from POI JSON)
-- Character selection on title screen
-- Multiplayer visibility (see friend's character)
-- Boss fight JRPG system (charge bars, incline = attack power)
-- Equipment/inventory system
-- API abstraction layer (switch between dev server and Supabase)
-- Supabase integration for online multiplayer (free tier egress limit: 5GB)
+- Real auth (currently /notifications only does a sanity check; anyone with a
+  known player_id can poll that player's queue)
+- Delete or revive the excluded `walker` crate (currently dead-on-disk)
+- Shared-goal widgets / team stats in HUD to reinforce co-op
