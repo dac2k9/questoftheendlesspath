@@ -233,6 +233,7 @@ async fn main() -> Result<()> {
     // Track per-player state
     let mut player_fogs: HashMap<String, questlib::fog::FogBitfield> = HashMap::new();
     let mut player_last_distance: HashMap<String, f64> = HashMap::new();
+    let mut player_boss_wait_notified: HashMap<String, String> = HashMap::new();
 
     info!("Game Master running (dev mode). Tick interval: 3s. Dev server on :3001");
     let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -259,6 +260,7 @@ async fn main() -> Result<()> {
                     &shared_combat,
                     &mut player_fogs,
                     &mut player_last_distance,
+                    &mut player_boss_wait_notified,
                     rng_roll,
                 ) {
                     error!("Tick error: {e:#}");

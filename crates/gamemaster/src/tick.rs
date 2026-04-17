@@ -19,6 +19,9 @@ pub fn run_tick_dev(
     shared_combat: &SharedCombat,
     player_fogs: &mut HashMap<String, FogBitfield>,
     player_last_distance: &mut HashMap<String, f64>,
+    // player_id → event_id we've already sent "waiting for others" for.
+    // Keeps the wait notification from spamming every tick.
+    player_boss_wait_notified: &mut HashMap<String, String>,
     rng_roll: f32,
 ) -> Result<()> {
     // Snapshot player state — release lock so walker/debug can write
@@ -360,6 +363,8 @@ pub fn run_tick_dev(
 
             // Gate: boss fights wait for everyone. Evaluated BEFORE force_status,
             // so the event stays Pending across the wait rather than oscillating.
+            // Player is NOT blocked during the wait — they can click anywhere to
+            // walk away. We just refuse to start the fight yet.
             let coop_player_ids: Vec<String> = if is_boss && is_combat {
                 if player.planned_route.is_empty() {
                     Vec::new() // unreachable path; treated like a non-boss skip below
@@ -371,13 +376,39 @@ pub fn run_tick_dev(
                         .map(|p| p.id.clone())
                         .collect();
                     if here.len() < online_count {
-                        info!("  Boss fight waiting: {}/{} players at ({},{})",
-                            here.len(), online_count, poi_pos.0, poi_pos.1);
+                        let missing: Vec<&str> = players.iter()
+                            .filter(|p| p.map_tile_x != poi_pos.0 || p.map_tile_y != poi_pos.1)
+                            .map(|p| p.name.as_str())
+                            .collect();
+                        info!("  Boss fight waiting: {}/{} players at ({},{}) — missing: {:?}",
+                            here.len(), online_count, poi_pos.0, poi_pos.1, missing);
+                        // Notify the arriving player once per event-arrival so they
+                        // know why the fight isn't starting. Subsequent ticks on the
+                        // same tile are silent.
+                        let notified = player_boss_wait_notified.get(player_id);
+                        if notified != Some(event_id) {
+                            let boss_name = events_lock.get(event_id)
+                                .map(|e| e.name.clone()).unwrap_or_default();
+                            let msg = if missing.len() == 1 {
+                                format!("{} awaits. Waiting for {} to arrive...", boss_name, missing[0])
+                            } else {
+                                format!("{} awaits. Waiting for {} more players...", boss_name, missing.len())
+                            };
+                            if let Ok(mut n) = shared_notifs.lock() {
+                                crate::push_notif(&mut n, player_id, msg);
+                            }
+                            player_boss_wait_notified.insert(player_id.clone(), event_id.clone());
+                        }
                         continue; // re-check next tick; event stays Pending globally
                     }
                     here
                 }
             } else { Vec::new() };
+
+            // Leaving the waiting state (wait gate passed, or this event isn't a
+            // boss waiting gate at all) clears our "already notified" record so
+            // a future arrival triggers a fresh notification.
+            player_boss_wait_notified.remove(player_id);
 
             let Some(event) = events_lock.get_mut(event_id) else { continue };
             event.force_status(EventStatus::Active);
@@ -637,6 +668,7 @@ mod tests {
         fogs: &mut HashMap<String, FogBitfield>, last_dist: &mut HashMap<String, f64>,
         player_id: &str, n: usize, delta_per_tick: f64,
     ) {
+        let mut boss_wait = HashMap::new();
         for _ in 0..n {
             {
                 let mut lock = state.lock().unwrap();
@@ -644,7 +676,7 @@ mod tests {
                     p.total_distance_m += delta_per_tick;
                 }
             }
-            run_tick_dev(state, world, events, notifs, combat, fogs, last_dist, 0.5).unwrap();
+            run_tick_dev(state, world, events, notifs, combat, fogs, last_dist, &mut boss_wait, 0.5).unwrap();
         }
     }
 
@@ -661,7 +693,7 @@ mod tests {
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.gold, 0, "idle player should earn no gold");
@@ -678,12 +710,12 @@ mod tests {
         let mut last_dist = HashMap::new();
 
         // First tick inits last_distance, so add distance then tick again
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
         {
             let mut lock = state.lock().unwrap();
             lock.get_mut(&pid).unwrap().total_distance_m = 110.0;
         }
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert!(p.gold > 0, "walking without route should still earn gold");
@@ -775,7 +807,7 @@ mod tests {
                 let mut lock = state.lock().unwrap();
                 lock.get_mut(&pid).unwrap().total_distance_m += 10.0;
             }
-            run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
+            run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
             let p = get_player(&state, &pid);
             let pos = (p.map_tile_x as usize, p.map_tile_y as usize);
@@ -849,8 +881,8 @@ mod tests {
         let mut last_dist = HashMap::new();
 
         // Two ticks with same distance — no movement
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.route_meters_walked, 0.0);
