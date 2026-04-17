@@ -159,25 +159,36 @@ pub fn ensure_bridge(state: SharedState, bridged: BridgedPlayers, player_id: &st
     let wid = walker_user_id.to_string();
     let bridged_clone = bridged.clone();
     tokio::spawn(async move {
-        let mut consecutive_failures = 0u32;
+        // Count ONLY rapid successive failures as "bad" — a run that lasted long
+        // enough to actually exchange messages is treated as a normal disconnect
+        // (Walker periodically closes idle sockets), not a retry-to-give-up event.
+        let mut consecutive_bad_attempts = 0u32;
         loop {
-            if let Err(e) = run_bridge(&state, &pid, &wid).await {
-                consecutive_failures += 1;
-                error!("[Walker bridge {}] Error (#{}): {:#}. Reconnecting in 5s...",
-                    pid, consecutive_failures, e);
-                // After extended failure (~5 min), give up the slot so a fresh
-                // join attempt can retry cleanly rather than being silently skipped.
-                if consecutive_failures >= 60 {
-                    error!("[Walker bridge {}] Giving up after {} failures", pid, consecutive_failures);
-                    if let Ok(mut lock) = bridged_clone.lock() {
-                        lock.remove(&pid);
-                    }
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let started = std::time::Instant::now();
+            let result = run_bridge(&state, &pid, &wid).await;
+            let ran_for = started.elapsed();
+
+            if ran_for > std::time::Duration::from_secs(30) {
+                consecutive_bad_attempts = 0;
             } else {
-                consecutive_failures = 0;
+                consecutive_bad_attempts += 1;
             }
+
+            if let Err(e) = result {
+                error!("[Walker bridge {}] Disconnected after {:.1}s (#{} short-run): {:#}. Reconnecting in 5s...",
+                    pid, ran_for.as_secs_f32(), consecutive_bad_attempts, e);
+            }
+
+            // Only give up if we've failed many times back-to-back *without*
+            // a successful session in between — i.e., we genuinely can't connect.
+            if consecutive_bad_attempts >= 120 {
+                error!("[Walker bridge {}] Giving up: {} short runs in a row", pid, consecutive_bad_attempts);
+                if let Ok(mut lock) = bridged_clone.lock() {
+                    lock.remove(&pid);
+                }
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     });
     info!("Walker bridge started for {} -> {}", player_id, walker_user_id);
