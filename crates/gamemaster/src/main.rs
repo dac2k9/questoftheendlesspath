@@ -86,7 +86,11 @@ async fn main() -> Result<()> {
     }
     info!("Save path: {}", save_path);
 
-    // Load events — try saved state first, then events file
+    // Load events. Always start from the JSON definitions so shop inventories,
+    // new events, trigger tweaks etc. take effect across restarts. Then overlay
+    // the per-event `status` from the saved state so completed quests stay
+    // completed. Per-player completion lives on DevPlayerState.completed_events,
+    // which is unaffected by this refresh.
     let events_path = std::env::var("EVENTS_PATH")
         .unwrap_or_else(|_| "adventures/seed12345_events.json".to_string());
 
@@ -95,14 +99,27 @@ async fn main() -> Result<()> {
         .and_then(|json| serde_json::from_str::<SaveData>(&json).ok())
         .map(|s| s.events);
 
-    let catalog = if let Some(events) = saved_events {
-        info!("Restored {} events from saved state", events.events.len());
-        events
-    } else if std::path::Path::new(&events_path).exists() {
+    let catalog = if std::path::Path::new(&events_path).exists() {
         let json = std::fs::read_to_string(&events_path)?;
-        let c = EventCatalog::from_json(&json)?;
-        info!("Loaded {} events from {}", c.events.len(), events_path);
-        c
+        let mut fresh = EventCatalog::from_json(&json)?;
+        info!("Loaded {} events from {}", fresh.events.len(), events_path);
+
+        if let Some(saved) = saved_events.as_ref() {
+            let mut carried = 0;
+            for event in fresh.events.iter_mut() {
+                if let Some(prev) = saved.events.iter().find(|e| e.id == event.id) {
+                    if prev.status != event.status {
+                        event.force_status(prev.status);
+                        carried += 1;
+                    }
+                }
+            }
+            info!("Merged {} status flags from saved state", carried);
+        }
+        fresh
+    } else if let Some(events) = saved_events {
+        info!("No events JSON at {}; using saved catalog ({} events)", events_path, events.events.len());
+        events
     } else {
         info!("No events found, starting empty");
         EventCatalog::default()
