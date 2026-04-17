@@ -8,27 +8,39 @@ use crate::supabase::{self, PolledPlayerState, SupabaseConfig};
 use crate::{GameFont, GameSession};
 
 /// Per-champion sprite sheet metadata. Sheets use inconsistent layouts
-/// (some padded like Katan/Zhinja, most plain grids). Frame size is always 16×16.
+/// (some padded like Katan, most plain grids). Frame size is always 16×16.
+///
+/// `facing_rows` maps facing → row in the atlas in order [Down, Up, Right, Left].
+/// Default is [0, 1, 2, 3] but some packs (Zhinja) swap Right/Left.
 pub struct ChampionInfo {
     pub bytes: &'static [u8],
     pub cols: u32,
     pub rows: u32,
-    /// Whether the sheet uses Katan's 1px offset + 2px inter-frame padding.
     pub padded: bool,
+    pub facing_rows: [usize; 4],
 }
 
 /// Look up sprite-sheet metadata for a champion. Unknown names fall back to Katan.
 pub fn champion_info(name: &str) -> ChampionInfo {
+    // Default row mapping: Down=0, Up=1, Right=2, Left=3
+    const DEFAULT: [usize; 4] = [0, 1, 2, 3];
+    // Zhinja: Right/Left swapped (walking left showed facing right before this).
+    const ZHINJA_ROWS: [usize; 4] = [0, 1, 3, 2];
     match name {
-        "Zhinja"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Zhinja.png"),    cols: 6, rows: 9,  padded: true },
-        "Arthax"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Arthax.png"),    cols: 5, rows: 8,  padded: false },
-        "Börg"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Börg.png"),      cols: 6, rows: 8,  padded: false },
-        "Gangblanc" => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Gangblanc.png"), cols: 8, rows: 8,  padded: false },
-        "Grum"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Grum.png"),      cols: 5, rows: 9,  padded: false },
-        "Kanji"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Kanji.png"),     cols: 6, rows: 8,  padded: false },
-        "Okomo"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Okomo.png"),     cols: 5, rows: 12, padded: false },
-        _           => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Katan.png"),     cols: 6, rows: 8,  padded: true },
+        "Zhinja"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Zhinja.png"),    cols: 6, rows: 9,  padded: true,  facing_rows: ZHINJA_ROWS },
+        "Arthax"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Arthax.png"),    cols: 5, rows: 8,  padded: false, facing_rows: DEFAULT },
+        "Börg"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Börg.png"),      cols: 6, rows: 8,  padded: false, facing_rows: DEFAULT },
+        "Gangblanc" => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Gangblanc.png"), cols: 8, rows: 8,  padded: false, facing_rows: DEFAULT },
+        "Grum"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Grum.png"),      cols: 5, rows: 9,  padded: false, facing_rows: DEFAULT },
+        "Kanji"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Kanji.png"),     cols: 6, rows: 8,  padded: false, facing_rows: DEFAULT },
+        "Okomo"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Okomo.png"),     cols: 5, rows: 12, padded: false, facing_rows: DEFAULT },
+        _           => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Katan.png"),     cols: 6, rows: 8,  padded: true,  facing_rows: DEFAULT },
     }
+}
+
+/// Index of a facing direction (0=Down, 1=Up, 2=Right, 3=Left).
+fn facing_idx(facing: Facing) -> usize {
+    match facing { Facing::Down => 0, Facing::Up => 1, Facing::Right => 2, Facing::Left => 3 }
 }
 
 /// Build the TextureAtlasLayout matching a champion sheet.
@@ -112,6 +124,7 @@ struct OtherPlayerAnim {
     frame: usize,
     moving: bool,
     cols: u32,
+    facing_rows: [usize; 4],
 }
 
 #[derive(Component)]
@@ -147,7 +160,8 @@ struct LoadingText;
 
 use questlib::route::Facing;
 
-/// Sprite sheet row for Katan walk animation based on facing direction.
+/// Legacy fixed row mapping — kept only for any outside callers. Prefer
+/// `facing_idx(facing)` into the per-champion `facing_rows` array.
 fn facing_base_row(facing: Facing) -> usize {
     match facing {
         Facing::Down => 0,
@@ -166,6 +180,8 @@ struct WalkAnimation {
     /// Columns in the atlas — used to compute `row * cols + frame` since
     /// different sprite sheets have different widths (5, 6, or 8 cols).
     cols: u32,
+    /// Atlas row per facing [Down, Up, Right, Left]. Varies by sprite pack.
+    facing_rows: [usize; 4],
 }
 
 // ── Resources ─────────────────────────────────────────
@@ -433,7 +449,7 @@ fn spawn_world(
     commands.spawn((
         Sprite { image: champion_tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
         Transform::from_xyz(0.0, 0.0, 5.0), Visibility::Hidden, PlayerSprite,
-        WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, facing: Facing::Down, moving: false, cols: info.cols },
+        WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, facing: Facing::Down, moving: false, cols: info.cols, facing_rows: info.facing_rows },
     ));
     commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(0.0, 12.0, 6.0), Visibility::Hidden, PlayerNameTag));
     commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 1.0)), Transform::from_xyz(0.0, 0.0, 10.0), Visibility::Hidden, TileInfoText));
@@ -670,13 +686,13 @@ fn render_character(
             anim.timer.set_duration(std::time::Duration::from_secs_f32(0.3 / speed_factor));
             anim.timer.tick(time.delta());
             if anim.timer.just_finished() { anim.frame = (anim.frame % 4) + 1; }
-            let row = facing_base_row(anim.facing);
+            let row = anim.facing_rows[facing_idx(anim.facing)];
             if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols + anim.frame; }
             anim.moving = true;
         } else if anim.moving {
             anim.moving = false;
             anim.frame = 0;
-            let row = facing_base_row(anim.facing);
+            let row = anim.facing_rows[facing_idx(anim.facing)];
             if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols; }
         }
     }
@@ -1025,13 +1041,13 @@ fn update_other_players(
                 if anim.timer.just_finished() {
                     anim.frame = (anim.frame % 4) + 1;
                 }
-                let row = facing_base_row(other.facing);
+                let row = anim.facing_rows[facing_idx(other.facing)];
                 if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols + anim.frame; }
                 anim.moving = true;
             } else if anim.moving {
                 anim.moving = false;
                 anim.frame = 0;
-                let row = facing_base_row(other.facing);
+                let row = anim.facing_rows[facing_idx(other.facing)];
                 if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols; }
             }
             sprite.flip_x = false;
@@ -1052,7 +1068,7 @@ fn update_other_players(
                 Sprite { image: tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
                 Transform::from_xyz(pos.x, pos.y, 4.0),
                 OtherPlayerSprite(other.id.clone()),
-                OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false, cols: info.cols },
+                OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false, cols: info.cols, facing_rows: info.facing_rows },
             ));
             // Name tag
             commands.spawn((
