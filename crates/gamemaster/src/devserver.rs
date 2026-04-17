@@ -55,6 +55,9 @@ pub struct DevPlayerState {
     /// Character sprite the player chose on the title screen.
     #[serde(default)]
     pub champion: String,
+    /// Temporary buffs from consumed potions. Pruned each tick when expired.
+    #[serde(default)]
+    pub active_buffs: Vec<questlib::items::ActiveBuff>,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
@@ -614,6 +617,23 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                     crate::push_notif(&mut n, &req.player_id, format!("Used {}! Area revealed.", def.map(|d| d.display_name.as_str()).unwrap_or("item")));
                                 }
                                 return ("200 OK", serde_json::to_string(&serde_json::json!({"ok": true, "reveal_fog": {"x": px, "y": py, "radius": radius}})).unwrap());
+                            }
+                            // Equipment-only passive effect — ignored on consume.
+                            questlib::items::ItemEffect::SpeedMultiplier { .. } => {}
+                            questlib::items::ItemEffect::BuffSpeed { multiplier, duration_secs } => {
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_secs()).unwrap_or(0);
+                                let buff = questlib::items::ActiveBuff {
+                                    kind: "speed".to_string(),
+                                    multiplier: *multiplier,
+                                    expires_unix: now + *duration_secs as u64,
+                                    source_item: req.item_id.clone(),
+                                };
+                                player.active_buffs.push(buff);
+                                let pct = ((multiplier - 1.0) * 100.0).round() as i32;
+                                let mins = duration_secs / 60;
+                                messages.push(format!("+{}% speed for {} min", pct, mins));
                             }
                         }
                     }

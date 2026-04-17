@@ -116,6 +116,16 @@
             "name": "leather_vest",
             "cost": 50,
             "effect": "equip"
+          },
+          {
+            "name": "leather_boots",
+            "cost": 100,
+            "effect": "equip"
+          },
+          {
+            "name": "haste_draught",
+            "cost": 50,
+            "effect": "use"
           }
         ]
       },
@@ -282,6 +292,16 @@
             "name": "torch",
             "cost": 25,
             "effect": "fog_radius"
+          },
+          {
+            "name": "sturdy_boots",
+            "cost": 250,
+            "effect": "equip"
+          },
+          {
+            "name": "haste_draught",
+            "cost": 50,
+            "effect": "use"
           }
         ]
       },
@@ -415,6 +435,16 @@
             "name": "soulreaper_pendant",
             "cost": 1000,
             "effect": "equip"
+          },
+          {
+            "name": "swift_boots",
+            "cost": 600,
+            "effect": "equip"
+          },
+          {
+            "name": "quicksilver_tonic",
+            "cost": 120,
+            "effect": "use"
           }
         ]
       },
@@ -746,11 +776,6 @@
             "effect": "equip"
           },
           {
-            "name": "speed_potion",
-            "cost": 80,
-            "effect": "speed_boost"
-          },
-          {
             "name": "battle_elixir",
             "cost": 120,
             "effect": "buff"
@@ -763,6 +788,16 @@
           {
             "name": "berserker_pendant",
             "cost": 500,
+            "effect": "equip"
+          },
+          {
+            "name": "quicksilver_tonic",
+            "cost": 120,
+            "effect": "use"
+          },
+          {
+            "name": "sturdy_boots",
+            "cost": 250,
             "effect": "equip"
           }
         ]

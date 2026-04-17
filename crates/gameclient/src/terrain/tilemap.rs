@@ -27,10 +27,10 @@ pub fn champion_info(name: &str) -> ChampionInfo {
     // Default: Down=row 0, Up=row 1, Right=row 2, Left=row 3. No flips.
     const DEFAULT_ROWS: [usize; 4] = [0, 1, 2, 3];
     const NO_FLIP: [bool; 4] = [false; 4];
-    // Zhinja: Right=row 0, Down=row 1, Up=row 2, no dedicated Left row.
-    // Left reuses row 0 (Right) with horizontal flip.
+    // Zhinja: row 0 is a side view facing LEFT (not Right as first guessed).
+    // Down=row 1, Up=row 2. Right reuses row 0 with horizontal flip.
     const ZHINJA_ROWS: [usize; 4] = [1, 2, 0, 0];
-    const ZHINJA_FLIP: [bool; 4] = [false, false, false, true];
+    const ZHINJA_FLIP: [bool; 4] = [false, false, true, false];
     match name {
         "Zhinja"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Zhinja.png"),    cols: 6, rows: 9,  padded: true,  facing_rows: ZHINJA_ROWS, facing_flip: ZHINJA_FLIP },
         "Arthax"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Arthax.png"),    cols: 5, rows: 8,  padded: false, facing_rows: DEFAULT_ROWS, facing_flip: NO_FLIP },

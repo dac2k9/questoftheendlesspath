@@ -71,18 +71,34 @@ pub fn run_tick_dev(
 
         // Distance delta — f64 throughout for sub-meter precision.
         // Debug walking computes delta from speed directly.
-        let delta: f64 = if player.debug_walking {
+        let raw_delta: f64 = if player.debug_walking {
             (player.current_speed_kmh as f64 / 3.6).min(20.0)
         } else {
             let last_dist = *player_last_distance.get(player_id).unwrap_or(&player.total_distance_m);
-            let raw_delta = (player.total_distance_m - last_dist).max(0.0);
-            let capped = raw_delta.min(20.0);
+            let d = (player.total_distance_m - last_dist).max(0.0);
+            let capped = d.min(20.0);
             player_last_distance.insert(player_id.clone(), player.total_distance_m);
-            if (raw_delta - capped).abs() > 0.01 {
-                info!("[{}] delta capped: {:.1}m → {:.1}m", player.name, raw_delta, capped);
+            if (d - capped).abs() > 0.01 {
+                info!("[{}] delta capped: {:.1}m → {:.1}m", player.name, d, capped);
             }
             capped
         };
+
+        // Apply speed multipliers: passive (boots) × active buffs (potions).
+        let catalog = crate::item_catalog();
+        let boots_mult = questlib::items::equipment_speed_multiplier(&player.equipment, catalog);
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs()).unwrap_or(0);
+        let buff_mult: f32 = player.active_buffs.iter()
+            .filter(|b| b.expires_unix > now_unix && b.kind == "speed")
+            .map(|b| b.multiplier)
+            .product();
+        let speed_mult = (boots_mult * buff_mult) as f64;
+        let delta = raw_delta * speed_mult;
+        if (speed_mult - 1.0).abs() > 0.01 {
+            info!("[{}] speed_mult={:.2}x (boots={:.2}, buffs={:.2})", player.name, speed_mult, boots_mult, buff_mult);
+        }
         info!("[{}] delta={:.2}m (speed={:.1}km/h)", player.name, delta, player.current_speed_kmh);
 
         if delta < 0.01 {
@@ -222,6 +238,10 @@ pub fn run_tick_dev(
         {
             let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
             if let Some(p) = lock.get_mut(player_id) {
+                // Prune expired buffs opportunistically (cheap and keeps the
+                // Vec small without needing a separate buff-housekeeping pass).
+                p.active_buffs.retain(|b| b.expires_unix > now_unix);
+
                 // Apply chest loot
                 if let Some((chest_id, loot)) = chest_loot {
                     p.opened_chests.push(chest_id);

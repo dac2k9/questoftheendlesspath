@@ -18,6 +18,8 @@ pub enum EquipmentSlot {
     Weapon,
     Armor,
     Accessory,
+    /// Boots — speed multipliers.
+    Feet,
 }
 
 /// What stat an effect modifies.
@@ -39,6 +41,11 @@ pub enum ItemEffect {
     Heal { amount: i32 },
     /// Reveal fog in a radius around the player.
     RevealFog { radius: usize },
+    /// Passive speed multiplier while equipped. 1.0 = no change, 1.10 = +10%.
+    SpeedMultiplier { multiplier: f32 },
+    /// Temporary speed buff when consumed. Stacks multiplicatively with other
+    /// speed sources. Expires after `duration_secs` of wall-clock time.
+    BuffSpeed { multiplier: f32, duration_secs: u32 },
 }
 
 // ── Item Definition ─────────────────────────────────
@@ -74,6 +81,22 @@ fn default_max_stack() -> u32 {
 pub struct InventorySlot {
     pub item_id: String,
     pub quantity: u32,
+}
+
+/// A temporary buff the player gained from consuming an item. Persists on
+/// the player and ticks down until expiry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ActiveBuff {
+    /// What kind of buff this is ("speed", for now). String-typed so new
+    /// buff kinds can be added without migrating saved state.
+    pub kind: String,
+    /// Multiplier applied while active (1.15 = +15%).
+    pub multiplier: f32,
+    /// Unix seconds when this buff stops applying.
+    pub expires_unix: u64,
+    /// Item id that granted this buff — useful for client tooltips/icons.
+    #[serde(default)]
+    pub source_item: String,
 }
 
 /// Catalog of all item definitions, loaded from JSON.
@@ -144,6 +167,8 @@ pub struct EquipmentLoadout {
     pub armor: Option<String>,
     #[serde(default)]
     pub accessory: Option<String>,
+    #[serde(default)]
+    pub feet: Option<String>,
 }
 
 impl EquipmentLoadout {
@@ -152,6 +177,7 @@ impl EquipmentLoadout {
         self.weapon.as_deref() == Some(item_id)
             || self.armor.as_deref() == Some(item_id)
             || self.accessory.as_deref() == Some(item_id)
+            || self.feet.as_deref() == Some(item_id)
     }
 
     /// Get the item in a given slot.
@@ -160,6 +186,7 @@ impl EquipmentLoadout {
             EquipmentSlot::Weapon => self.weapon.as_deref(),
             EquipmentSlot::Armor => self.armor.as_deref(),
             EquipmentSlot::Accessory => self.accessory.as_deref(),
+            EquipmentSlot::Feet => self.feet.as_deref(),
         }
     }
 
@@ -168,7 +195,13 @@ impl EquipmentLoadout {
             EquipmentSlot::Weapon => self.weapon = item_id,
             EquipmentSlot::Armor => self.armor = item_id,
             EquipmentSlot::Accessory => self.accessory = item_id,
+            EquipmentSlot::Feet => self.feet = item_id,
         }
+    }
+
+    /// All slots iterable together. Useful for iterating every equipped item.
+    pub fn all_slots() -> [EquipmentSlot; 4] {
+        [EquipmentSlot::Weapon, EquipmentSlot::Armor, EquipmentSlot::Accessory, EquipmentSlot::Feet]
     }
 }
 
@@ -225,7 +258,7 @@ pub fn equipment_bonuses(loadout: &EquipmentLoadout, catalog: &ItemCatalog) -> (
     let mut attack = 0;
     let mut defense = 0;
     let mut max_hp = 0;
-    for slot in [EquipmentSlot::Weapon, EquipmentSlot::Armor, EquipmentSlot::Accessory] {
+    for slot in EquipmentLoadout::all_slots() {
         if let Some(item_id) = loadout.get_slot(slot) {
             if let Some(def) = catalog.get(item_id) {
                 for effect in &def.effects {
@@ -246,6 +279,24 @@ pub fn equipment_bonuses(loadout: &EquipmentLoadout, catalog: &ItemCatalog) -> (
 /// Check if player has item in inventory OR equipped.
 pub fn has_item_or_equipped(inventory: &[InventorySlot], loadout: &EquipmentLoadout, item_id: &str) -> bool {
     has_item(inventory, item_id) || loadout.has_equipped(item_id)
+}
+
+/// Compute the passive speed multiplier from equipped boots (and any other
+/// equipment with SpeedMultiplier effects). Returns 1.0 if nothing equipped.
+pub fn equipment_speed_multiplier(loadout: &EquipmentLoadout, catalog: &ItemCatalog) -> f32 {
+    let mut mult = 1.0_f32;
+    for slot in EquipmentLoadout::all_slots() {
+        if let Some(item_id) = loadout.get_slot(slot) {
+            if let Some(def) = catalog.get(item_id) {
+                for effect in &def.effects {
+                    if let ItemEffect::SpeedMultiplier { multiplier } = effect {
+                        mult *= multiplier;
+                    }
+                }
+            }
+        }
+    }
+    mult
 }
 
 // ── Tests ───────────────────────────────────────────

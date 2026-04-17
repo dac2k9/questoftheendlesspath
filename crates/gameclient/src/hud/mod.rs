@@ -416,6 +416,7 @@ fn update_inventory(
     mut commands: Commands,
     open: Res<InventoryOpen>,
     state: Res<MyPlayerState>,
+    session: Res<crate::GameSession>,
     font: Res<GameFont>,
     catalog: Res<ItemCatalogRes>,
     mut snapshot: ResMut<LastInventorySnapshot>,
@@ -451,6 +452,12 @@ fn update_inventory(
             InventoryPanel,
         )).with_children(|parent| {
             // Header row: title + close button
+            let title = if !session.player_name.is_empty() {
+                let champ = if session.champion.is_empty() { "adventurer" } else { session.champion.as_str() };
+                format!("{} the {}", session.player_name, champ)
+            } else {
+                "Inventory".to_string()
+            };
             parent.spawn(Node {
                 flex_direction: FlexDirection::Row,
                 justify_content: JustifyContent::SpaceBetween,
@@ -458,11 +465,22 @@ fn update_inventory(
                 margin: UiRect::bottom(Val::Px(4.0)),
                 ..default()
             }).with_children(|header| {
-                header.spawn((
-                    Text::new("Inventory"),
-                    TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
-                    TextColor(Color::srgb(1.0, 0.85, 0.3)),
-                ));
+                header.spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(1.0),
+                    ..default()
+                }).with_children(|title_col| {
+                    title_col.spawn((
+                        Text::new(title),
+                        TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                        TextColor(Color::srgb(1.0, 0.85, 0.3)),
+                    ));
+                    title_col.spawn((
+                        Text::new("Inventory"),
+                        TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
+                        TextColor(Color::srgb(0.55, 0.5, 0.35)),
+                    ));
+                });
                 header.spawn((
                     Button,
                     Node { padding: UiRect::axes(Val::Px(6.0), Val::Px(2.0)), ..default() },
@@ -553,6 +571,14 @@ fn show_item_tooltip(
             }
             questlib::items::ItemEffect::RevealFog { radius } => {
                 effect_lines.push(format!("Reveals fog (radius {})", radius));
+            }
+            questlib::items::ItemEffect::SpeedMultiplier { multiplier } => {
+                let pct = ((multiplier - 1.0) * 100.0).round() as i32;
+                effect_lines.push(format!("+{}% movement speed", pct));
+            }
+            questlib::items::ItemEffect::BuffSpeed { multiplier, duration_secs } => {
+                let pct = ((multiplier - 1.0) * 100.0).round() as i32;
+                effect_lines.push(format!("+{}% speed for {} min", pct, duration_secs / 60));
             }
         }
     }

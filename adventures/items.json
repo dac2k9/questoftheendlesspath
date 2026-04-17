@@ -441,6 +441,88 @@
           "amount": -2
         }
       ]
+    },
+    {
+      "id": "leather_boots",
+      "display_name": "Leather Boots",
+      "description": "Well-made footwear. +5% movement speed.",
+      "category": "equipment",
+      "slot": "feet",
+      "effects": [
+        {
+          "type": "speed_multiplier",
+          "multiplier": 1.05
+        }
+      ]
+    },
+    {
+      "id": "sturdy_boots",
+      "display_name": "Sturdy Boots",
+      "description": "Cobbled for long journeys. +10% movement speed.",
+      "category": "equipment",
+      "slot": "feet",
+      "effects": [
+        {
+          "type": "speed_multiplier",
+          "multiplier": 1.1
+        }
+      ]
+    },
+    {
+      "id": "swift_boots",
+      "display_name": "Swift Boots",
+      "description": "Light and well-balanced. +18% movement speed.",
+      "category": "equipment",
+      "slot": "feet",
+      "effects": [
+        {
+          "type": "speed_multiplier",
+          "multiplier": 1.18
+        }
+      ]
+    },
+    {
+      "id": "seven_league_boots",
+      "display_name": "Seven-League Boots",
+      "description": "Every step covers seven leagues. +30% movement speed.",
+      "category": "equipment",
+      "slot": "feet",
+      "effects": [
+        {
+          "type": "speed_multiplier",
+          "multiplier": 1.3
+        }
+      ]
+    },
+    {
+      "id": "haste_draught",
+      "display_name": "Haste Draught",
+      "description": "Brisk elixir. +20% speed for 10 minutes.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 5,
+      "effects": [
+        {
+          "type": "buff_speed",
+          "multiplier": 1.2,
+          "duration_secs": 600
+        }
+      ]
+    },
+    {
+      "id": "quicksilver_tonic",
+      "display_name": "Quicksilver Tonic",
+      "description": "Rare alchemy. +40% speed for 5 minutes.",
+      "category": "consumable",
+      "stackable": true,
+      "max_stack": 3,
+      "effects": [
+        {
+          "type": "buff_speed",
+          "multiplier": 1.4,
+          "duration_secs": 300
+        }
+      ]
     }
   ]
 }
