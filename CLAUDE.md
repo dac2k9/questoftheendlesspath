@@ -29,44 +29,55 @@ CyberPad treadmill → Walker (Rust/BLE) → Dev Server (:3001) → Game Master 
 - `crates/gameclient/src/terrain/tilemap.rs` — World rendering, pathfinding, camera, player sprite
 - `crates/gameclient/src/hud/` — Gold counter, speed, distance, floating text
 - `crates/gameclient/src/dialogue/` — JRPG dialogue box, notification banners, event polling
-- `adventures/seed42_events.json` — Event definitions for seed 42 world
+- `adventures/seed12345_events.json` — Event definitions for the default world
+  (seed set via `MAP_SEED`, events file via `EVENTS_PATH`)
 
 ## Build & Run
 
+The Game Master serves BOTH the API and the WASM client on port 3001,
+so no separate static server is needed.
+
 ```bash
-# Game Master + Dev Server (Terminal 1)
+# Game Master + static file server (Terminal 1)
 cd /Users/dac/src/walk && cargo run -p gamemaster
 
-# Walker — real treadmill (Terminal 2, needs BT permission)
-cargo run -p walker
-
-# Browser client — build WASM
+# Build WASM client (Terminal 2, re-run after client code changes)
 cd crates/gameclient && cargo build --target wasm32-unknown-unknown
 wasm-bindgen target/wasm32-unknown-unknown/debug/gameclient.wasm --out-dir web --target web --no-typescript
 
-# Serve (Terminal 3)
-cd /Users/dac/src/walk && python3 -m http.server 9090 --directory .
-
-# Open: http://localhost:9090/crates/gameclient/index.html
+# Open: http://localhost:3001/
 ```
 
+The `walker/` crate (direct BLE treadmill reader) is excluded from the
+workspace — the Walker bridge in gamemaster connects to walker.akerud.se
+over WebSocket instead. No Bluetooth permission needed on this machine.
+
 ### Debug Walking (no treadmill needed)
+After joining via the title screen, grab your player_id from
+`GET http://localhost:3001/players` and plug it in:
 ```bash
+PID="<your-player-id>"
+
 # Simulate 3 km/h walking
 while true; do curl -sX POST http://localhost:3001/debug_walk \
   -H 'Content-Type: application/json' \
-  -d '{"player_id":"a0000000-0000-0000-0000-000000000001","speed":3.0}'; sleep 3; done
+  -d "{\"player_id\":\"$PID\",\"speed\":3.0}"; sleep 3; done
 
 # Stop
 curl -sX POST http://localhost:3001/debug_walk \
   -H 'Content-Type: application/json' \
-  -d '{"player_id":"a0000000-0000-0000-0000-000000000001","speed":0}'
+  -d "{\"player_id\":\"$PID\",\"speed\":0}"
 ```
 
 ### Reset Game State
 ```bash
-rm dev_state.json  # Delete save, Game Master creates fresh on restart
+rm dev_state.json  # Local dev only. On Render, reset the persistent
+                   # disk or wipe the file via the service shell.
 ```
+
+`SAVE_PATH` env var controls where `dev_state.json` lives (default: CWD
+for local, `/app/dev_state.json` in Docker, set to `/data/dev_state.json`
+on Render with a persistent disk mounted at `/data`).
 
 ## WASM Build Notes
 
