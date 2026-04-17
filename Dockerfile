@@ -42,6 +42,9 @@ COPY adventures /app/adventures
 ENV MAP_SEED=12345
 ENV EVENTS_PATH=adventures/seed12345_events.json
 ENV RUST_LOG=gamemaster=info
+# Default save path. Override on Render to "/data/dev_state.json" with a
+# persistent disk mounted at /data so state survives redeploys.
+ENV SAVE_PATH=/app/dev_state.json
 
 EXPOSE 3001
 CMD ["/app/gamemaster"]

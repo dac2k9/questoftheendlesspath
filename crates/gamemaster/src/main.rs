@@ -71,7 +71,20 @@ async fn main() -> Result<()> {
         world.width, world.height, world.pois.len(), world.roads.len()
     );
 
-    let save_path = "dev_state.json";
+    // Save path is configurable via SAVE_PATH. On Render, set this to a path
+    // inside a mounted persistent disk (e.g. "/data/dev_state.json") so state
+    // survives redeploys. Locally, defaults to the working directory.
+    let save_path_string = std::env::var("SAVE_PATH")
+        .unwrap_or_else(|_| "dev_state.json".to_string());
+    let save_path = save_path_string.as_str();
+    // Ensure the parent directory exists (create if needed). Silent on failure;
+    // the first save will log the actual I/O error.
+    if let Some(parent) = std::path::Path::new(save_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+    info!("Save path: {}", save_path);
 
     // Load events — try saved state first, then events file
     let events_path = std::env::var("EVENTS_PATH")
@@ -151,33 +164,72 @@ async fn main() -> Result<()> {
     let mut rng_state: u64 = seed;
     let mut save_counter: u32 = 0;
 
+    // Shutdown signal — on SIGTERM (Render redeploy) or SIGINT (Ctrl-C),
+    // do one last save before exiting so we don't lose the last ~30s.
+    let mut shutdown = shutdown_signal();
+
     loop {
-        interval.tick().await;
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
-        let rng_roll = (rng_state >> 33) as f32 / (u32::MAX as f32);
+        tokio::select! {
+            _ = interval.tick() => {
+                rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let rng_roll = (rng_state >> 33) as f32 / (u32::MAX as f32);
 
-        if let Err(e) = tick::run_tick_dev(
-            &state,
-            &world,
-            &shared_events,
-            &shared_notifs,
-            &shared_combat,
-            &mut player_fogs,
-            &mut player_last_distance,
-            rng_roll,
-        ) {
-            error!("Tick error: {e:#}");
-        }
+                if let Err(e) = tick::run_tick_dev(
+                    &state,
+                    &world,
+                    &shared_events,
+                    &shared_notifs,
+                    &shared_combat,
+                    &mut player_fogs,
+                    &mut player_last_distance,
+                    rng_roll,
+                ) {
+                    error!("Tick error: {e:#}");
+                }
 
-        // Wake all long-polling clients — they get fresh post-tick state
-        tick_signal.tick();
+                // Wake all long-polling clients — they get fresh post-tick state
+                tick_signal.tick();
 
-        // Save state to disk every 10 ticks (~30 seconds)
-        save_counter += 1;
-        if save_counter % 30 == 0 {
-            save_state(save_path, &state, &shared_events);
+                // Save state to disk every ~30 ticks (~30 seconds)
+                save_counter += 1;
+                if save_counter % 30 == 0 {
+                    save_state(save_path, &state, &shared_events);
+                }
+            }
+            _ = &mut shutdown => {
+                info!("Shutdown signal received — saving state and exiting");
+                save_state(save_path, &state, &shared_events);
+                return Ok(());
+            }
         }
     }
+}
+
+/// Completes when SIGTERM or SIGINT is received. On non-unix, only SIGINT.
+fn shutdown_signal() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    Box::pin(async {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut term = match signal(SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Failed to install SIGTERM handler: {e}");
+                    // Fall back to waiting for Ctrl-C only
+                    let _ = tokio::signal::ctrl_c().await;
+                    return;
+                }
+            };
+            tokio::select! {
+                _ = term.recv() => {}
+                _ = tokio::signal::ctrl_c() => {}
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    })
 }
 
 fn load_state(path: &str) -> Option<HashMap<String, DevPlayerState>> {
@@ -191,16 +243,33 @@ fn load_state(path: &str) -> Option<HashMap<String, DevPlayerState>> {
 }
 
 fn save_state(path: &str, state: &SharedState, events: &SharedEvents) {
-    let lock = state.lock().unwrap();
-    let events_lock = events.lock().unwrap();
-    let save = SaveData {
-        players: lock.values().cloned().collect(),
-        events: events_lock.clone(),
-    };
-    if let Ok(json) = serde_json::to_string_pretty(&save) {
-        if let Err(e) = std::fs::write(path, json) {
-            error!("Failed to save state: {e}");
+    let save = {
+        let lock = match state.lock() {
+            Ok(l) => l,
+            Err(e) => { error!("save_state: state mutex poisoned: {e}"); return; }
+        };
+        let events_lock = match events.lock() {
+            Ok(l) => l,
+            Err(e) => { error!("save_state: events mutex poisoned: {e}"); return; }
+        };
+        SaveData {
+            players: lock.values().cloned().collect(),
+            events: events_lock.clone(),
         }
+    };
+    let json = match serde_json::to_string_pretty(&save) {
+        Ok(j) => j,
+        Err(e) => { error!("save_state: serialize failed: {e}"); return; }
+    };
+    // Atomic write: write to a temp file in the same directory, then rename
+    // over the target. Prevents a mid-write crash from corrupting the save.
+    let tmp_path = format!("{}.tmp", path);
+    if let Err(e) = std::fs::write(&tmp_path, &json) {
+        error!("save_state: write {} failed: {e}", tmp_path);
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp_path, path) {
+        error!("save_state: rename {} -> {} failed: {e}", tmp_path, path);
     }
 }
 
