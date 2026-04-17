@@ -357,8 +357,8 @@ fn build_champion_stage(
             ..default()
         }).with_children(|grid| {
             for champ in CHAMPIONS {
-                let bytes = crate::terrain::tilemap::champion_bytes(champ);
-                let dyn_img = image::load_from_memory(bytes).expect("champion sprite");
+                let info = crate::terrain::tilemap::champion_info(champ);
+                let dyn_img = image::load_from_memory(info.bytes).expect("champion sprite");
                 let rgba = dyn_img.to_rgba8();
                 let (w, h) = rgba.dimensions();
                 let tex = images.add(Image::new(
@@ -366,10 +366,7 @@ fn build_champion_stage(
                     TextureDimension::D2, rgba.into_raw(),
                     TextureFormat::Rgba8UnormSrgb, default(),
                 ));
-                let layout = atlases.add(TextureAtlasLayout::from_grid(
-                    UVec2::new(16, 16), 6, 8,
-                    Some(UVec2::new(2, 2)), Some(UVec2::new(1, 1)),
-                ));
+                let layout = atlases.add(crate::terrain::tilemap::champion_atlas_layout(&info));
 
                 grid.spawn((
                     Button,

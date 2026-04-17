@@ -7,19 +7,46 @@ use crate::states::AppState;
 use crate::supabase::{self, PolledPlayerState, SupabaseConfig};
 use crate::{GameFont, GameSession};
 
-/// Map a champion name (e.g. "Katan") to its sprite sheet bytes.
-/// Unknown names fall back to Katan. All sheets share the same 6×8 atlas layout.
-pub fn champion_bytes(name: &str) -> &'static [u8] {
+/// Per-champion sprite sheet metadata. Sheets use inconsistent layouts
+/// (some padded like Katan/Zhinja, most plain grids). Frame size is always 16×16.
+pub struct ChampionInfo {
+    pub bytes: &'static [u8],
+    pub cols: u32,
+    pub rows: u32,
+    /// Whether the sheet uses Katan's 1px offset + 2px inter-frame padding.
+    pub padded: bool,
+}
+
+/// Look up sprite-sheet metadata for a champion. Unknown names fall back to Katan.
+pub fn champion_info(name: &str) -> ChampionInfo {
     match name {
-        "Zhinja"    => include_bytes!("../../assets/sprites/Zhinja.png"),
-        "Arthax"    => include_bytes!("../../assets/sprites/Arthax.png"),
-        "Börg"      => include_bytes!("../../assets/sprites/Börg.png"),
-        "Gangblanc" => include_bytes!("../../assets/sprites/Gangblanc.png"),
-        "Grum"      => include_bytes!("../../assets/sprites/Grum.png"),
-        "Kanji"     => include_bytes!("../../assets/sprites/Kanji.png"),
-        "Okomo"     => include_bytes!("../../assets/sprites/Okomo.png"),
-        _           => include_bytes!("../../assets/sprites/Katan.png"),
+        "Zhinja"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Zhinja.png"),    cols: 6, rows: 9,  padded: true },
+        "Arthax"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Arthax.png"),    cols: 5, rows: 8,  padded: false },
+        "Börg"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Börg.png"),      cols: 6, rows: 8,  padded: false },
+        "Gangblanc" => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Gangblanc.png"), cols: 8, rows: 8,  padded: false },
+        "Grum"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Grum.png"),      cols: 5, rows: 9,  padded: false },
+        "Kanji"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Kanji.png"),     cols: 6, rows: 8,  padded: false },
+        "Okomo"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Okomo.png"),     cols: 5, rows: 12, padded: false },
+        _           => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Katan.png"),     cols: 6, rows: 8,  padded: true },
     }
+}
+
+/// Build the TextureAtlasLayout matching a champion sheet.
+pub fn champion_atlas_layout(info: &ChampionInfo) -> TextureAtlasLayout {
+    if info.padded {
+        TextureAtlasLayout::from_grid(
+            UVec2::new(16, 16), info.cols, info.rows,
+            Some(UVec2::new(2, 2)), Some(UVec2::new(1, 1)),
+        )
+    } else {
+        TextureAtlasLayout::from_grid(UVec2::new(16, 16), info.cols, info.rows, None, None)
+    }
+}
+
+/// Backwards-compatible wrapper: raw bytes only. Prefer `champion_info` when
+/// you also need the atlas layout.
+pub fn champion_bytes(name: &str) -> &'static [u8] {
+    champion_info(name).bytes
 }
 
 pub struct TilemapPlugin;
@@ -84,6 +111,7 @@ struct OtherPlayerAnim {
     timer: Timer,
     frame: usize,
     moving: bool,
+    cols: u32,
 }
 
 #[derive(Component)]
@@ -135,6 +163,9 @@ struct WalkAnimation {
     frame: usize,
     facing: Facing,
     moving: bool,
+    /// Columns in the atlas — used to compute `row * cols + frame` since
+    /// different sprite sheets have different widths (5, 6, or 8 cols).
+    cols: u32,
 }
 
 // ── Resources ─────────────────────────────────────────
@@ -390,20 +421,19 @@ fn spawn_world(
 
     // Player character (hidden until server sends position)
     let champion_name = if !session.champion.is_empty() { &session.champion } else { "Katan" };
-    let champion_dyn = image::load_from_memory(champion_bytes(champion_name)).expect("player sprite");
+    let info = champion_info(champion_name);
+    let champion_dyn = image::load_from_memory(info.bytes).expect("player sprite");
     let champion_rgba = champion_dyn.to_rgba8();
     let (cw, ch) = champion_rgba.dimensions();
     let champion_tex = images.add(Image::new(
         Extent3d { width: cw, height: ch, depth_or_array_layers: 1 },
         TextureDimension::D2, champion_rgba.into_raw(), TextureFormat::Rgba8UnormSrgb, default(),
     ));
-    // 1px padding between frames (18x18 slots, 16x16 content, 1px offset)
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, Some(UVec2::new(2, 2)), Some(UVec2::new(1, 1)));
-    let layout_handle = atlases.add(layout);
+    let layout_handle = atlases.add(champion_atlas_layout(&info));
     commands.spawn((
         Sprite { image: champion_tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
         Transform::from_xyz(0.0, 0.0, 5.0), Visibility::Hidden, PlayerSprite,
-        WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, facing: Facing::Down, moving: false },
+        WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, facing: Facing::Down, moving: false, cols: info.cols },
     ));
     commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(0.0, 12.0, 6.0), Visibility::Hidden, PlayerNameTag));
     commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 1.0)), Transform::from_xyz(0.0, 0.0, 10.0), Visibility::Hidden, TileInfoText));
@@ -634,19 +664,20 @@ fn render_character(
         sprite.flip_x = false;
 
         let should_animate = state.is_walking && state.speed_kmh > 0.1;
+        let cols = anim.cols as usize;
         if should_animate {
             let speed_factor = state.speed_kmh.clamp(0.5, 6.0);
             anim.timer.set_duration(std::time::Duration::from_secs_f32(0.3 / speed_factor));
             anim.timer.tick(time.delta());
             if anim.timer.just_finished() { anim.frame = (anim.frame % 4) + 1; }
             let row = facing_base_row(anim.facing);
-            if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6 + anim.frame; }
+            if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols + anim.frame; }
             anim.moving = true;
         } else if anim.moving {
             anim.moving = false;
             anim.frame = 0;
             let row = facing_base_row(anim.facing);
-            if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6; }
+            if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols; }
         }
     }
 
@@ -986,6 +1017,7 @@ fn update_other_players(
 
             // Animation
             let is_walking = other.is_walking && other.current_speed_kmh > 0.1;
+            let cols = anim.cols as usize;
             if is_walking {
                 let speed_factor = other.current_speed_kmh.clamp(0.5, 6.0);
                 anim.timer.set_duration(std::time::Duration::from_secs_f32(0.3 / speed_factor));
@@ -994,33 +1026,33 @@ fn update_other_players(
                     anim.frame = (anim.frame % 4) + 1;
                 }
                 let row = facing_base_row(other.facing);
-                if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6 + anim.frame; }
+                if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols + anim.frame; }
                 anim.moving = true;
             } else if anim.moving {
                 anim.moving = false;
                 anim.frame = 0;
                 let row = facing_base_row(other.facing);
-                if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * 6; }
+                if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols; }
             }
             sprite.flip_x = false;
         } else {
             // Spawn new sprite for this player using their chosen champion.
             let champ = other.champion.as_deref().filter(|s| !s.is_empty()).unwrap_or("Zhinja");
-            let dyn_img = image::load_from_memory(champion_bytes(champ)).expect("other player sprite");
+            let info = champion_info(champ);
+            let dyn_img = image::load_from_memory(info.bytes).expect("other player sprite");
             let rgba = dyn_img.to_rgba8();
             let (w, h) = rgba.dimensions();
             let tex = images.add(Image::new(
                 Extent3d { width: w, height: h, depth_or_array_layers: 1 },
                 TextureDimension::D2, rgba.into_raw(), TextureFormat::Rgba8UnormSrgb, default(),
             ));
-            let layout = TextureAtlasLayout::from_grid(UVec2::new(16, 16), 6, 8, Some(UVec2::new(2, 2)), Some(UVec2::new(1, 1)));
-            let layout_handle = atlases.add(layout);
+            let layout_handle = atlases.add(champion_atlas_layout(&info));
             let pos = target_pos;
             commands.spawn((
                 Sprite { image: tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
                 Transform::from_xyz(pos.x, pos.y, 4.0),
                 OtherPlayerSprite(other.id.clone()),
-                OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false },
+                OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false, cols: info.cols },
             ));
             // Name tag
             commands.spawn((
