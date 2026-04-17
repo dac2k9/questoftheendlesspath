@@ -105,4 +105,11 @@ pub struct GameSession {
     pub player_id: String,
     pub player_name: String,
     pub join_code: String,
+    /// Character sprite chosen on title screen (e.g. "Katan"). See CHAMPIONS.
+    pub champion: String,
 }
+
+/// Available player characters — must match asset filenames in assets/sprites/.
+pub const CHAMPIONS: &[&str] = &[
+    "Katan", "Zhinja", "Arthax", "Börg", "Gangblanc", "Grum", "Kanji", "Okomo",
+];

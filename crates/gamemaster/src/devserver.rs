@@ -52,6 +52,9 @@ pub struct DevPlayerState {
     /// Previous tile before entering current tile (for retreat).
     #[serde(default)]
     pub prev_tile: Option<(i32, i32)>,
+    /// Character sprite the player chose on the title screen.
+    #[serde(default)]
+    pub champion: String,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
@@ -323,6 +326,9 @@ async fn handle_join(
     if walker_uuid.is_none() {
         return ("403 Forbidden", r#"{"error":"No Walker account found. Use your walker.akerud.se display name."}"#.to_string());
     }
+
+    let chosen_champion = data.get("champion").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+
     let (player_id, player_name) = {
         let mut lock = state.lock().unwrap();
 
@@ -339,6 +345,9 @@ async fn handle_join(
                 if !name.eq_ignore_ascii_case(&pname) {
                     p.name = name.clone();
                 }
+                if !chosen_champion.is_empty() {
+                    p.champion = chosen_champion.clone();
+                }
             }
             (pid, name)
         } else {
@@ -348,9 +357,13 @@ async fn handle_join(
                 .map(|p| (p.id.clone(), p.name.clone()));
 
             if let Some((pid, _pname)) = by_name {
-                // Link walker_uuid if we found one
-                if let (Some(p), Some(wid)) = (lock.get_mut(&pid), walker_uuid.as_ref()) {
-                    p.walker_uuid = Some(wid.clone());
+                if let Some(p) = lock.get_mut(&pid) {
+                    if let Some(wid) = walker_uuid.as_ref() {
+                        p.walker_uuid = Some(wid.clone());
+                    }
+                    if !chosen_champion.is_empty() {
+                        p.champion = chosen_champion.clone();
+                    }
                 }
                 (pid, name)
             } else {
@@ -366,9 +379,10 @@ async fn handle_join(
                     map_tile_x: start.0,
                     map_tile_y: start.1,
                     walker_uuid: walker_uuid.clone(),
+                    champion: chosen_champion.clone(),
                     ..Default::default()
                 });
-                tracing::info!("New player joined: {} ({})", name, player_id);
+                tracing::info!("New player joined: {} ({}) as {}", name, player_id, chosen_champion);
                 (player_id, name)
             }
         }
@@ -379,7 +393,14 @@ async fn handle_join(
         crate::walker_bridge::ensure_bridge(state.clone(), bridged_players.clone(), &player_id, wid);
     }
 
-    ("200 OK", format!(r#"{{"player_id":"{}","name":"{}"}}"#, player_id, player_name))
+    // Look up the player's stored champion (may have been set on an earlier join).
+    let champion = state.lock().ok()
+        .and_then(|s| s.get(&player_id).map(|p| p.champion.clone()))
+        .unwrap_or_default();
+    ("200 OK", format!(
+        r#"{{"player_id":"{}","name":"{}","champion":"{}"}}"#,
+        player_id, player_name, champion
+    ))
 }
 
 fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat) -> (&'static str, String) {

@@ -53,6 +53,8 @@ pub struct PlayerRow {
     pub opened_chests: Vec<String>,
     #[serde(default)]
     pub defeated_monsters: Vec<String>,
+    #[serde(default)]
+    pub champion: Option<String>,
 }
 
 /// Long-poll response wrapper from server.

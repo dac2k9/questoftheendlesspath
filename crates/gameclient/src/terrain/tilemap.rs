@@ -7,6 +7,21 @@ use crate::states::AppState;
 use crate::supabase::{self, PolledPlayerState, SupabaseConfig};
 use crate::{GameFont, GameSession};
 
+/// Map a champion name (e.g. "Katan") to its sprite sheet bytes.
+/// Unknown names fall back to Katan. All sheets share the same 6×8 atlas layout.
+pub fn champion_bytes(name: &str) -> &'static [u8] {
+    match name {
+        "Zhinja"    => include_bytes!("../../assets/sprites/Zhinja.png"),
+        "Arthax"    => include_bytes!("../../assets/sprites/Arthax.png"),
+        "Börg"      => include_bytes!("../../assets/sprites/Börg.png"),
+        "Gangblanc" => include_bytes!("../../assets/sprites/Gangblanc.png"),
+        "Grum"      => include_bytes!("../../assets/sprites/Grum.png"),
+        "Kanji"     => include_bytes!("../../assets/sprites/Kanji.png"),
+        "Okomo"     => include_bytes!("../../assets/sprites/Okomo.png"),
+        _           => include_bytes!("../../assets/sprites/Katan.png"),
+    }
+}
+
 pub struct TilemapPlugin;
 
 impl Plugin for TilemapPlugin {
@@ -257,6 +272,7 @@ fn spawn_world(
     asset_server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
     mut atlases: ResMut<Assets<TextureAtlasLayout>>,
+    session: Res<GameSession>,
 ) {
     let world = WorldGrid::from_seed(12345);
 
@@ -373,8 +389,8 @@ fn spawn_world(
     }
 
     // Player character (hidden until server sends position)
-    let champion_bytes = include_bytes!("../../assets/sprites/Katan.png");
-    let champion_dyn = image::load_from_memory(champion_bytes).expect("player sprite");
+    let champion_name = if !session.champion.is_empty() { &session.champion } else { "Katan" };
+    let champion_dyn = image::load_from_memory(champion_bytes(champion_name)).expect("player sprite");
     let champion_rgba = champion_dyn.to_rgba8();
     let (cw, ch) = champion_rgba.dimensions();
     let champion_tex = images.add(Image::new(
@@ -988,9 +1004,9 @@ fn update_other_players(
             }
             sprite.flip_x = false;
         } else {
-            // Spawn new sprite for this player (use Zhinja sprite sheet)
-            let sprite_bytes = include_bytes!("../../assets/sprites/Zhinja.png");
-            let dyn_img = image::load_from_memory(sprite_bytes).expect("other player sprite");
+            // Spawn new sprite for this player using their chosen champion.
+            let champ = other.champion.as_deref().filter(|s| !s.is_empty()).unwrap_or("Zhinja");
+            let dyn_img = image::load_from_memory(champion_bytes(champ)).expect("other player sprite");
             let rgba = dyn_img.to_rgba8();
             let (w, h) = rgba.dimensions();
             let tex = images.add(Image::new(
