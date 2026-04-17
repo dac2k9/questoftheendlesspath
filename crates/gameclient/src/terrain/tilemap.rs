@@ -1116,14 +1116,23 @@ fn update_other_players(
     }
 }
 
-/// Monster idle-frame period based on difficulty. Stronger monsters fidget
-/// faster, which reads as more menacing on the map. Range:
-///   difficulty 1 → ~0.55s/frame (slime-slow idle wiggle)
-///   difficulty 5 → ~0.35s/frame
-///   difficulty 8 → ~0.27s/frame (boss-tier)
+/// Monster idle-frame period based on difficulty. World mapgen produces
+/// difficulty 1-5 (slime..wendigo/necromancer); boss events go higher but
+/// those aren't placed on the map. Wider spread so the visual difference
+/// between a slime and a necromancer actually reads.
+///   1 Slime/weak       → 0.90s (drowsy)
+///   2 Goblin/Crab      → 0.60s
+///   3 Archer/Skeleton  → 0.40s
+///   4 Minotaur/Yeti    → 0.25s
+///   5+ Wendigo/Necro   → 0.15s (very active / scary)
 fn monster_idle_period(difficulty: u32) -> f32 {
-    let d = difficulty.clamp(1, 12) as f32;
-    (0.6 / (1.0 + d * 0.12)).max(0.18)
+    match difficulty {
+        0..=1 => 0.90,
+        2     => 0.60,
+        3     => 0.40,
+        4     => 0.25,
+        _     => 0.15,
+    }
 }
 
 fn animate_monsters(
