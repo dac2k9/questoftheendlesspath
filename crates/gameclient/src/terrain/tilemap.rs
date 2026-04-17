@@ -10,31 +10,36 @@ use crate::{GameFont, GameSession};
 /// Per-champion sprite sheet metadata. Sheets use inconsistent layouts
 /// (some padded like Katan, most plain grids). Frame size is always 16×16.
 ///
-/// `facing_rows` maps facing → row in the atlas in order [Down, Up, Right, Left].
-/// Default is [0, 1, 2, 3] but some packs (Zhinja) swap Right/Left.
+/// `facing_rows` / `facing_flip` map facing → atlas row + x-flip, in order
+/// [Down, Up, Right, Left]. Most packs have a dedicated Left row (default).
+/// Others (Zhinja) only supply Right and use flip_x for Left.
 pub struct ChampionInfo {
     pub bytes: &'static [u8],
     pub cols: u32,
     pub rows: u32,
     pub padded: bool,
     pub facing_rows: [usize; 4],
+    pub facing_flip: [bool; 4],
 }
 
 /// Look up sprite-sheet metadata for a champion. Unknown names fall back to Katan.
 pub fn champion_info(name: &str) -> ChampionInfo {
-    // Default row mapping: Down=0, Up=1, Right=2, Left=3
-    const DEFAULT: [usize; 4] = [0, 1, 2, 3];
-    // Zhinja: Right/Left swapped (walking left showed facing right before this).
-    const ZHINJA_ROWS: [usize; 4] = [0, 1, 3, 2];
+    // Default: Down=row 0, Up=row 1, Right=row 2, Left=row 3. No flips.
+    const DEFAULT_ROWS: [usize; 4] = [0, 1, 2, 3];
+    const NO_FLIP: [bool; 4] = [false; 4];
+    // Zhinja: Right=row 0, Down=row 1, Up=row 2, no dedicated Left row.
+    // Left reuses row 0 (Right) with horizontal flip.
+    const ZHINJA_ROWS: [usize; 4] = [1, 2, 0, 0];
+    const ZHINJA_FLIP: [bool; 4] = [false, false, false, true];
     match name {
-        "Zhinja"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Zhinja.png"),    cols: 6, rows: 9,  padded: true,  facing_rows: ZHINJA_ROWS },
-        "Arthax"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Arthax.png"),    cols: 5, rows: 8,  padded: false, facing_rows: DEFAULT },
-        "Börg"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Börg.png"),      cols: 6, rows: 8,  padded: false, facing_rows: DEFAULT },
-        "Gangblanc" => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Gangblanc.png"), cols: 8, rows: 8,  padded: false, facing_rows: DEFAULT },
-        "Grum"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Grum.png"),      cols: 5, rows: 9,  padded: false, facing_rows: DEFAULT },
-        "Kanji"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Kanji.png"),     cols: 6, rows: 8,  padded: false, facing_rows: DEFAULT },
-        "Okomo"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Okomo.png"),     cols: 5, rows: 12, padded: false, facing_rows: DEFAULT },
-        _           => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Katan.png"),     cols: 6, rows: 8,  padded: true,  facing_rows: DEFAULT },
+        "Zhinja"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Zhinja.png"),    cols: 6, rows: 9,  padded: true,  facing_rows: ZHINJA_ROWS, facing_flip: ZHINJA_FLIP },
+        "Arthax"    => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Arthax.png"),    cols: 5, rows: 8,  padded: false, facing_rows: DEFAULT_ROWS, facing_flip: NO_FLIP },
+        "Börg"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Börg.png"),      cols: 6, rows: 8,  padded: false, facing_rows: DEFAULT_ROWS, facing_flip: NO_FLIP },
+        "Gangblanc" => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Gangblanc.png"), cols: 8, rows: 8,  padded: false, facing_rows: DEFAULT_ROWS, facing_flip: NO_FLIP },
+        "Grum"      => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Grum.png"),      cols: 5, rows: 9,  padded: false, facing_rows: DEFAULT_ROWS, facing_flip: NO_FLIP },
+        "Kanji"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Kanji.png"),     cols: 6, rows: 8,  padded: false, facing_rows: DEFAULT_ROWS, facing_flip: NO_FLIP },
+        "Okomo"     => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Okomo.png"),     cols: 5, rows: 12, padded: false, facing_rows: DEFAULT_ROWS, facing_flip: NO_FLIP },
+        _           => ChampionInfo { bytes: include_bytes!("../../assets/sprites/Katan.png"),     cols: 6, rows: 8,  padded: true,  facing_rows: DEFAULT_ROWS, facing_flip: NO_FLIP },
     }
 }
 
@@ -125,6 +130,7 @@ struct OtherPlayerAnim {
     moving: bool,
     cols: u32,
     facing_rows: [usize; 4],
+    facing_flip: [bool; 4],
 }
 
 #[derive(Component)]
@@ -182,6 +188,9 @@ struct WalkAnimation {
     cols: u32,
     /// Atlas row per facing [Down, Up, Right, Left]. Varies by sprite pack.
     facing_rows: [usize; 4],
+    /// Whether to set sprite.flip_x for each facing [Down, Up, Right, Left].
+    /// Used when a sheet has no Left row and reuses Right mirrored.
+    facing_flip: [bool; 4],
 }
 
 // ── Resources ─────────────────────────────────────────
@@ -449,7 +458,7 @@ fn spawn_world(
     commands.spawn((
         Sprite { image: champion_tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
         Transform::from_xyz(0.0, 0.0, 5.0), Visibility::Hidden, PlayerSprite,
-        WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, facing: Facing::Down, moving: false, cols: info.cols, facing_rows: info.facing_rows },
+        WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, facing: Facing::Down, moving: false, cols: info.cols, facing_rows: info.facing_rows, facing_flip: info.facing_flip },
     ));
     commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(0.0, 12.0, 6.0), Visibility::Hidden, PlayerNameTag));
     commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 1.0)), Transform::from_xyz(0.0, 0.0, 10.0), Visibility::Hidden, TileInfoText));
@@ -677,7 +686,8 @@ fn render_character(
         // Derive facing from the visual position on the route
         anim.facing = visual_facing;
 
-        sprite.flip_x = false;
+        let idx = facing_idx(anim.facing);
+        sprite.flip_x = anim.facing_flip[idx];
 
         let should_animate = state.is_walking && state.speed_kmh > 0.1;
         let cols = anim.cols as usize;
@@ -686,13 +696,13 @@ fn render_character(
             anim.timer.set_duration(std::time::Duration::from_secs_f32(0.3 / speed_factor));
             anim.timer.tick(time.delta());
             if anim.timer.just_finished() { anim.frame = (anim.frame % 4) + 1; }
-            let row = anim.facing_rows[facing_idx(anim.facing)];
+            let row = anim.facing_rows[idx];
             if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols + anim.frame; }
             anim.moving = true;
         } else if anim.moving {
             anim.moving = false;
             anim.frame = 0;
-            let row = anim.facing_rows[facing_idx(anim.facing)];
+            let row = anim.facing_rows[idx];
             if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols; }
         }
     }
@@ -1034,6 +1044,8 @@ fn update_other_players(
             // Animation
             let is_walking = other.is_walking && other.current_speed_kmh > 0.1;
             let cols = anim.cols as usize;
+            let idx = facing_idx(other.facing);
+            sprite.flip_x = anim.facing_flip[idx];
             if is_walking {
                 let speed_factor = other.current_speed_kmh.clamp(0.5, 6.0);
                 anim.timer.set_duration(std::time::Duration::from_secs_f32(0.3 / speed_factor));
@@ -1041,16 +1053,15 @@ fn update_other_players(
                 if anim.timer.just_finished() {
                     anim.frame = (anim.frame % 4) + 1;
                 }
-                let row = anim.facing_rows[facing_idx(other.facing)];
+                let row = anim.facing_rows[idx];
                 if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols + anim.frame; }
                 anim.moving = true;
             } else if anim.moving {
                 anim.moving = false;
                 anim.frame = 0;
-                let row = anim.facing_rows[facing_idx(other.facing)];
+                let row = anim.facing_rows[idx];
                 if let Some(ref mut atlas) = sprite.texture_atlas { atlas.index = row * cols; }
             }
-            sprite.flip_x = false;
         } else {
             // Spawn new sprite for this player using their chosen champion.
             let champ = other.champion.as_deref().filter(|s| !s.is_empty()).unwrap_or("Zhinja");
@@ -1068,7 +1079,7 @@ fn update_other_players(
                 Sprite { image: tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
                 Transform::from_xyz(pos.x, pos.y, 4.0),
                 OtherPlayerSprite(other.id.clone()),
-                OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false, cols: info.cols, facing_rows: info.facing_rows },
+                OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false, cols: info.cols, facing_rows: info.facing_rows, facing_flip: info.facing_flip },
             ));
             // Name tag
             commands.spawn((
