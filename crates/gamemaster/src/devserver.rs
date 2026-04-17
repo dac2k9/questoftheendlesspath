@@ -703,18 +703,22 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", json);
     }
 
-    if first_line.starts_with("GET /events") {
-        let lock = events.lock().unwrap();
-        let json = lock.to_json();
-        return ("200 OK", json);
-    }
+    // `GET /events` (whole catalog) was removed — clients now use
+    // `/events/active?player_id=X` which filters by per-player completion.
+    // Leaving the whole catalog reachable leaked other players' completion state.
 
     // POST /events/{id}/complete — mark event as completed and apply outcomes
     if first_line.contains("/events/") && first_line.contains("/complete") {
-        // Extract player_id from body (if provided)
         let body_player_id = request.find("\r\n\r\n")
             .and_then(|i| serde_json::from_str::<serde_json::Value>(&request[i + 4..]).ok())
             .and_then(|v| v.get("player_id")?.as_str().map(|s| s.to_string()));
+
+        // Require player_id. Previously this fell back to `state.values_mut().next()`
+        // which dumped gold/items into whoever hashed first — a hard-to-debug leak
+        // if a client ever omitted the field.
+        let Some(body_player_id) = body_player_id else {
+            return ("400 Bad Request", r#"{"error":"player_id required"}"#.to_string());
+        };
 
         // Extract event id from URL: POST /events/some_id/complete
         let parts: Vec<&str> = first_line.split('/').collect();
@@ -738,18 +742,10 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                             event.force_status(questlib::events::EventStatus::Pending);
                         }
                         let mut state_lock = state.lock().unwrap();
-                        // Use player_id from body, or fall back to first player
-                        let player = if let Some(ref pid) = body_player_id {
-                            state_lock.get_mut(pid)
-                        } else {
-                            state_lock.values_mut().next()
-                        };
+                        let player = state_lock.get_mut(&body_player_id);
                         if let Some(player) = player {
-                            // Mark event as personally completed for this player
-                            if let Some(ref pid) = body_player_id {
-                                if !player.completed_events.contains(&event_id.to_string()) {
-                                    player.completed_events.push(event_id.to_string());
-                                }
+                            if !player.completed_events.contains(&event_id.to_string()) {
+                                player.completed_events.push(event_id.to_string());
                             }
                             for outcome in &outcomes {
                                 match outcome {
@@ -770,8 +766,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                         player.revealed_tiles = fog.to_base64();
                                     }
                                     questlib::events::EventOutcome::Notification { text } => {
-                                        if let (Ok(mut n), Some(ref pid)) = (notifs.lock(), &body_player_id) {
-                                            crate::push_notif(&mut n, &pid, text.clone());
+                                        if let Ok(mut n) = notifs.lock() {
+                                            crate::push_notif(&mut n, &body_player_id, text.clone());
                                         }
                                     }
                                     _ => {}

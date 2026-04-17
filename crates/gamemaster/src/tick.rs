@@ -322,13 +322,12 @@ pub fn run_tick_dev(
             .collect();
 
         for event_id in &triggered_ids {
-            let Some(event) = events_lock.get_mut(event_id) else { continue };
-            // Force to Active for this player's trigger
-            event.force_status(EventStatus::Active);
-            {
-                info!("[{}] Event triggered: {} ({})", player.name, event.name, event.id);
-
-                // Start combat for Boss/RandomEncounter events
+            // Pre-check event kind so we can gate bosses BEFORE flipping state.
+            // Previously we set Active → checked gate → set back to Pending if
+            // waiting. That oscillated Active ↔ Pending each tick, which was
+            // briefly observable by other players' /events/active polls.
+            let (is_combat, is_boss) = {
+                let Some(event) = events_lock.get(event_id) else { continue };
                 let is_combat = matches!(event.kind, questlib::events::kind::EventKind::Boss { .. }
                     | questlib::events::kind::EventKind::RandomEncounter { .. });
                 let difficulty = match &event.kind {
@@ -336,26 +335,37 @@ pub fn run_tick_dev(
                     questlib::events::kind::EventKind::Boss { .. } => 8,
                     _ => 3,
                 };
-                let is_boss = difficulty >= 6;
+                (is_combat, difficulty >= 6)
+            };
+
+            // Gate: boss fights wait for everyone. Evaluated BEFORE force_status,
+            // so the event stays Pending across the wait rather than oscillating.
+            let coop_player_ids: Vec<String> = if is_boss && is_combat {
+                if player.planned_route.is_empty() {
+                    Vec::new() // unreachable path; treated like a non-boss skip below
+                } else {
+                    let poi_pos = (player.map_tile_x, player.map_tile_y);
+                    let online_count = players.len();
+                    let here: Vec<String> = players.iter()
+                        .filter(|p| p.map_tile_x == poi_pos.0 && p.map_tile_y == poi_pos.1)
+                        .map(|p| p.id.clone())
+                        .collect();
+                    if here.len() < online_count {
+                        info!("  Boss fight waiting: {}/{} players at ({},{})",
+                            here.len(), online_count, poi_pos.0, poi_pos.1);
+                        continue; // re-check next tick; event stays Pending globally
+                    }
+                    here
+                }
+            } else { Vec::new() };
+
+            let Some(event) = events_lock.get_mut(event_id) else { continue };
+            event.force_status(EventStatus::Active);
+            {
+                info!("[{}] Event triggered: {} ({})", player.name, event.name, event.id);
 
                 if is_combat {
                     if !player.planned_route.is_empty() {
-                        // For bosses: wait until ALL online players are at the same POI
-                        let poi_pos = (player.map_tile_x, player.map_tile_y);
-                        let online_players: Vec<&DevPlayerState> = players.iter().collect();
-                        let all_here: Vec<String> = online_players.iter()
-                            .filter(|p| p.map_tile_x == poi_pos.0 && p.map_tile_y == poi_pos.1)
-                            .map(|p| p.id.clone())
-                            .collect();
-
-                        if is_boss && all_here.len() < online_players.len() {
-                            // Not everyone here yet — keep event Active, waiting
-                            info!("  Boss fight waiting: {}/{} players at ({},{})",
-                                all_here.len(), online_players.len(), poi_pos.0, poi_pos.1);
-                            event.force_status(EventStatus::Pending);
-                            continue;
-                        }
-
                         let catalog = crate::item_catalog();
                         let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog);
                         server_combat::start_combat(
@@ -367,11 +377,11 @@ pub fn run_tick_dev(
                             player_id,
                         );
                         // For coop bosses, add all present players to the combat
-                        if is_boss {
+                        if is_boss && !coop_player_ids.is_empty() {
                             if let Ok(mut combat_lock) = shared_combat.lock() {
                                 if let Some(cs) = combat_lock.get_mut(&event.id) {
-                                    cs.coop_players = all_here.clone();
-                                    info!("  Coop boss fight started: {} players", all_here.len());
+                                    cs.coop_players = coop_player_ids.clone();
+                                    info!("  Coop boss fight started: {} players", coop_player_ids.len());
                                 }
                             }
                         }
