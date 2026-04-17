@@ -147,6 +147,8 @@ struct MonsterAnimation {
     timer: Timer,
     frame: usize,
     cols: usize, // number of columns in this sprite sheet
+    /// Monster difficulty — stronger monsters fidget faster (more menacing).
+    difficulty: u32,
 }
 
 #[derive(Component)]
@@ -438,7 +440,12 @@ fn spawn_world(
                     Transform::from_xyz(pos.x, pos.y, 1.5),
                     Visibility::Hidden,
                     MonsterSprite(i),
-                    MonsterAnimation { timer: Timer::from_seconds(0.3, TimerMode::Repeating), frame: 0, cols: *cols },
+                    MonsterAnimation {
+                        timer: Timer::from_seconds(monster_idle_period(monster.difficulty), TimerMode::Repeating),
+                        frame: 0,
+                        cols: *cols,
+                        difficulty: monster.difficulty,
+                    },
                 ));
             }
         }
@@ -1109,32 +1116,30 @@ fn update_other_players(
     }
 }
 
+/// Monster idle-frame period based on difficulty. Stronger monsters fidget
+/// faster, which reads as more menacing on the map. Range:
+///   difficulty 1 → ~0.55s/frame (slime-slow idle wiggle)
+///   difficulty 5 → ~0.35s/frame
+///   difficulty 8 → ~0.27s/frame (boss-tier)
+fn monster_idle_period(difficulty: u32) -> f32 {
+    let d = difficulty.clamp(1, 12) as f32;
+    (0.6 / (1.0 + d * 0.12)).max(0.18)
+}
+
 fn animate_monsters(
     time: Res<Time>,
-    state: Res<MyPlayerState>,
     mut monsters: Query<(&mut MonsterAnimation, &mut Sprite), With<MonsterSprite>>,
 ) {
-    let speed = state.speed_kmh;
-    let is_walking = state.is_walking && speed > 0.1;
-
     for (mut anim, mut sprite) in &mut monsters {
-        if is_walking {
-            let speed_factor = speed.clamp(0.5, 6.0);
-            anim.timer.set_duration(std::time::Duration::from_secs_f32(0.3 / speed_factor));
-            anim.timer.tick(time.delta());
-            if anim.timer.just_finished() {
-                // Cycle through frames 1..cols-1 (skip frame 0 = idle)
-                let max_frame = anim.cols.saturating_sub(1).max(1);
-                anim.frame = (anim.frame % max_frame) + 1;
-            }
-            if let Some(ref mut atlas) = sprite.texture_atlas {
-                atlas.index = anim.frame;
-            }
-        } else {
-            anim.frame = 0;
-            if let Some(ref mut atlas) = sprite.texture_atlas {
-                atlas.index = 0;
-            }
+        anim.timer.tick(time.delta());
+        if anim.timer.just_finished() {
+            // Cycle through frames 1..cols-1 (skip frame 0 = idle pose so the
+            // whole-animation pause at frame 0 is gone; all frames are "alive").
+            let max_frame = anim.cols.saturating_sub(1).max(1);
+            anim.frame = (anim.frame % max_frame) + 1;
+        }
+        if let Some(ref mut atlas) = sprite.texture_atlas {
+            atlas.index = anim.frame;
         }
     }
 }
