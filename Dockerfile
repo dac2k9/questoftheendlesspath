@@ -45,6 +45,10 @@ ENV RUST_LOG=gamemaster=info
 # Default save path. Override on Render to "/data/dev_state.json" with a
 # persistent disk mounted at /data so state survives redeploys.
 ENV SAVE_PATH=/app/dev_state.json
+# Admin endpoints (/admin/give_item, /admin/reset_event, /admin/grant_completion,
+# /admin/revoke_completion) are disabled unless ADMIN_TOKEN is set to a non-empty
+# value. Callers must include an `X-Admin-Token: <value>` header.
+ENV ADMIN_TOKEN=
 
 EXPOSE 3001
 CMD ["/app/gamemaster"]

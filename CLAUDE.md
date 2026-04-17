@@ -156,17 +156,40 @@ on Render with a persistent disk mounted at `/data`).
 - `POST /set_route` — `{"player_id":"...","route":"[[x,y],...]"}`
 - `POST /walker_update` — `{"player_id":"...","speed":1.5,"distance":10,"steps":50,"actually_walking":true}`
 - `POST /debug_walk` — `{"player_id":"...","speed":3.0}` (simulate walking)
-- `GET /events` — all events with status
-- `GET /events/active` — only active events
-- `POST /events/{id}/complete` — mark event completed
-- `GET /notifications` — fetch + clear pending notifications
+- `GET /events/active?player_id=X` — events currently visible to this player
+- `POST /events/{id}/complete` — `{"player_id":"..."}` required; mark event completed
+- `GET /notifications?player_id=X` — fetch + clear this player's pending notifications
 - `POST /heartbeat` — browser presence (no-op in dev)
+- `GET /leaderboard` — proxy to walker.akerud.se leaderboard (bypasses CORS)
+
+### Admin endpoints
+
+Gated on both the `ADMIN_TOKEN` env var (must be non-empty) and an
+`X-Admin-Token: <value>` header. Use for one-off fixes: giving an item,
+resetting an event's global status, granting/revoking per-player completion.
+
+```bash
+TOKEN=...  # same value as ADMIN_TOKEN on the server
+BASE=https://questoftheendlesspath-latest.onrender.com
+curl -s -X POST $BASE/admin/give_item \
+  -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
+  -d '{"player_id":"<uuid>","item_id":"seven_league_boots","quantity":1}'
+curl -s -X POST $BASE/admin/reset_event \
+  -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
+  -d '{"event_id":"find_traveler","status":"pending"}'
+curl -s -X POST $BASE/admin/revoke_completion \
+  -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
+  -d '{"player_id":"<uuid>","event_id":"find_traveler"}'
+```
 
 ## State Persistence
 
-- `dev_state.json` — auto-saved every 30s by Game Master
-- Contains: player positions, gold, routes, fog, event statuses
-- Delete to reset game: `rm dev_state.json`
+- `dev_state.json` — auto-saved every 30s by Game Master, and on SIGTERM
+- Contains: player positions, gold, inventory, fog, per-event status
+- Versioned (`SaveData.version`); `migrate_save` handles older versions
+- Item ids that disappear from the catalog are pruned from inventory/equipment on load
+- Event definitions are re-read fresh from `EVENTS_PATH` every startup — only per-event status is carried over, so content updates (shops, triggers, outcomes) don't require wiping the save
+- Delete to reset locally: `rm dev_state.json`
 
 ## TODO
 

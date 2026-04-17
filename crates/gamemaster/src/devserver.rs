@@ -903,6 +903,114 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", r#"{"ok":true}"#.to_string());
     }
 
+    // ── Admin endpoints ────────────────────────────────────
+    // Gated by a shared secret in the ADMIN_TOKEN env var AND an
+    // X-Admin-Token header. If the env var is unset or empty, admin
+    // endpoints are disabled entirely (403). Not a full auth system —
+    // it's a "don't let randoms poke state" safeguard.
+    if first_line.starts_with("POST /admin/") {
+        let expected = std::env::var("ADMIN_TOKEN").unwrap_or_default();
+        if expected.is_empty() {
+            return ("403 Forbidden", r#"{"error":"admin endpoints disabled (ADMIN_TOKEN unset)"}"#.to_string());
+        }
+        let got = request.lines()
+            .find(|l| l.to_lowercase().starts_with("x-admin-token:"))
+            .and_then(|l| l.splitn(2, ':').nth(1))
+            .map(|s| s.trim())
+            .unwrap_or("");
+        if got != expected {
+            return ("401 Unauthorized", r#"{"error":"bad admin token"}"#.to_string());
+        }
+
+        let body = request.find("\r\n\r\n").map(|i| &request[i + 4..]).unwrap_or("");
+        let data: serde_json::Value = match serde_json::from_str(body) {
+            Ok(v) => v,
+            Err(_) => return ("400 Bad Request", r#"{"error":"invalid json"}"#.to_string()),
+        };
+
+        // POST /admin/give_item — { player_id, item_id, quantity? }
+        if first_line.starts_with("POST /admin/give_item") {
+            let pid = data.get("player_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let item_id = data.get("item_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let quantity = data.get("quantity").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+            if pid.is_empty() || item_id.is_empty() {
+                return ("400 Bad Request", r#"{"error":"player_id and item_id required"}"#.to_string());
+            }
+            let catalog = crate::item_catalog();
+            if catalog.get(&item_id).is_none() {
+                return ("400 Bad Request", format!(r#"{{"error":"unknown item: {}"}}"#, item_id));
+            }
+            let mut lock = state.lock().unwrap();
+            let Some(p) = lock.get_mut(&pid) else {
+                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+            };
+            for _ in 0..quantity {
+                questlib::items::add_item(&mut p.inventory, &item_id, Some(catalog));
+            }
+            tracing::info!("[admin] give_item player={} item={} qty={}", p.name, item_id, quantity);
+            return ("200 OK", r#"{"ok":true}"#.to_string());
+        }
+
+        // POST /admin/reset_event — { event_id, status } — sets global event status
+        if first_line.starts_with("POST /admin/reset_event") {
+            let event_id = data.get("event_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let status_str = data.get("status").and_then(|v| v.as_str()).unwrap_or("pending");
+            if event_id.is_empty() {
+                return ("400 Bad Request", r#"{"error":"event_id required"}"#.to_string());
+            }
+            let new_status = match status_str {
+                "pending"   => questlib::events::EventStatus::Pending,
+                "active"    => questlib::events::EventStatus::Active,
+                "completed" => questlib::events::EventStatus::Completed,
+                "dismissed" => questlib::events::EventStatus::Dismissed,
+                _ => return ("400 Bad Request", r#"{"error":"status must be pending|active|completed|dismissed"}"#.to_string()),
+            };
+            let mut events_lock = events.lock().unwrap();
+            let Some(event) = events_lock.get_mut(&event_id) else {
+                return ("404 Not Found", r#"{"error":"event not found"}"#.to_string());
+            };
+            event.force_status(new_status);
+            tracing::info!("[admin] reset_event {} -> {:?}", event_id, new_status);
+            return ("200 OK", r#"{"ok":true}"#.to_string());
+        }
+
+        // POST /admin/grant_completion — { player_id, event_id }
+        if first_line.starts_with("POST /admin/grant_completion") {
+            let pid = data.get("player_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let event_id = data.get("event_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if pid.is_empty() || event_id.is_empty() {
+                return ("400 Bad Request", r#"{"error":"player_id and event_id required"}"#.to_string());
+            }
+            let mut lock = state.lock().unwrap();
+            let Some(p) = lock.get_mut(&pid) else {
+                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+            };
+            if !p.completed_events.contains(&event_id) {
+                p.completed_events.push(event_id.clone());
+            }
+            tracing::info!("[admin] grant_completion player={} event={}", p.name, event_id);
+            return ("200 OK", r#"{"ok":true}"#.to_string());
+        }
+
+        // POST /admin/revoke_completion — { player_id, event_id } — lets a player re-experience a quest
+        if first_line.starts_with("POST /admin/revoke_completion") {
+            let pid = data.get("player_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let event_id = data.get("event_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if pid.is_empty() || event_id.is_empty() {
+                return ("400 Bad Request", r#"{"error":"player_id and event_id required"}"#.to_string());
+            }
+            let mut lock = state.lock().unwrap();
+            let Some(p) = lock.get_mut(&pid) else {
+                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+            };
+            p.completed_events.retain(|id| id != &event_id);
+            tracing::info!("[admin] revoke_completion player={} event={}", p.name, event_id);
+            return ("200 OK", r#"{"ok":true}"#.to_string());
+        }
+
+        return ("404 Not Found", r#"{"error":"unknown admin endpoint"}"#.to_string());
+    }
+
     ("404 Not Found", r#"{"error":"not found"}"#.to_string())
 }
 

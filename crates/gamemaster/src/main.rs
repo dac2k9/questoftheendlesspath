@@ -40,10 +40,67 @@ pub fn item_catalog() -> &'static questlib::items::ItemCatalog {
     })
 }
 
+/// Current save-file schema version. Bump whenever a breaking change to the
+/// on-disk representation happens, and extend `migrate_save` to handle it.
+const SAVE_VERSION: u32 = 1;
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SaveData {
+    /// Schema version. Defaults to 1 if absent (old saves written before
+    /// versioning existed).
+    #[serde(default = "default_save_version")]
+    version: u32,
     players: Vec<DevPlayerState>,
     events: EventCatalog,
+}
+
+fn default_save_version() -> u32 { 1 }
+
+/// Migrate a loaded SaveData to the current SAVE_VERSION in place. No-op
+/// today — first real break in the schema will add its migration arm here.
+fn migrate_save(save: &mut SaveData) {
+    let from = save.version;
+    if from == SAVE_VERSION { return; }
+    info!("Migrating save from version {} to {}", from, SAVE_VERSION);
+    // Example shape for future migrations:
+    //   while save.version < SAVE_VERSION {
+    //       match save.version {
+    //           1 => { /* rewrite v1 → v2 */ save.version = 2; }
+    //           _ => break,
+    //       }
+    //   }
+    save.version = SAVE_VERSION;
+}
+
+/// Drop inventory slots / equipment references that point at item ids no
+/// longer present in the catalog. Prevents "ghost" items after a rename or
+/// removal from items.json.
+fn prune_missing_items(players: &mut HashMap<String, DevPlayerState>, catalog: &questlib::items::ItemCatalog) {
+    for (_, p) in players.iter_mut() {
+        let mut dropped = Vec::new();
+        p.inventory.retain(|slot| {
+            if catalog.get(&slot.item_id).is_some() { true }
+            else { dropped.push(slot.item_id.clone()); false }
+        });
+        for slot in questlib::items::EquipmentLoadout::all_slots() {
+            if let Some(id) = p.equipment.get_slot(slot).map(|s| s.to_string()) {
+                if catalog.get(&id).is_none() {
+                    // Clearing the slot via set_slot(None) would require a pub setter;
+                    // we reach in directly via match since we control the struct.
+                    match slot {
+                        questlib::items::EquipmentSlot::Weapon    => p.equipment.weapon = None,
+                        questlib::items::EquipmentSlot::Armor     => p.equipment.armor = None,
+                        questlib::items::EquipmentSlot::Accessory => p.equipment.accessory = None,
+                        questlib::items::EquipmentSlot::Feet      => p.equipment.feet = None,
+                    }
+                    dropped.push(id);
+                }
+            }
+        }
+        if !dropped.is_empty() {
+            info!("[{}] dropped {} missing-item reference(s): {:?}", p.name, dropped.len(), dropped);
+        }
+    }
 }
 
 #[tokio::main]
@@ -128,12 +185,15 @@ async fn main() -> Result<()> {
     let shared_events: SharedEvents = Arc::new(Mutex::new(catalog));
 
     // Initialize shared player state — load from disk or start empty
-    let state: SharedState = Arc::new(Mutex::new(
-        load_state(save_path).unwrap_or_else(|| {
+    let state: SharedState = Arc::new(Mutex::new({
+        let mut loaded = load_state(save_path).unwrap_or_else(|| {
             info!("No saved state found, players will join via /join");
             HashMap::new()
-        })
-    ));
+        });
+        // Drop references to items that no longer exist in the catalog (renames etc.)
+        prune_missing_items(&mut loaded, item_catalog());
+        loaded
+    }));
 
     let shared_notifs: SharedNotifs = Arc::new(Mutex::new(HashMap::new()));
     let shared_combat: combat::SharedCombat = Arc::new(Mutex::new(HashMap::new()));
@@ -251,11 +311,12 @@ fn shutdown_signal() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> +
 
 fn load_state(path: &str) -> Option<HashMap<String, DevPlayerState>> {
     let json = std::fs::read_to_string(path).ok()?;
-    let save: SaveData = serde_json::from_str(&json).ok()?;
+    let mut save: SaveData = serde_json::from_str(&json).ok()?;
+    migrate_save(&mut save);
     for p in &save.players {
         info!("  Restored {}: tile=({},{}) gold={} route_m={:.0}", p.name, p.map_tile_x, p.map_tile_y, p.gold, p.route_meters_walked);
     }
-    info!("Loaded {} players from {}", save.players.len(), path);
+    info!("Loaded {} players from {} (schema v{})", save.players.len(), path, save.version);
     Some(save.players.into_iter().map(|p| (p.id.clone(), p)).collect())
 }
 
@@ -270,6 +331,7 @@ fn save_state(path: &str, state: &SharedState, events: &SharedEvents) {
             Err(e) => { error!("save_state: events mutex poisoned: {e}"); return; }
         };
         SaveData {
+            version: SAVE_VERSION,
             players: lock.values().cloned().collect(),
             events: events_lock.clone(),
         }
