@@ -710,6 +710,10 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 .map(|s| s.split_whitespace().next().unwrap_or(s));
 
             if let Some(event_id) = event_id {
+                // Hold events_lock AND state_lock together so a tick between the
+                // event-status flip and the player.completed_events write can't
+                // observe an inconsistent pair and re-trigger the quest. Lock order
+                // (events then state) matches run_tick_dev, so no deadlock.
                 let mut events_lock = events.lock().unwrap();
                 if let Some(event) = events_lock.get_mut(event_id) {
                     if event.transition(questlib::events::EventStatus::Completed).is_ok() {
@@ -718,7 +722,6 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                         if repeatable {
                             event.force_status(questlib::events::EventStatus::Pending);
                         }
-                        drop(events_lock);
                         let mut state_lock = state.lock().unwrap();
                         // Use player_id from body, or fall back to first player
                         let player = if let Some(ref pid) = body_player_id {
