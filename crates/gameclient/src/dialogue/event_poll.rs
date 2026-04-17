@@ -184,9 +184,11 @@ pub fn poll_active_events(
     // Fire fetch on timer
     if just_finished {
         let fetched = poll.fetched.clone();
+        let pid = session.player_id.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = reqwest::Client::new();
-            if let Ok(resp) = client.get(&crate::api_url("/events/active")).send().await {
+            let url = crate::api_url(&format!("/events/active?player_id={}", pid));
+            if let Ok(resp) = client.get(&url).send().await {
                 if let Ok(events) = resp.json::<Vec<ActiveEvent>>().await {
                     if let Ok(mut lock) = fetched.lock() {
                         *lock = Some(events);

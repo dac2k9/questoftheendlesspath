@@ -89,8 +89,11 @@ pub fn run_tick_dev(
             continue;
         }
 
-        // Blocking event check — also block during THIS player's combat
-        let has_blocking = events_lock.active_events().iter().any(|e| e.requires_browser)
+        // Blocking event check — only block if there's a requires_browser event
+        // that THIS player hasn't personally completed. Otherwise one player's
+        // dialog would freeze everyone else on the map.
+        let has_blocking = events_lock.active_events().iter()
+            .any(|e| e.requires_browser && !player.completed_events.contains(&e.id))
             || server_combat::player_in_combat(shared_combat, player_id);
 
         // Parse route

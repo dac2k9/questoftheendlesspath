@@ -673,12 +673,27 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
     }
 
-    // GET /events — all events
+    // GET /events/active?player_id=X — active events visible to THIS player.
+    // Events already completed by this player (personally) are excluded, so
+    // one player re-triggering a quest can't leak its dialog onto others.
     if first_line.starts_with("GET /events/active") {
+        let player_id = first_line.split('?').nth(1)
+            .and_then(|qs| qs.split('&').find(|p| p.starts_with("player_id=")))
+            .and_then(|p| p.strip_prefix("player_id="))
+            .and_then(|v| v.split_whitespace().next())
+            .unwrap_or("");
+        let completed: Vec<String> = if !player_id.is_empty() {
+            state.lock().ok()
+                .and_then(|s| s.get(player_id).map(|p| p.completed_events.clone()))
+                .unwrap_or_default()
+        } else { Vec::new() };
+
         let lock = events.lock().unwrap();
-        let mut result: Vec<_> = lock.active_events().into_iter().cloned().collect();
-        // Include pending repeatable events (shops, wells, etc.) — they're
-        // permanent POI features not triggered as blocking events.
+        let mut result: Vec<_> = lock.active_events().into_iter()
+            .filter(|e| !completed.contains(&e.id))
+            .cloned().collect();
+        // Repeatable events (shops, wells, etc.) — permanent POI features
+        // independent of per-player completion, always visible.
         for event in &lock.events {
             if event.repeatable && event.status == questlib::events::EventStatus::Pending {
                 result.push(event.clone());
