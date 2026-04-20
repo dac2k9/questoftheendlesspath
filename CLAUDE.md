@@ -101,6 +101,35 @@ on Render with a persistent disk mounted at `/data`).
 - `webgl2` feature required for Bevy in browser (WebGPU not supported everywhere)
 - `AssetPlugin { meta_check: AssetMetaCheck::Never }` — required for WASM asset loading
 
+## Walker bridge (treadmill → gamemaster)
+
+The gamemaster opens a WebSocket to `wss://walker.akerud.se/ws/live/<walker_uuid>`
+per player and translates Walker's segment updates into `is_walking` /
+`current_speed_kmh` / `total_distance_m` on `DevPlayerState`.
+
+Resilience:
+
+- **Active keepalive.** The bridge sends a WebSocket PING every 30s. If no
+  inbound frame (text / pong / ping / binary) arrives for 60s, the bridge
+  considers the socket half-dead, returns an error, and the retry loop in
+  `ensure_bridge` reconnects. Catches "Walker's side went away but our TCP
+  socket thinks it's alive" without relying on OS TCP keepalive (which
+  defaults to hours).
+- **Short-run failure cap.** `ensure_bridge`'s retry loop tracks *consecutive
+  short runs* (<30s before error) — normal long-lived sessions that hit a
+  clean disconnect don't count. Gives up only after 120 short runs in a
+  row (~10 min of genuine connect failures).
+- **Close-frame → reconnect.** If Walker sends a WS Close, we return Err
+  too; same retry path.
+
+Diagnostic / recovery:
+
+- `WALKER_BRIDGE_TRACE=1` env var logs every incoming message, parse
+  failures, rate-limit drops, and outbound pings. Off by default.
+- `POST /admin/respawn_bridge {"player_id":"…"}` removes the player from
+  `bridged_players` and calls `ensure_bridge` to spawn a fresh connection
+  without a redeploy. Gated on `ADMIN_TOKEN`.
+
 ## UREVO CyberPad BLE
 
 - Device name: `URTM051`

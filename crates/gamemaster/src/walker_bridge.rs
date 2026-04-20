@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
+use std::time::Duration;
 use tokio_tungstenite::tungstenite;
 use tracing::{error, info};
 
@@ -88,7 +89,7 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
     let (ws_stream, _) = tokio_tungstenite::connect_async(request).await?;
     info!("[Walker bridge {}] Connected", player_id);
 
-    let (_, mut read) = ws_stream.split();
+    let (mut write, mut read) = ws_stream.split();
     let mut last_distance: Option<f32> = None;
     let mut last_update = Instant::now();
     let mut last_movement = Instant::now(); // last time distance actually changed
@@ -97,11 +98,59 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
     // we can see exactly what the bridge sees vs what we push to state.
     let trace = std::env::var("WALKER_BRIDGE_TRACE").map(|v| v == "1").unwrap_or(false);
 
+    // Keepalive: we PING every PING_INTERVAL and disconnect if no inbound
+    // frame (any kind — text, binary, pong, ping) arrives for READ_TIMEOUT.
+    // This catches the half-dead WebSocket case (Walker's end gone, our TCP
+    // socket still thinks it's alive) instead of blocking forever on
+    // `read.next().await`. The retry loop in `ensure_bridge` reconnects.
+    const PING_INTERVAL: Duration = Duration::from_secs(30);
+    const READ_TIMEOUT: Duration = Duration::from_secs(60);
+    let mut ping_interval = tokio::time::interval(PING_INTERVAL);
+    // Consume the immediate first tick so we don't ping right after connect.
+    ping_interval.tick().await;
+
     let mut msg_count: u64 = 0;
     let mut push_count: u64 = 0;
-    while let Some(msg) = read.next().await {
-        let msg = msg?;
-        let tungstenite::Message::Text(text) = msg else { continue };
+    loop {
+        let msg_result = tokio::select! {
+            biased;
+            msg = tokio::time::timeout(READ_TIMEOUT, read.next()) => msg,
+            _ = ping_interval.tick() => {
+                if let Err(e) = write.send(tungstenite::Message::Ping(Default::default())).await {
+                    return Err(anyhow::anyhow!("[{}] ping send failed: {e}", player_id));
+                }
+                if trace {
+                    info!("[Walker bridge {}] sent keepalive ping", player_id);
+                }
+                continue;
+            }
+        };
+
+        let msg = match msg_result {
+            Err(_elapsed) => {
+                // No inbound frames for READ_TIMEOUT. Treat as dead connection
+                // so the outer retry loop can reconnect fresh.
+                return Err(anyhow::anyhow!(
+                    "[{}] no WS frames for {}s — assuming half-dead",
+                    player_id, READ_TIMEOUT.as_secs()
+                ));
+            }
+            Ok(None) => return Err(anyhow::anyhow!("[{}] WebSocket stream ended", player_id)),
+            Ok(Some(Err(e))) => return Err(anyhow::anyhow!("[{}] WebSocket error: {e}", player_id)),
+            Ok(Some(Ok(m))) => m,
+        };
+
+        // Non-text frames (ping/pong/close/binary) count as liveness — the
+        // select!/timeout resets naturally — but we don't process them for
+        // game state. We reply to server pings automatically via tungstenite,
+        // so we don't need to do it manually.
+        let text = match msg {
+            tungstenite::Message::Text(t) => t,
+            tungstenite::Message::Close(_) => {
+                return Err(anyhow::anyhow!("[{}] server closed WebSocket", player_id));
+            }
+            _ => continue,
+        };
         msg_count += 1;
 
         let data = match serde_json::from_str::<WsMessage>(&text) {
@@ -172,8 +221,6 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
                 last_movement.elapsed().as_secs_f32(), actually_moving, speed, wrote);
         }
     }
-
-    Err(anyhow::anyhow!("WebSocket stream ended"))
 }
 
 /// Spawn a bridge for a player if not already running.
