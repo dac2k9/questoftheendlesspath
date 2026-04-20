@@ -1,3 +1,4 @@
+pub mod interior;
 pub mod path;
 pub mod tilemap;
 pub mod world;

@@ -55,6 +55,28 @@ pub struct PlayerRow {
     pub defeated_monsters: Vec<String>,
     #[serde(default)]
     pub champion: Option<String>,
+    /// Which "scene" the player is in. None/absent = overworld;
+    /// Some(interior_id) = inside that interior.
+    #[serde(default, deserialize_with = "deserialize_location")]
+    pub location: Option<String>,
+}
+
+/// The server sends `location` as `{"kind": "overworld"}` or
+/// `{"kind": "interior", "id": "..."}`. Collapse to the interior id (or None).
+fn deserialize_location<'de, D>(d: D) -> Result<Option<String>, D::Error>
+where D: serde::Deserializer<'de>
+{
+    use serde::Deserialize;
+    #[derive(Deserialize)]
+    #[serde(tag = "kind", rename_all = "snake_case")]
+    enum Loc {
+        Overworld,
+        Interior { id: String },
+    }
+    Option::<Loc>::deserialize(d).map(|opt| match opt {
+        Some(Loc::Interior { id }) => Some(id),
+        _ => None,
+    })
 }
 
 /// Long-poll response wrapper from server.

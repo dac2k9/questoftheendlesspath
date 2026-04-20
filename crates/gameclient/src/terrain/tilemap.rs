@@ -109,10 +109,10 @@ impl Plugin for TilemapPlugin {
 // ── Components ────────────────────────────────────────
 
 #[derive(Component)]
-struct MapSprite;
+pub struct MapSprite;
 
 #[derive(Component)]
-struct FogSprite;
+pub struct FogSprite;
 
 #[derive(Component)]
 struct PathMarker;
@@ -216,6 +216,8 @@ pub struct MyPlayerState {
     pub equipment: questlib::items::EquipmentLoadout,
     pub opened_chests: Vec<String>,
     pub defeated_monsters: Vec<String>,
+    /// None = overworld; Some(id) = inside that interior.
+    pub location: Option<String>,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -527,6 +529,7 @@ fn apply_server_state(
     state.equipment = me.equipment.clone();
     state.opened_chests = me.opened_chests.clone();
     state.defeated_monsters = me.defeated_monsters.clone();
+    state.location = me.location.clone();
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {
@@ -745,6 +748,9 @@ fn handle_map_click(
     mut notifications: ResMut<crate::dialogue::NotificationQueue>,
     ui_hover: Res<crate::UiHovered>,
 ) {
+    // Defer to crate::terrain::interior when the player is inside one —
+    // pathfinding, rendering, and route submission all diverge there.
+    if state.location.is_some() { return; }
     let Ok(window) = windows.get_single() else { return };
     let Ok((camera, cam_tf)) = camera_q.get_single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
@@ -1005,17 +1011,37 @@ fn update_other_players(
     world: Option<Res<WorldGrid>>,
     mut images: ResMut<Assets<Image>>,
     mut atlases: ResMut<Assets<TextureAtlasLayout>>,
-    mut existing: Query<(Entity, &OtherPlayerSprite, &mut Transform, &mut Sprite, &mut OtherPlayerAnim), Without<OtherPlayerName>>,
-    mut name_q: Query<(&OtherPlayerName, &mut Transform), Without<OtherPlayerSprite>>,
+    mut existing: Query<(Entity, &OtherPlayerSprite, &mut Transform, &mut Sprite, &mut OtherPlayerAnim, &mut Visibility), Without<OtherPlayerName>>,
+    mut name_q: Query<(&OtherPlayerName, &mut Transform, &mut Visibility), (Without<OtherPlayerSprite>, Without<PlayerNameTag>)>,
     font: Res<GameFont>,
 ) {
     let Some(world) = world else { return; };
     let Ok(lock) = polled.players.lock() else { return; };
 
-    // Get other players (not us)
+    // Get other players (not us) AND in the same location as us. Overworld
+    // and interior share world-space coords, so a player in a different
+    // cave must not be drawn over our overworld position.
+    let my_loc = {
+        // We can read our location via the polled row for ourselves.
+        lock.iter().find(|p| p.id == session.player_id).and_then(|p| p.location.clone())
+    };
     let others: Vec<_> = lock.iter()
-        .filter(|p| p.id != session.player_id)
+        .filter(|p| p.id != session.player_id && p.location == my_loc)
         .collect();
+
+    // Hide sprites for players that are no longer co-located with us. The
+    // loop below will re-show the ones still in `others`.
+    let visible_ids: std::collections::HashSet<&str> = others.iter().map(|p| p.id.as_str()).collect();
+    for (_, ops, _, _, _, mut vis) in &mut existing {
+        if !visible_ids.contains(ops.0.as_str()) {
+            *vis = Visibility::Hidden;
+        }
+    }
+    for (ops_name, _, mut vis) in &mut name_q {
+        if !visible_ids.contains(ops_name.0.as_str()) {
+            *vis = Visibility::Hidden;
+        }
+    }
 
     for other in &others {
         // Use route interpolation if the other player has a route
@@ -1036,9 +1062,10 @@ fn update_other_players(
         } else { tile_pos };
 
         // Find existing sprite for this player
-        let found = existing.iter_mut().find(|(_, ops, _, _, _)| ops.0 == other.id);
+        let found = existing.iter_mut().find(|(_, ops, _, _, _, _)| ops.0 == other.id);
 
-        if let Some((_, _, mut tf, mut sprite, mut anim)) = found {
+        if let Some((_, _, mut tf, mut sprite, mut anim, mut vis)) = found {
+            *vis = Visibility::Visible;
             // Smooth interpolation toward target
             let dt = time.delta_secs();
             let lerp = 1.0 - (-4.0_f32 * dt).exp();
@@ -1105,8 +1132,9 @@ fn update_other_players(
             other.map_tile_x.unwrap_or(0) as usize,
             other.map_tile_y.unwrap_or(0) as usize,
         );
-        for (name_comp, mut tf) in name_q.iter_mut() {
+        for (name_comp, mut tf, mut vis) in name_q.iter_mut() {
             if name_comp.0 == other.id {
+                *vis = Visibility::Visible;
                 let dt = time.delta_secs();
                 let lerp = 1.0 - (-6.0_f32 * dt).exp();
                 tf.translation.x += (target_pos.x - tf.translation.x) * lerp;
