@@ -92,16 +92,32 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
     let mut last_distance: Option<f32> = None;
     let mut last_update = Instant::now();
     let mut last_movement = Instant::now(); // last time distance actually changed
+    // Flip on per-bridge message tracing by setting WALKER_BRIDGE_TRACE=1.
+    // Logs every incoming WS message + our computed actually_moving/delta so
+    // we can see exactly what the bridge sees vs what we push to state.
+    let trace = std::env::var("WALKER_BRIDGE_TRACE").map(|v| v == "1").unwrap_or(false);
 
+    let mut msg_count: u64 = 0;
+    let mut push_count: u64 = 0;
     while let Some(msg) = read.next().await {
         let msg = msg?;
         let tungstenite::Message::Text(text) = msg else { continue };
+        msg_count += 1;
 
-        let Ok(data) = serde_json::from_str::<WsMessage>(&text) else { continue };
+        let data = match serde_json::from_str::<WsMessage>(&text) {
+            Ok(d) => d,
+            Err(e) => {
+                if trace {
+                    info!("[Walker bridge {}] msg #{}: parse fail ({}), raw={}",
+                        player_id, msg_count, e, &text[..text.len().min(200)]);
+                }
+                continue;
+            }
+        };
 
         let Some(seg) = &data.segment else {
             // Segment closed (belt stopped)
-            info!("[Walker bridge {}] STOPPED", player_id);
+            info!("[Walker bridge {}] STOPPED (msg #{})", player_id, msg_count);
             last_distance = None;
             if let Ok(mut lock) = state.lock() {
                 if let Some(player) = lock.get_mut(player_id) {
@@ -120,6 +136,10 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
 
         // Rate limit: every 2 seconds
         if last_update.elapsed().as_secs_f32() < 2.0 && distance_delta < 1.0 {
+            if trace {
+                info!("[Walker bridge {}] msg #{}: rate-limited (elapsed {:.1}s, delta {:.2}m)",
+                    player_id, msg_count, last_update.elapsed().as_secs_f32(), distance_delta);
+            }
             continue;
         }
         last_update = Instant::now();
@@ -131,14 +151,25 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
         let actually_moving = seg.moving && last_movement.elapsed().as_secs() < 10;
         let speed = if actually_moving { seg.speed_kmh } else { 0.0 };
 
+        let mut wrote = false;
         if let Ok(mut lock) = state.lock() {
             if let Some(player) = lock.get_mut(player_id) {
                 if !player.debug_walking {
                     player.current_speed_kmh = speed;
                     player.total_distance_m += distance_delta;
                     player.is_walking = actually_moving;
+                    wrote = true;
+                    push_count += 1;
                 }
             }
+        }
+
+        if trace || push_count <= 3 || push_count % 30 == 0 {
+            // Always log the first few pushes so a cold start is observable,
+            // plus every 30th push thereafter; full firehose behind the env var.
+            info!("[Walker bridge {}] msg #{} push #{}: seg.moving={} seg.dist={:.1}m delta={:.2}m since_move={:.1}s → is_walking={} speed={:.1}km/h (wrote={})",
+                player_id, msg_count, push_count, seg.moving, seg.distance_m, distance_delta,
+                last_movement.elapsed().as_secs_f32(), actually_moving, speed, wrote);
         }
     }
 
