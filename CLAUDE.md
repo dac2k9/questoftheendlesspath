@@ -199,6 +199,20 @@ Diagnostic / recovery:
 ### Leveling
 - Walking distance = XP. Formula: `3 * N^3 + 70 * N` meters for level N
 - Lvl 2: 164m, Lvl 10: 3.7km, Lvl 30: 83km
+
+### Sound effects
+- 8-bit square-wave blips synthesized on-the-fly in `crates/gameclient/src/sfx.rs`.
+  No audio assets shipped — each sound is a short note sequence built with
+  the browser's Web Audio API (`AudioContext` + `OscillatorNode` + `GainNode`).
+- Four events, all detected client-side from state deltas:
+  - **GoldGained** (positive gold jump): C5 → E5 chirp
+  - **RouteArrived** (planned route went empty): E5 → C5 soft descending
+  - **LevelUp** (character level increased): C5 → E5 → G5 triad
+  - **CombatVictory** (combat went active → inactive): G4 → C5 → E5 → G5 fanfare
+- SFX volume multiplies the music master volume, so the existing mute /
+  slider controls SFX too.
+- To replace synthesized sounds with sampled MP3s later: swap the body of
+  `sfx::play_sfx` to use `HtmlAudioElement::new_with_src` per `SfxKind`.
 - +15 HP, +3 Attack, +2 Defense per level
 
 ## Controls (Browser)

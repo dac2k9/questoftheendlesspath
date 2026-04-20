@@ -86,7 +86,7 @@ impl MusicContext {
 // ── State ───────────────────────────────────────────
 
 #[derive(Resource)]
-struct MusicState {
+pub struct MusicState {
     /// Currently playing track ID.
     current_track: Option<String>,
     /// Current music context.
