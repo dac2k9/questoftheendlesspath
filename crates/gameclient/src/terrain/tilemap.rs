@@ -785,6 +785,12 @@ fn handle_map_click(
         let extending = has_active_route
             && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight));
 
+        // Clicking the tile you're already routing to is a no-op. Without
+        // this guard a plain click would replay `/set_route` and reset
+        // route_meters_walked to 0 — which would drop the fractional-tile
+        // progress the player had accumulated and visually snap them back.
+        if has_active_route && *display_route.waypoints.last().unwrap() == (tx, ty) { return; }
+
         // Plan path: from last waypoint when extending, from current tile otherwise.
         let start = if extending {
             *display_route.waypoints.last().unwrap()
