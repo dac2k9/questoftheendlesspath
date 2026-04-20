@@ -155,6 +155,14 @@ pub fn run_interior_tick(
     let opened_chest = interior.chest_at(tx, ty)
         .filter(|idx| !player.opened_chests.contains(&chest_key(&interior_id, *idx)));
 
+    // Portal: if the player stepped onto a portal tile this tick, auto-use it.
+    // Writeback happens FIRST (so new position is recorded), then use_portal
+    // transitions the location. Skip if the player didn't actually move this
+    // tick — otherwise they'd re-trigger the portal every idle tick.
+    let stepped_onto_portal =
+        new_tile.map_or(false, |(x, y)| x as i32 != player.map_tile_x || y as i32 != player.map_tile_y)
+        && interior.portal_at(tx, ty).is_some();
+
     // Writeback.
     {
         let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -180,6 +188,11 @@ pub fn run_interior_tick(
                 }
             }
         }
+    }
+
+    // Auto-use portal after the position is recorded.
+    if stepped_onto_portal {
+        let _ = use_portal(interiors, state, player_id);
     }
     Ok(())
 }
@@ -228,7 +241,10 @@ pub fn enter_interior(
     };
     let Some(p) = lock.get_mut(player_id) else { return PortalTransitionResult::UnknownPlayer };
 
-    p.overworld_return = Some((p.map_tile_x, p.map_tile_y));
+    // Save the tile we came FROM as the return, not the POI tile we're on.
+    // If we returned to the POI tile, we'd immediately re-trigger the cave
+    // entrance event. Fall back to current tile if we have no prev_tile yet.
+    p.overworld_return = Some(p.prev_tile.unwrap_or((p.map_tile_x, p.map_tile_y)));
     p.location = Location::Interior { id: interior_id.to_string() };
     p.map_tile_x = spawn_tile.0 as i32;
     p.map_tile_y = spawn_tile.1 as i32;
@@ -270,6 +286,16 @@ pub fn use_portal(
         }
     };
 
+    // Resolve OverworldReturn to a concrete overworld coord now, so the
+    // rest of the match is uniform.
+    let dest = match dest {
+        PortalDest::OverworldReturn => {
+            let (x, y) = p.overworld_return.unwrap_or((50, 40));
+            PortalDest::Overworld { x, y }
+        }
+        other => other,
+    };
+
     match dest {
         PortalDest::Overworld { x, y } => {
             p.location = Location::Overworld;
@@ -283,6 +309,7 @@ pub fn use_portal(
                 new_location: Location::Overworld, tile: (x, y),
             }
         }
+        PortalDest::OverworldReturn => unreachable!("resolved above"),
         PortalDest::Interior { id, x, y } => {
             // No check that target interior exists — accept it; next tick's
             // run_interior_tick will no-op if unknown, but we keep the player

@@ -359,7 +359,12 @@ fn post_route(player_id: &str, route: &[(usize, usize)]) {
 /// Portal destination matches for use-portal eligibility (future wiring).
 #[allow(dead_code)]
 fn portal_allows_exit(dest: &PortalDest) -> bool {
-    matches!(dest, PortalDest::Overworld { .. } | PortalDest::Interior { .. })
+    matches!(
+        dest,
+        PortalDest::Overworld { .. }
+            | PortalDest::Interior { .. }
+            | PortalDest::OverworldReturn
+    )
 }
 
 #[cfg(test)]

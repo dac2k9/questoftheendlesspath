@@ -53,6 +53,17 @@ pub enum EventKind {
         #[serde(default)]
         duration_tiles: Option<u32>,
     },
+    /// Arriving at this event teleports the player into an interior space.
+    /// The client swaps its tilemap when it notices location changed.
+    CaveEntrance {
+        interior_id: String,
+        /// Tile to drop the player on inside the interior.
+        spawn_x: usize,
+        spawn_y: usize,
+        /// Optional one-liner flavor text shown in a notification.
+        #[serde(default)]
+        flavor: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

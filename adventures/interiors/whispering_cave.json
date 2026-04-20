@@ -586,9 +586,7 @@
       "x": 1,
       "y": 10,
       "destination": {
-        "kind": "overworld",
-        "x": 45,
-        "y": 35
+        "kind": "overworld_return"
       },
       "label": "Exit to overworld"
     }

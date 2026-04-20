@@ -292,6 +292,7 @@ async fn main() -> Result<()> {
                     &shared_events,
                     &shared_notifs,
                     &shared_combat,
+                    &interiors,
                     &mut player_fogs,
                     &mut player_last_distance,
                     &mut player_boss_wait_notified,

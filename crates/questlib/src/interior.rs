@@ -42,6 +42,10 @@ pub enum PortalDest {
     Overworld { x: i32, y: i32 },
     /// Enter another interior at a specific spawn tile.
     Interior { id: String, x: usize, y: usize },
+    /// Return the player to the tile they came from (the last overworld tile
+    /// they stood on before entering). Use this for normal cave exits so
+    /// stepping out doesn't land on the entrance POI and immediately re-enter.
+    OverworldReturn,
 }
 
 /// A walkable tile that, when stepped on (or clicked), relocates the player.

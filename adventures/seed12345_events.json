@@ -1576,6 +1576,25 @@
       ],
       "status": "pending",
       "requires_browser": false
+    },
+    {
+      "id": "mountain_cave_entrance",
+      "name": "Whispering Cave",
+      "description": "A dark opening in the mountainside.",
+      "kind": {
+        "type": "cave_entrance",
+        "interior_id": "whispering_cave",
+        "spawn_x": 2,
+        "spawn_y": 10,
+        "flavor": "You step into the Whispering Cave. The air is cold and still."
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 12
+      },
+      "outcomes": [],
+      "requires_browser": false,
+      "repeatable": false
     }
   ]
 }

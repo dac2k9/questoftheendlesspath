@@ -17,6 +17,7 @@ pub fn run_tick_dev(
     shared_events: &SharedEvents,
     shared_notifs: &SharedNotifs,
     shared_combat: &SharedCombat,
+    interiors: &crate::interior::SharedInteriors,
     player_fogs: &mut HashMap<String, FogBitfield>,
     player_last_distance: &mut HashMap<String, f64>,
     // player_id → event_id we've already sent "waiting for others" for.
@@ -352,6 +353,42 @@ pub fn run_tick_dev(
             .collect();
 
         for event_id in &triggered_ids {
+            // CaveEntrance: teleport the player into the interior immediately
+            // and mark the event completed. No dialog, no combat gate.
+            let cave_entry: Option<(String, usize, usize, String)> = {
+                if let Some(event) = events_lock.get(event_id) {
+                    if let questlib::events::kind::EventKind::CaveEntrance { interior_id, spawn_x, spawn_y, flavor } = &event.kind {
+                        Some((interior_id.clone(), *spawn_x, *spawn_y, flavor.clone()))
+                    } else { None }
+                } else { None }
+            };
+            if let Some((interior_id, spawn_x, spawn_y, flavor)) = cave_entry {
+                // Try to teleport the player. We ignore failures (unknown
+                // interior id will have already logged; player not found is
+                // impossible since we're iterating their tick).
+                use crate::interior::{enter_interior, PortalTransitionResult};
+                let _ = enter_interior(interiors, state, player_id, &interior_id, (spawn_x, spawn_y));
+                // Mark the event personally completed and Completed globally
+                // so it doesn't re-trigger next tick when the player surfaces.
+                if let Some(event) = events_lock.get_mut(event_id) {
+                    let _ = event.transition(EventStatus::Completed);
+                }
+                if let Ok(mut lock) = state.lock() {
+                    if let Some(p) = lock.get_mut(player_id) {
+                        if !p.completed_events.contains(event_id) {
+                            p.completed_events.push(event_id.clone());
+                        }
+                    }
+                }
+                if !flavor.is_empty() {
+                    if let Ok(mut n) = shared_notifs.lock() {
+                        crate::push_notif(&mut n, player_id, flavor);
+                    }
+                }
+                info!("[{}] entered cave '{}' via event {}", player.name, interior_id, event_id);
+                continue;
+            }
+
             // Pre-check event kind so we can gate bosses BEFORE flipping state.
             // Previously we set Active → checked gate → set back to Pending if
             // waiting. That oscillated Active ↔ Pending each tick, which was
@@ -669,12 +706,18 @@ mod tests {
         state.lock().unwrap().get(id).unwrap().clone()
     }
 
+    /// Empty interiors registry for tick tests — tests don't need caves.
+    fn test_interiors() -> crate::interior::SharedInteriors {
+        std::sync::Arc::new(HashMap::new())
+    }
+
     /// Run N ticks, incrementing total_distance by delta_per_tick each time.
     fn run_ticks(
         state: &SharedState, world: &WorldMap, events: &SharedEvents, notifs: &SharedNotifs, combat: &SharedCombat,
         fogs: &mut HashMap<String, FogBitfield>, last_dist: &mut HashMap<String, f64>,
         player_id: &str, n: usize, delta_per_tick: f64,
     ) {
+        let interiors = test_interiors();
         let mut boss_wait = HashMap::new();
         for _ in 0..n {
             {
@@ -683,7 +726,7 @@ mod tests {
                     p.total_distance_m += delta_per_tick;
                 }
             }
-            run_tick_dev(state, world, events, notifs, combat, fogs, last_dist, &mut boss_wait, 0.5).unwrap();
+            run_tick_dev(state, world, events, notifs, combat, &interiors, fogs, last_dist, &mut boss_wait, 0.5).unwrap();
         }
     }
 
@@ -700,7 +743,7 @@ mod tests {
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.gold, 0, "idle player should earn no gold");
@@ -717,12 +760,12 @@ mod tests {
         let mut last_dist = HashMap::new();
 
         // First tick inits last_distance, so add distance then tick again
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
         {
             let mut lock = state.lock().unwrap();
             lock.get_mut(&pid).unwrap().total_distance_m = 110.0;
         }
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert!(p.gold > 0, "walking without route should still earn gold");
@@ -814,7 +857,7 @@ mod tests {
                 let mut lock = state.lock().unwrap();
                 lock.get_mut(&pid).unwrap().total_distance_m += 10.0;
             }
-            run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+            run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
             let p = get_player(&state, &pid);
             let pos = (p.map_tile_x as usize, p.map_tile_y as usize);
@@ -888,8 +931,8 @@ mod tests {
         let mut last_dist = HashMap::new();
 
         // Two ticks with same distance — no movement
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.route_meters_walked, 0.0);
