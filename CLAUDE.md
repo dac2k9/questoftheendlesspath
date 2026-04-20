@@ -1,5 +1,17 @@
 # CLAUDE.md — 10000m To Target
 
+## Development Philosophy
+
+This project is spec-driven. This file (CLAUDE.md) is the source of truth for how the program behaves — architecture, protocols, API surface, controls, game rules. Behavior changes are documented here as part of the same task that introduces them; implementation details that are too granular for this file live as comments in code. Bug fixes and small refactors don't require a preamble update, but if the fix changes user-visible behavior, the relevant section here changes too.
+
+Simplicity is a hard requirement. If something feels complex, stop and simplify before continuing. Prefer deleting code over adding abstractions. Prefer the browser's built-in behavior over reimplementing it in JavaScript. When in doubt, the shorter code wins.
+
+Look broadly before implementing. Every new feature is an opportunity to simplify what's already there. Before writing new code, check existing structs, queries, and patterns — consolidate, remove dead code, and unify duplicates. Don't add a new thing next to an old thing that does almost the same job (e.g. a second click handler that duplicates the first with a small conditional).
+
+Propose before non-trivial work. For anything beyond a bug fix or small refactor, sketch the approach in one or two short paragraphs and get agreement before writing code. Include what you'd touch, what you'd skip, and any alternatives you considered. Small fixes and obvious cleanups can stay fast — but when a task could plausibly be done two different ways, discuss first.
+
+CLAUDE.md is updated as part of every task. Any change to behavior, architecture, protocol, API surface, controls, or roadmap phase is reflected here before the commit. A task isn't done until CLAUDE.md agrees with the code. This file is what future conversations read first — if it's wrong, everything built on it is wrong.
+
 ## What This Is
 
 A cooperative multiplayer treadmill RPG. Players walk on UREVO CyberPad treadmills and their characters move through a procedurally generated fantasy world. Built in Rust.
@@ -212,24 +224,32 @@ reveal → chest open) against `interior.tiles`.
 - [x] Types in `questlib::interior`
 - [x] Loading + tick + endpoints in `gamemaster::interior`
 - [x] One hand-authored cave (`adventures/interiors/whispering_cave.json`,
-      16×12, 1 chest, 1 exit portal to overworld tile (45, 35))
+      16×12, 1 chest, 1 exit portal)
 - [x] Save-safe schema additions; fog persistence per interior
 - [x] Route planning + walking inside; chest open gives +50 gold
 
-**Phase 2 — client tilemap swap** (not started)
-- [ ] Client watches `polled.location`; on change, despawn overworld tilemap and fetch `/interior?id=X`
-- [ ] Dark tileset atlas (wall, floor, portal-up, portal-down, chest)
-- [ ] Hover a portal tile → label tooltip; click → `POST /use_portal`
-- [ ] Other players in the same interior render alongside you
-- [ ] HUD biome text shows interior name while inside
+**Phase 2 (shipped)** — client tilemap swap
+- [x] Client watches `MyPlayerState.location`; on change, hides overworld sprites (MapSprite/FogSprite) and fetches `/interior?id=X`
+- [x] Interior rendered as colored quads (walls, floor, portal, chest) — proper dark tileset is a Phase 3 polish item
+- [x] Click on a walkable interior tile: BFS through the interior grid → `POST /set_route`
+- [x] Click on a portal tile: routes the player to it (auto-use_portal triggers when they arrive — see Phase 3a)
+- [x] Other players filtered by co-location so no cross-scene overlap
+- [x] HUD shows `⟐ <Interior Name>` while inside
 
-**Phase 3 — content + world integration** (not started)
-- [ ] Trigger `/enter_interior` from reaching a cave POI (probably a
-      new `EventKind::CaveEntrance { interior_id, spawn }`)
-- [ ] First shortcut cave (two portals to different overworld tiles)
-- [ ] Monsters and combat inside interiors
+**Phase 3a (shipped)** — POI integration
+- [x] New `EventKind::CaveEntrance { interior_id, spawn_x, spawn_y, flavor }` wired into the tick loop before combat/boss gating; no dialog UI, just teleport + flavor notification
+- [x] Attached at POI 12 (Mountain Cave) → Whispering Cave
+- [x] `PortalDest::OverworldReturn` variant + `enter_interior` saves the player's `prev_tile` as `overworld_return`, so exits land off the entrance POI (no re-trigger loop)
+- [x] Auto-use_portal: `run_interior_tick` transitions the player when a route step lands on a portal tile for the first time that tick
+
+**Phase 3 remaining**
+- [ ] First shortcut cave (two-portal cave where one portal leads to a
+      distant overworld tile — "discover a tunnel through the mountain")
+- [ ] Monsters and combat inside interiors (random encounters / fixed
+      spawns keyed by interior id)
 - [ ] Per-interior loot tables (currently chest gives flat +50 gold)
-- [ ] Procedural cave generator keyed off POI id for variety
+- [ ] Real dark tileset (replace colored quads in `terrain/interior.rs`)
+- [ ] Procedural cave generator keyed off POI id
 
 **Phase 4 — castles** (speculative)
 - [ ] Multi-room interiors (several `InteriorMap`s linked by `PortalDest::Interior`)
