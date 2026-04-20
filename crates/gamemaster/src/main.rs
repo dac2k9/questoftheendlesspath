@@ -278,6 +278,7 @@ async fn main() -> Result<()> {
                         &interiors,
                         &state,
                         &shared_notifs,
+                        &shared_combat,
                         &mut player_last_distance,
                         &mut interior_fogs,
                         pid,

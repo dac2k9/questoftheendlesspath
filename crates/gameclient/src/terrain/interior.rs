@@ -43,6 +43,7 @@ impl Plugin for InteriorPlugin {
                     apply_fetched_interior,
                     handle_interior_click,
                     update_hud_label,
+                    sync_monster_visibility,
                 )
                     .run_if(in_state(AppState::InGame)),
             );
@@ -75,6 +76,12 @@ struct InteriorEntity;
 struct InteriorPortal {
     pub idx: usize,
     pub label: String,
+}
+
+#[derive(Component)]
+struct InteriorMonsterMarker {
+    /// Compound defeated-monsters key: "<interior_id>:monster:<idx>".
+    pub key: String,
 }
 
 #[derive(Component)]
@@ -201,6 +208,24 @@ fn apply_fetched_interior(
         ));
     }
 
+    // Monsters — red quad (placeholder to match the interior's colored-quad
+    // aesthetic). Real monster sprites inside caves are a later polish pass
+    // (needs the monster-atlas loader lifted out of spawn_world into a
+    // shared resource so we can reuse it here).
+    for (idx, monster) in map.monsters.iter().enumerate() {
+        let pos = WorldGrid::tile_to_world(monster.x, monster.y);
+        commands.spawn((
+            Sprite {
+                color: Color::srgb(0.80, 0.25, 0.25),
+                custom_size: Some(tile_size * 0.65),
+                ..default()
+            },
+            Transform::from_xyz(pos.x, pos.y, 0.95),
+            InteriorMonsterMarker { key: questlib::interior::monster_key(&map.id, idx) },
+            InteriorEntity,
+        ));
+    }
+
     // HUD "You are in: <Name>" label in the top-center.
     let font: Handle<Font> = asset_server.load("fonts/PressStart2P.ttf");
     commands.spawn((
@@ -224,6 +249,20 @@ fn apply_fetched_interior(
     log::info!("[interior] rendered '{}' ({}x{}, {} portals, {} chests)",
         map.id, map.width, map.height, map.portals.len(), map.chests.len());
     current.map = Some(map);
+}
+
+/// Hide interior monster sprites whose compound key is in the player's
+/// defeated_monsters list. Cheap to run every frame — one string lookup
+/// per monster, and there are only a handful per cave.
+fn sync_monster_visibility(
+    state: Res<MyPlayerState>,
+    mut monsters: Query<(&InteriorMonsterMarker, &mut Visibility)>,
+) {
+    for (marker, mut vis) in &mut monsters {
+        let should_hide = state.defeated_monsters.contains(&marker.key);
+        let target = if should_hide { Visibility::Hidden } else { Visibility::Visible };
+        if *vis != target { *vis = target; }
+    }
 }
 
 fn update_hud_label(
@@ -384,6 +423,7 @@ mod tests {
             ],
             portals: vec![Portal { x: 2, y: 2, destination: PortalDest::Overworld { x: 0, y: 0 }, label: "".into() }],
             chests: vec![],
+            monsters: vec![],
             floor_cost_m: 40,
         }
     }

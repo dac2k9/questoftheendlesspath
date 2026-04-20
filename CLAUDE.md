@@ -242,13 +242,27 @@ reveal → chest open) against `interior.tiles`.
 - [x] `PortalDest::OverworldReturn` variant + `enter_interior` saves the player's `prev_tile` as `overworld_return`, so exits land off the entrance POI (no re-trigger loop)
 - [x] Auto-use_portal: `run_interior_tick` transitions the player when a route step lands on a portal tile for the first time that tick
 
+**Phase 3b (shipped)** — monsters inside interiors
+- [x] `InteriorMonster { x, y, monster_type, difficulty }` field on `InteriorMap`
+- [x] `monster_at`/`monster_key`/`monster_combat_event_id` helpers in `questlib::interior`
+- [x] `run_interior_tick` starts combat when the player steps onto an un-defeated
+      monster tile; uses the existing `server_combat::start_combat` with a
+      synthetic event_id `"interior_monster:<id>:<idx>"`
+- [x] Victory handler in `tick.rs` parses that event_id and awards the same
+      difficulty-scaled gold + item drop as overworld monsters, pushes
+      `<id>:monster:<idx>` onto `defeated_monsters`
+- [x] Client renders monsters as red quads tagged with `InteriorMonsterMarker`;
+      `sync_monster_visibility` hides defeated ones by compound key
+- [x] Interior-tick freezes movement while in combat (same rule as overworld)
+- [x] Whispering Cave seeded with a slime (diff 1) and a skeleton soldier (diff 3)
+
 **Phase 3 remaining**
 - [ ] First shortcut cave (two-portal cave where one portal leads to a
       distant overworld tile — "discover a tunnel through the mountain")
-- [ ] Monsters and combat inside interiors (random encounters / fixed
-      spawns keyed by interior id)
-- [ ] Per-interior loot tables (currently chest gives flat +50 gold)
-- [ ] Real dark tileset (replace colored quads in `terrain/interior.rs`)
+- [ ] Per-interior loot tables (currently chest gives flat +50 gold; monsters
+      already use the same difficulty-scaled drop table as overworld)
+- [ ] Real dark tileset (replace colored quads in `terrain/interior.rs`,
+      including proper monster sprites reusing the overworld loader)
 - [ ] Procedural cave generator keyed off POI id
 
 **Phase 4 — castles** (speculative)

@@ -561,6 +561,39 @@ pub fn run_tick_dev(
                     }
                 }
             }
+        } else if let Some((interior_id, monster_idx)) = questlib::interior::parse_monster_combat_event_id(victory_event_id) {
+            // Interior monster victory — same loot rules as overworld.
+            let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if let Some(pid) = fighter_pid.clone() {
+                if let Some(p) = lock.get_mut(&pid) {
+                    let defeated_key = questlib::interior::monster_key(interior_id, monster_idx);
+                    p.defeated_monsters.push(defeated_key);
+                    let (difficulty, name) = interiors.get(interior_id)
+                        .and_then(|interior| interior.monsters.get(monster_idx))
+                        .map(|m| (m.difficulty, m.monster_type.display_name().to_string()))
+                        .unwrap_or((1, "Monster".to_string()));
+                    let gold = 30 + (difficulty as i32 * 20);
+                    p.gold += gold;
+                    let catalog = Some(crate::item_catalog());
+                    let drop = match difficulty {
+                        1 => Some("health_potion"),
+                        2 => Some("health_potion"),
+                        3 => Some("iron_sword"),
+                        4 => Some("chainmail"),
+                        5.. => Some("greater_health_potion"),
+                        _ => None,
+                    };
+                    let mut msg = format!("{} defeated! +{} gold", name, gold);
+                    if let Some(item) = drop {
+                        questlib::items::add_item(&mut p.inventory, item, catalog);
+                        let item_name = catalog.and_then(|c| c.get(item)).map(|d| d.display_name.as_str()).unwrap_or(item);
+                        msg.push_str(&format!(", +{}", item_name));
+                    }
+                    if let Ok(mut notifs) = shared_notifs.lock() {
+                        crate::push_notif(&mut notifs, &pid, msg);
+                    }
+                }
+            }
         } else if let Some(event) = events_lock.get_mut(victory_event_id) {
             // Quest event victory — apply outcomes to ALL coop participants
             if event.transition(EventStatus::Completed).is_ok() {

@@ -74,6 +74,19 @@ impl InteriorTile {
     pub fn is_walkable(&self) -> bool { matches!(self, InteriorTile::Floor) }
 }
 
+/// A monster that spawns at a specific tile. Difficulty drives loot and
+/// combat stats (reuses the same values as overworld WorldMonster).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InteriorMonster {
+    pub x: usize,
+    pub y: usize,
+    pub monster_type: crate::mapgen::MonsterType,
+    #[serde(default = "default_monster_difficulty")]
+    pub difficulty: u32,
+}
+
+fn default_monster_difficulty() -> u32 { 1 }
+
 /// One hand-authored or generated interior.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InteriorMap {
@@ -90,6 +103,10 @@ pub struct InteriorMap {
     /// player's opened_chests as "<interior_id>:chest:<idx>".
     #[serde(default)]
     pub chests: Vec<(usize, usize)>,
+    /// Monster spawns. Tracked in the player's defeated_monsters as
+    /// "<interior_id>:monster:<idx>" (see `monster_key`).
+    #[serde(default)]
+    pub monsters: Vec<InteriorMonster>,
     /// Flat floor-tile movement cost in meters. Consistent across the map
     /// — caves don't have roads.
     #[serde(default = "default_tile_cost")]
@@ -118,6 +135,11 @@ impl InteriorMap {
         self.chests.iter().position(|&(cx, cy)| cx == x && cy == y)
     }
 
+    /// Returns monster index at (x, y), if any.
+    pub fn monster_at(&self, x: usize, y: usize) -> Option<usize> {
+        self.monsters.iter().position(|m| m.x == x && m.y == y)
+    }
+
     /// Validates the map: correct tile count, portals/chests on floor tiles.
     pub fn validate(&self) -> Result<(), String> {
         if self.tiles.len() != self.width * self.height {
@@ -133,6 +155,11 @@ impl InteriorMap {
                 return Err(format!("chest {} at ({},{}) is not on a floor tile", i, x, y));
             }
         }
+        for (i, m) in self.monsters.iter().enumerate() {
+            if !self.is_walkable(m.x, m.y) {
+                return Err(format!("monster {} at ({},{}) is not on a floor tile", i, m.x, m.y));
+            }
+        }
         Ok(())
     }
 }
@@ -143,6 +170,28 @@ impl InteriorMap {
 /// Keeps overworld chest keys backward-compatible (just numeric ids).
 pub fn chest_key(interior_id: &str, chest_idx: usize) -> String {
     format!("{}:chest:{}", interior_id, chest_idx)
+}
+
+/// Compound key used in `DevPlayerState.defeated_monsters` for interior
+/// monsters. Overworld monster keys stay as "monster_<idx>".
+pub fn monster_key(interior_id: &str, monster_idx: usize) -> String {
+    format!("{}:monster:{}", interior_id, monster_idx)
+}
+
+/// Combat `event_id` used when a player starts fighting an interior monster.
+/// Kept distinct from the `chest_key` / `monster_key` storage format so the
+/// tick loop can detect it by prefix and route to the interior-specific
+/// victory handler.
+pub fn monster_combat_event_id(interior_id: &str, monster_idx: usize) -> String {
+    format!("interior_monster:{}:{}", interior_id, monster_idx)
+}
+
+/// Parse `interior_monster:<id>:<idx>`. Returns `(interior_id, idx)` or None
+/// if the string doesn't match.
+pub fn parse_monster_combat_event_id(event_id: &str) -> Option<(&str, usize)> {
+    let rest = event_id.strip_prefix("interior_monster:")?;
+    let (id, idx_str) = rest.rsplit_once(':')?;
+    Some((id, idx_str.parse().ok()?))
 }
 
 #[cfg(test)]
@@ -166,6 +215,7 @@ mod tests {
                 label: "Exit".into(),
             }],
             chests: vec![(1, 2)],
+            monsters: vec![],
             floor_cost_m: 40,
         }
     }
@@ -209,6 +259,24 @@ mod tests {
     #[test]
     fn chest_key_format() {
         assert_eq!(chest_key("cave", 3), "cave:chest:3");
+    }
+
+    #[test]
+    fn monster_key_format() {
+        assert_eq!(monster_key("cave", 7), "cave:monster:7");
+    }
+
+    #[test]
+    fn monster_combat_event_id_roundtrip() {
+        let eid = monster_combat_event_id("whispering_cave", 2);
+        assert_eq!(eid, "interior_monster:whispering_cave:2");
+        assert_eq!(parse_monster_combat_event_id(&eid), Some(("whispering_cave", 2)));
+    }
+
+    #[test]
+    fn parse_rejects_non_interior_event() {
+        assert_eq!(parse_monster_combat_event_id("monster_3"), None);
+        assert_eq!(parse_monster_combat_event_id("something_else"), None);
     }
 
     #[test]

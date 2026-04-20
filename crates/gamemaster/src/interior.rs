@@ -63,7 +63,7 @@ pub fn load_interiors(dir: &str) -> Result<HashMap<String, InteriorMap>> {
 
 /// Tick a single player who is inside an interior. Mirrors a tiny subset of
 /// the overworld tick: walker-derived delta → route advancement → fog reveal
-/// → chest open. No events, monsters, or combat in Phase 1.
+/// → chest open → monster step-on combat trigger → auto-use_portal.
 ///
 /// Returns Ok(()) even if nothing happens. Silently skips the tick for
 /// players with a stale or missing location.
@@ -71,6 +71,7 @@ pub fn run_interior_tick(
     interiors: &SharedInteriors,
     state: &SharedState,
     shared_notifs: &SharedNotifs,
+    shared_combat: &crate::combat::SharedCombat,
     player_last_distance: &mut HashMap<String, f64>,
     interior_fogs: &mut HashMap<(String, String), FogBitfield>,
     player_id: &str,
@@ -89,6 +90,14 @@ pub fn run_interior_tick(
         tracing::warn!("[{}] in unknown interior '{}' — keeping idle", player.name, interior_id);
         return Ok(());
     };
+
+    // In combat → freeze movement (same rule as the overworld tick).
+    // The combat subsystem drives HP / outcomes; we just don't advance
+    // the player along their route while a fight is happening.
+    if crate::combat::player_in_combat(shared_combat, player_id) {
+        player_last_distance.remove(player_id);
+        return Ok(());
+    }
 
     // Not walking → just keep last_distance fresh and return. Same semantics
     // as the overworld tick so a pause on the treadmill doesn't create a
@@ -190,8 +199,39 @@ pub fn run_interior_tick(
         }
     }
 
-    // Auto-use portal after the position is recorded.
-    if stepped_onto_portal {
+    // Combat: if the player stepped onto an un-defeated monster tile, start
+    // a combat using the shared combat subsystem. The synthetic event_id
+    // routes victory back to our handler in tick.rs.
+    let monster_to_fight = new_tile.and_then(|(x, y)| interior.monster_at(x, y))
+        .filter(|idx| !player.defeated_monsters.contains(&questlib::interior::monster_key(&interior_id, *idx)));
+    if let Some(monster_idx) = monster_to_fight {
+        if let Some(monster_data) = interior.monsters.get(monster_idx) {
+            let event_id = questlib::interior::monster_combat_event_id(&interior_id, monster_idx);
+            let kind = questlib::events::kind::EventKind::RandomEncounter {
+                enemy_name: monster_data.monster_type.display_name().to_string(),
+                description: format!("A {} emerges from the dark.", monster_data.monster_type.display_name()),
+                difficulty: monster_data.difficulty,
+            };
+            let catalog = crate::item_catalog();
+            let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, catalog);
+            crate::combat::start_combat(
+                shared_combat,
+                &event_id,
+                &kind,
+                player.total_distance_m as u64,
+                eq_bonus,
+                player_id,
+            );
+            if let Ok(mut n) = shared_notifs.lock() {
+                crate::push_notif(&mut n, player_id, format!("A {} blocks your path!", monster_data.monster_type.display_name()));
+            }
+            tracing::info!("[{}] interior combat started vs {} (#{})", player.name, monster_data.monster_type.display_name(), monster_idx);
+        }
+    }
+
+    // Auto-use portal after the position is recorded. Don't transition if
+    // we just started combat — portal step + monster step collide otherwise.
+    if stepped_onto_portal && monster_to_fight.is_none() {
         let _ = use_portal(interiors, state, player_id);
     }
     Ok(())
@@ -344,6 +384,7 @@ mod tests {
             width: 3, height: 3, tiles,
             portals: vec![Portal { x: 1, y: 0, destination: PortalDest::Overworld { x: 5, y: 5 }, label: "out".into() }],
             chests: vec![(1, 2)],
+            monsters: vec![],
             floor_cost_m: 40,
         }
     }
