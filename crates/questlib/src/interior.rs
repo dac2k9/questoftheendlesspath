@@ -92,18 +92,61 @@ pub struct InteriorMonster {
 
 fn default_monster_difficulty() -> u32 { 1 }
 
-/// What a chest contains. Deterministic lists only for now — weighted /
-/// rolled loot can be layered on later by extending this struct.
+/// What a chest contains.
+///
+/// - `gold` + `items` are always granted.
+/// - `rolls` are independent coin flips: each entry is granted with its own
+///   probability. Rolls are deterministic per (player, chest, item) so you
+///   can't save-scum rerolls.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ChestLoot {
     #[serde(default = "default_chest_gold")]
     pub gold: i32,
-    /// Item ids to grant. Empty is fine; a "gold-only" chest is still useful.
+    /// Item ids to grant every time the chest is opened.
     #[serde(default)]
     pub items: Vec<String>,
+    /// Per-item independent probability drops.
+    #[serde(default)]
+    pub rolls: Vec<LootRoll>,
+}
+
+/// A single "flip a coin" entry in a `ChestLoot`. `chance` is clamped to
+/// `[0.0, 1.0]` at evaluation time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LootRoll {
+    pub item_id: String,
+    pub chance: f32,
 }
 
 fn default_chest_gold() -> i32 { 30 }
+
+/// Deterministic `[0.0, 1.0)` value derived from `(player_id, chest_key, item_id)`.
+/// Same inputs → same output, across ticks and processes. Keeps chest rolls
+/// reproducible and un-rerollable, while still varying across players and
+/// chests/items.
+pub fn roll_rng(player_id: &str, chest_key: &str, item_id: &str) -> f32 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    player_id.hash(&mut h);
+    chest_key.hash(&mut h);
+    item_id.hash(&mut h);
+    // Take the low 24 bits so f32 can represent the result exactly and the
+    // mapping to [0,1) is uniform.
+    let v = (h.finish() & 0x00FF_FFFF) as f32;
+    v / (1u32 << 24) as f32
+}
+
+/// Returns the list of `item_id`s that the rolls granted for this
+/// (player, chest) combination. Order matches the input `rolls`.
+pub fn evaluate_rolls(rolls: &[LootRoll], player_id: &str, chest_key: &str) -> Vec<String> {
+    rolls.iter()
+        .filter(|r| {
+            let v = roll_rng(player_id, chest_key, &r.item_id);
+            v < r.chance.clamp(0.0, 1.0)
+        })
+        .map(|r| r.item_id.clone())
+        .collect()
+}
 
 /// A chest inside an interior. Tracked by index in
 /// `DevPlayerState.opened_chests` as "<interior_id>:chest:<idx>".
@@ -306,6 +349,62 @@ mod tests {
     fn parse_rejects_non_interior_event() {
         assert_eq!(parse_monster_combat_event_id("monster_3"), None);
         assert_eq!(parse_monster_combat_event_id("something_else"), None);
+    }
+
+    #[test]
+    fn roll_rng_is_deterministic() {
+        let a = roll_rng("p1", "cave:chest:0", "iron_sword");
+        let b = roll_rng("p1", "cave:chest:0", "iron_sword");
+        assert_eq!(a, b);
+        // Different player → different value (very high probability).
+        let c = roll_rng("p2", "cave:chest:0", "iron_sword");
+        assert!((a - c).abs() > 1e-6);
+    }
+
+    #[test]
+    fn roll_rng_is_in_unit_interval() {
+        for seed in &["alice", "bob", "charlie"] {
+            let v = roll_rng(seed, "k", "item");
+            assert!(v >= 0.0 && v < 1.0, "roll out of range: {v}");
+        }
+    }
+
+    #[test]
+    fn evaluate_rolls_chance_0_grants_nothing() {
+        let rolls = vec![LootRoll { item_id: "potion".into(), chance: 0.0 }];
+        assert!(evaluate_rolls(&rolls, "p", "k").is_empty());
+    }
+
+    #[test]
+    fn evaluate_rolls_chance_1_always_grants() {
+        let rolls = vec![LootRoll { item_id: "potion".into(), chance: 1.0 }];
+        assert_eq!(evaluate_rolls(&rolls, "p", "k"), vec!["potion".to_string()]);
+    }
+
+    #[test]
+    fn evaluate_rolls_independent() {
+        // Two 50% rolls on different items: independent flips.
+        let rolls = vec![
+            LootRoll { item_id: "a".into(), chance: 0.5 },
+            LootRoll { item_id: "b".into(), chance: 0.5 },
+        ];
+        // Run across many (player, key) seeds; roughly ~25% should grant both.
+        let mut both = 0;
+        let mut neither = 0;
+        let n = 200;
+        for i in 0..n {
+            let pid = format!("p{}", i);
+            let granted = evaluate_rolls(&rolls, &pid, "chest");
+            match granted.len() {
+                0 => neither += 1,
+                2 => both += 1,
+                _ => {}
+            }
+        }
+        // Loose sanity bounds — if the hash distribution is terribly skewed
+        // we'd see this fail. Expect roughly 50 each; tolerate 20..80.
+        assert!(both > 20 && both < n - 20,      "both count={both}");
+        assert!(neither > 20 && neither < n - 20, "neither count={neither}");
     }
 
     #[test]

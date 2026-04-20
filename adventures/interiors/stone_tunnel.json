@@ -829,6 +829,16 @@
         "gold": 120,
         "items": [
           "greater_health_potion"
+        ],
+        "rolls": [
+          {
+            "item_id": "iron_sword",
+            "chance": 0.25
+          },
+          {
+            "item_id": "torch",
+            "chance": 0.4
+          }
         ]
       }
     }

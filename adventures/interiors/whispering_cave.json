@@ -600,6 +600,12 @@
         "items": [
           "health_potion",
           "torch"
+        ],
+        "rolls": [
+          {
+            "item_id": "health_potion",
+            "chance": 0.5
+          }
         ]
       }
     }

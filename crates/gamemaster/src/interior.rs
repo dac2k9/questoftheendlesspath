@@ -187,24 +187,32 @@ pub fn run_interior_tick(
                 p.interior_fog.insert(interior_id.clone(), fog.to_base64());
             }
             // Chest reward — per-chest loot table from InteriorMap.chests[idx].loot.
+            // Guaranteed `gold` + `items`, plus independent per-roll chances.
             if let Some(chest_idx) = opened_chest {
                 let key = chest_key(&interior_id, chest_idx);
-                p.opened_chests.push(key);
+                p.opened_chests.push(key.clone());
                 let loot = interior.chests.get(chest_idx).map(|c| &c.loot);
-                let (gold, item_ids): (i32, Vec<String>) = match loot {
-                    Some(l) => (l.gold, l.items.clone()),
-                    None => (0, Vec::new()),
+                let (gold, guaranteed_items, rolls) = match loot {
+                    Some(l) => (l.gold, l.items.clone(), l.rolls.clone()),
+                    None => (0, Vec::new(), Vec::new()),
                 };
                 p.gold += gold;
                 let catalog = crate::item_catalog();
                 let mut parts: Vec<String> = Vec::new();
                 if gold > 0 { parts.push(format!("+{} gold", gold)); }
-                for item_id in &item_ids {
-                    questlib::items::add_item(&mut p.inventory, item_id, Some(catalog));
+                let grant = |parts: &mut Vec<String>, inv: &mut Vec<questlib::items::InventorySlot>, item_id: &str| {
+                    questlib::items::add_item(inv, item_id, Some(catalog));
                     let display = catalog.get(item_id)
                         .map(|d| d.display_name.as_str())
-                        .unwrap_or(item_id.as_str());
+                        .unwrap_or(item_id);
                     parts.push(display.to_string());
+                };
+                for item_id in &guaranteed_items {
+                    grant(&mut parts, &mut p.inventory, item_id);
+                }
+                let rolled = questlib::interior::evaluate_rolls(&rolls, player_id, &key);
+                for item_id in &rolled {
+                    grant(&mut parts, &mut p.inventory, item_id);
                 }
                 if let Ok(mut n) = shared_notifs.lock() {
                     let msg = if parts.is_empty() {

@@ -323,12 +323,24 @@ reveal → chest open) against `interior.tiles`.
 - [x] Client dims locked portals (orange) vs. unlocked (teal); the color
       re-syncs the tick the unlock event lands in `completed_events`
 
+**Phase 3e (shipped)** — weighted chest rolls
+- [x] `ChestLoot.rolls: Vec<LootRoll { item_id, chance }>` alongside the
+      guaranteed `gold`+`items`. Each roll is an independent flip; chance
+      is clamped to `[0.0, 1.0]`.
+- [x] `questlib::interior::roll_rng(player_id, chest_key, item_id)` is a
+      deterministic hash → `[0.0, 1.0)`. Same inputs → same output, so
+      rerolls by reload are impossible and tests are reproducible.
+- [x] `evaluate_rolls` + `roll_rng` unit tests in `questlib::interior`.
+- [x] `run_interior_tick` grants guaranteed `items` then appends the
+      results of `evaluate_rolls` to the "Opened a hidden chest!"
+      notification line.
+- [x] Whispering Cave chest: +50 % Health Potion.
+- [x] Stone Tunnel chest: +25 % Iron Sword, +40 % Torch (refill chance).
+
 **Phase 3 remaining**
 - [ ] Real dark tileset (replace colored quads in `terrain/interior.rs`,
       including proper monster sprites reusing the overworld loader)
 - [ ] Procedural cave generator keyed off POI id
-- [ ] Weighted / rolled chest loot (extend `ChestLoot` with a drop-chance
-      list; deterministic `items` array today)
 
 **Phase 5 (planned)** — player co-location features
 - [ ] When two players share a tile, reveal each other's fog maps to each
