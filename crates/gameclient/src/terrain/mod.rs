@@ -27,6 +27,9 @@ pub enum Overlay {
     Bridge,
     Wheat,
     Chest,
+    /// Distinct visual for cave POIs so players can see the entrance on the
+    /// overworld without hovering / holding TAB.
+    CaveEntrance,
 }
 
 /// Combined terrain.
@@ -50,6 +53,7 @@ impl Terrain {
             Some(Overlay::Wheat) => base + 10,
             Some(Overlay::Bridge) => 20,
             Some(Overlay::Chest) => base, // no extra cost
+            Some(Overlay::CaveEntrance) => base, // walkable, same as the underlying road
             None => base,
         }
     }
@@ -68,6 +72,7 @@ impl Terrain {
             Some(Overlay::Bridge) => "Bridge",
             Some(Overlay::Wheat) => "Wheat Field",
             Some(Overlay::Chest) => "Chest",
+            Some(Overlay::CaveEntrance) => "Cave",
             None => self.ground.name(),
         }
     }
@@ -143,6 +148,7 @@ impl Overlay {
             Overlay::Bridge => 71,     // bridge_1_1
             Overlay::Wheat => 61,      // wheat_0_0
             Overlay::Chest => 80,      // crate/chest tile
+            Overlay::CaveEntrance => 43, // rock variant — visually distinct from Rock=41
         }
     }
 

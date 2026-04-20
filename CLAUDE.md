@@ -162,6 +162,11 @@ Diagnostic / recovery:
 - `poi_at()` matches within 1 tile of POI center
 - POI tiles are set to Road ground (cheap traversal)
 - Player must deliberately click on/near POI to walk there — no auto-snapping
+- **Visual markers on the map:** `PoiType::Cave` renders an `Overlay::CaveEntrance`
+  sprite (tile atlas index 43); all other POI types render `Overlay::Village`
+  (index 84, well). Hovering with TAB still shows the exact POI type as text.
+  Cave entrances are visually distinct so players can find them without
+  needing to hover.
 
 ### Movement
 - Player clicks tiles to plan route (A* pathfinding overworld, BFS interior)
