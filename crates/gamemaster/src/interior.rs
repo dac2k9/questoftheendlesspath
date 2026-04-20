@@ -186,14 +186,33 @@ pub fn run_interior_tick(
             if fog_changed {
                 p.interior_fog.insert(interior_id.clone(), fog.to_base64());
             }
-            // Chest reward (flat gold for Phase 1; Phase 2 adds loot tables).
+            // Chest reward — per-chest loot table from InteriorMap.chests[idx].loot.
             if let Some(chest_idx) = opened_chest {
                 let key = chest_key(&interior_id, chest_idx);
                 p.opened_chests.push(key);
-                let gold_reward = 50;
-                p.gold += gold_reward;
+                let loot = interior.chests.get(chest_idx).map(|c| &c.loot);
+                let (gold, item_ids): (i32, Vec<String>) = match loot {
+                    Some(l) => (l.gold, l.items.clone()),
+                    None => (0, Vec::new()),
+                };
+                p.gold += gold;
+                let catalog = crate::item_catalog();
+                let mut parts: Vec<String> = Vec::new();
+                if gold > 0 { parts.push(format!("+{} gold", gold)); }
+                for item_id in &item_ids {
+                    questlib::items::add_item(&mut p.inventory, item_id, Some(catalog));
+                    let display = catalog.get(item_id)
+                        .map(|d| d.display_name.as_str())
+                        .unwrap_or(item_id.as_str());
+                    parts.push(display.to_string());
+                }
                 if let Ok(mut n) = shared_notifs.lock() {
-                    crate::push_notif(&mut n, player_id, format!("Opened a hidden chest! +{} gold", gold_reward));
+                    let msg = if parts.is_empty() {
+                        "Opened a chest… but it was empty.".to_string()
+                    } else {
+                        format!("Opened a hidden chest! {}", parts.join(", "))
+                    };
+                    crate::push_notif(&mut n, player_id, msg);
                 }
             }
         }
@@ -383,7 +402,10 @@ mod tests {
             id: "cave".into(), name: "Cave".into(),
             width: 3, height: 3, tiles,
             portals: vec![Portal { x: 1, y: 0, destination: PortalDest::Overworld { x: 5, y: 5 }, label: "out".into() }],
-            chests: vec![(1, 2)],
+            chests: vec![questlib::interior::InteriorChest {
+                x: 1, y: 2,
+                loot: questlib::interior::ChestLoot::default(),
+            }],
             monsters: vec![],
             floor_cost_m: 40,
         }

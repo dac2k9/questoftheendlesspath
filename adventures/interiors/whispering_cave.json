@@ -592,10 +592,17 @@
     }
   ],
   "chests": [
-    [
-      12,
-      5
-    ]
+    {
+      "x": 12,
+      "y": 5,
+      "loot": {
+        "gold": 80,
+        "items": [
+          "health_potion",
+          "torch"
+        ]
+      }
+    }
   ],
   "floor_cost_m": 40,
   "monsters": [

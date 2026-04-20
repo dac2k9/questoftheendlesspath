@@ -285,14 +285,32 @@ reveal → chest open) against `interior.tiles`.
 - [x] Interior-tick freezes movement while in combat (same rule as overworld)
 - [x] Whispering Cave seeded with a slime (diff 1) and a skeleton soldier (diff 3)
 
+**Phase 3c (shipped)** — per-chest loot tables
+- [x] `ChestLoot { gold, items }` + `InteriorChest { x, y, loot }` in `questlib::interior`
+- [x] `InteriorMap.chests` is now `Vec<InteriorChest>` instead of `Vec<(usize, usize)>`
+- [x] `run_interior_tick` grants `loot.gold` + each `loot.items` entry via `add_item` when the player steps on a chest; notification lists the gold plus item display names
+- [x] Whispering Cave chest upgraded to `{ gold: 80, items: ["health_potion", "torch"] }`
+- [x] Monsters still use the overworld difficulty-scaled drop table — separate concern
+
 **Phase 3 remaining**
 - [ ] First shortcut cave (two-portal cave where one portal leads to a
       distant overworld tile — "discover a tunnel through the mountain")
-- [ ] Per-interior loot tables (currently chest gives flat +50 gold; monsters
-      already use the same difficulty-scaled drop table as overworld)
 - [ ] Real dark tileset (replace colored quads in `terrain/interior.rs`,
       including proper monster sprites reusing the overworld loader)
 - [ ] Procedural cave generator keyed off POI id
+- [ ] Weighted / rolled chest loot (extend `ChestLoot` with a drop-chance
+      list; deterministic `items` array today)
+
+**Phase 5 (planned)** — player co-location features
+- [ ] When two players share a tile, reveal each other's fog maps to each
+      other (one-time merge at the moment of overlap, or continuous while
+      co-located — TBD)
+- [ ] Trade UI: both players on the same tile can open a trade window and
+      exchange items / gold with explicit both-accept confirmation
+- [ ] Design open questions: does co-location count only on overworld, or
+      also inside the same interior? Do the maps merge both directions or
+      one-way? What's the anti-grief story (someone accepting a trade
+      without consent)? Discuss before implementing.
 
 **Phase 4 — castles** (speculative)
 - [ ] Multi-room interiors (several `InteriorMap`s linked by `PortalDest::Interior`)

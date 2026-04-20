@@ -195,8 +195,8 @@ fn apply_fetched_interior(
     }
 
     // Chests — gold quad (placeholder) on top of floor.
-    for &(cx, cy) in &map.chests {
-        let pos = WorldGrid::tile_to_world(cx, cy);
+    for chest in &map.chests {
+        let pos = WorldGrid::tile_to_world(chest.x, chest.y);
         commands.spawn((
             Sprite {
                 color: Color::srgb(0.90, 0.70, 0.20),

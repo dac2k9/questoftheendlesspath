@@ -87,6 +87,29 @@ pub struct InteriorMonster {
 
 fn default_monster_difficulty() -> u32 { 1 }
 
+/// What a chest contains. Deterministic lists only for now — weighted /
+/// rolled loot can be layered on later by extending this struct.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ChestLoot {
+    #[serde(default = "default_chest_gold")]
+    pub gold: i32,
+    /// Item ids to grant. Empty is fine; a "gold-only" chest is still useful.
+    #[serde(default)]
+    pub items: Vec<String>,
+}
+
+fn default_chest_gold() -> i32 { 30 }
+
+/// A chest inside an interior. Tracked by index in
+/// `DevPlayerState.opened_chests` as "<interior_id>:chest:<idx>".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InteriorChest {
+    pub x: usize,
+    pub y: usize,
+    #[serde(default)]
+    pub loot: ChestLoot,
+}
+
 /// One hand-authored or generated interior.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InteriorMap {
@@ -99,10 +122,10 @@ pub struct InteriorMap {
     /// Portals placed on specific floor tiles.
     #[serde(default)]
     pub portals: Vec<Portal>,
-    /// Chest positions. ids are local to the interior; tracked in the
-    /// player's opened_chests as "<interior_id>:chest:<idx>".
+    /// Chests. Tracked in the player's opened_chests as
+    /// "<interior_id>:chest:<idx>" (see `chest_key`).
     #[serde(default)]
-    pub chests: Vec<(usize, usize)>,
+    pub chests: Vec<InteriorChest>,
     /// Monster spawns. Tracked in the player's defeated_monsters as
     /// "<interior_id>:monster:<idx>" (see `monster_key`).
     #[serde(default)]
@@ -132,7 +155,7 @@ impl InteriorMap {
 
     /// Returns chest index at (x, y), if any.
     pub fn chest_at(&self, x: usize, y: usize) -> Option<usize> {
-        self.chests.iter().position(|&(cx, cy)| cx == x && cy == y)
+        self.chests.iter().position(|c| c.x == x && c.y == y)
     }
 
     /// Returns monster index at (x, y), if any.
@@ -150,9 +173,9 @@ impl InteriorMap {
                 return Err(format!("portal {} at ({},{}) is not on a floor tile", i, p.x, p.y));
             }
         }
-        for (i, &(x, y)) in self.chests.iter().enumerate() {
-            if !self.is_walkable(x, y) {
-                return Err(format!("chest {} at ({},{}) is not on a floor tile", i, x, y));
+        for (i, c) in self.chests.iter().enumerate() {
+            if !self.is_walkable(c.x, c.y) {
+                return Err(format!("chest {} at ({},{}) is not on a floor tile", i, c.x, c.y));
             }
         }
         for (i, m) in self.monsters.iter().enumerate() {
@@ -214,7 +237,7 @@ mod tests {
                 destination: PortalDest::Overworld { x: 10, y: 10 },
                 label: "Exit".into(),
             }],
-            chests: vec![(1, 2)],
+            chests: vec![InteriorChest { x: 1, y: 2, loot: ChestLoot::default() }],
             monsters: vec![],
             floor_cost_m: 40,
         }
