@@ -390,6 +390,7 @@ mod tests {
             weapon: Some("iron_sword".to_string()),
             armor: Some("leather_vest".to_string()),
             accessory: Some("warm_cloak".to_string()),
+            feet: None,
         };
         let (atk, def, hp) = equipment_bonuses(&loadout, &cat);
         assert_eq!(atk, 5);

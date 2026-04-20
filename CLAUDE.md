@@ -162,6 +162,20 @@ on Render with a persistent disk mounted at `/data`).
 - `POST /heartbeat` — browser presence (no-op in dev)
 - `GET /leaderboard` — proxy to walker.akerud.se leaderboard (bypasses CORS)
 
+### Interior spaces (caves / dungeons / castles)
+
+- `GET /interior?id=X` — tile grid, portals, chests for an interior
+- `POST /enter_interior` — `{"player_id":"...","interior_id":"whispering_cave","spawn":[1,1]}`
+- `POST /use_portal` — `{"player_id":"..."}` — takes the portal at the player's current interior tile
+
+Interiors are loaded at startup from `adventures/interiors/*.json`. Each
+`InteriorMap` is tile-grid data (wall/floor), plus portals (destinations
+can be overworld tiles or other interiors), plus chest spawns. Player
+state gains a `location` (overworld vs interior), `overworld_return`
+(tile to pop back to), and per-interior `interior_fog`. While inside,
+the overworld tick is skipped; `crate::interior::run_interior_tick`
+handles movement, fog, and chests.
+
 ### Admin endpoints
 
 Gated on both the `ADMIN_TOKEN` env var (must be non-empty) and an

@@ -58,6 +58,15 @@ pub struct DevPlayerState {
     /// Temporary buffs from consumed potions. Pruned each tick when expired.
     #[serde(default)]
     pub active_buffs: Vec<questlib::items::ActiveBuff>,
+    /// Where the player currently is (overworld or an interior).
+    #[serde(default)]
+    pub location: questlib::interior::Location,
+    /// When inside an interior, the overworld tile to drop back to on exit.
+    #[serde(default)]
+    pub overworld_return: Option<(i32, i32)>,
+    /// Fog of war per interior the player has visited. key = interior id.
+    #[serde(default)]
+    pub interior_fog: std::collections::HashMap<String, String>,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
@@ -91,7 +100,7 @@ impl TickSignal {
     }
 }
 
-pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal, bridged_players: crate::walker_bridge::BridgedPlayers) -> Result<()> {
+pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal, bridged_players: crate::walker_bridge::BridgedPlayers, interiors: crate::interior::SharedInteriors) -> Result<()> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".to_string());
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!("Dev server listening on http://127.0.0.1:{}", port);
@@ -105,6 +114,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
         let combat = combat.clone();
         let tick_signal = tick_signal.clone();
         let bridged_players = bridged_players.clone();
+        let interiors = interiors.clone();
 
         tokio::spawn(async move {
             // Read headers + body (may arrive in separate TCP packets)
@@ -184,7 +194,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                 // Handle join asynchronously (needs Walker API lookup)
                 handle_join(&request, &state, &world, &bridged_players).await
             } else {
-                handle_request(&request, &state, &events, &notifs, &world, &combat)
+                handle_request(&request, &state, &events, &notifs, &world, &combat, &interiors)
             };
 
             // Serve static files for the game client
@@ -197,6 +207,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                 && !path.starts_with("/use_item") && !path.starts_with("/equip_item")
                 && !path.starts_with("/unequip_item") && !path.starts_with("/heartbeat")
                 && !path.starts_with("/notifications")
+                && !path.starts_with("/interior")
                 && status == "404 Not Found"
             {
                 let clean_path = path.split('?').next().unwrap_or(path);
@@ -406,7 +417,7 @@ async fn handle_join(
     ))
 }
 
-fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat) -> (&'static str, String) {
+fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat, interiors: &crate::interior::SharedInteriors) -> (&'static str, String) {
     let first_line = request.lines().next().unwrap_or("");
 
     // CORS preflight
@@ -901,6 +912,78 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
     // POST /heartbeat — mark player browser as open (no-op for dev)
     if first_line.starts_with("POST /heartbeat") {
         return ("200 OK", r#"{"ok":true}"#.to_string());
+    }
+
+    // ── Interior (caves / dungeons / castles) ─────────────
+
+    // GET /interior?id=X — return the interior's map data (tiles + portals + chests)
+    if first_line.starts_with("GET /interior") {
+        let id = first_line.split('?').nth(1)
+            .and_then(|qs| qs.split('&').find(|p| p.starts_with("id=")))
+            .and_then(|p| p.strip_prefix("id="))
+            .and_then(|v| v.split_whitespace().next())
+            .unwrap_or("");
+        let Some(interior) = interiors.get(id) else {
+            return ("404 Not Found", r#"{"error":"unknown interior"}"#.to_string());
+        };
+        return ("200 OK", serde_json::to_string(interior).unwrap_or_default());
+    }
+
+    // POST /enter_interior — body: {player_id, interior_id, spawn: [x,y]}
+    // Phase 1 integration hook: the client (or admin) tells us which interior
+    // to enter and where to drop the player. Phase 2 ties this to a POI event.
+    if first_line.starts_with("POST /enter_interior") {
+        let body = request.find("\r\n\r\n").map(|i| &request[i + 4..]).unwrap_or("");
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+            return ("400 Bad Request", r#"{"error":"invalid json"}"#.to_string());
+        };
+        let pid = v.get("player_id").and_then(|v| v.as_str()).unwrap_or("");
+        let iid = v.get("interior_id").and_then(|v| v.as_str()).unwrap_or("");
+        let spawn = v.get("spawn").and_then(|v| v.as_array())
+            .and_then(|arr| {
+                let x = arr.get(0)?.as_u64()? as usize;
+                let y = arr.get(1)?.as_u64()? as usize;
+                Some((x, y))
+            });
+        let Some(spawn) = spawn else {
+            return ("400 Bad Request", r#"{"error":"spawn: [x,y] required"}"#.to_string());
+        };
+        if pid.is_empty() || iid.is_empty() {
+            return ("400 Bad Request", r#"{"error":"player_id + interior_id required"}"#.to_string());
+        }
+        use crate::interior::{enter_interior, PortalTransitionResult};
+        match enter_interior(interiors, state, pid, iid, spawn) {
+            PortalTransitionResult::Moved { tile, .. } => {
+                return ("200 OK", format!(r#"{{"ok":true,"tile":[{},{}]}}"#, tile.0, tile.1));
+            }
+            PortalTransitionResult::UnknownInterior => return ("404 Not Found", r#"{"error":"unknown interior"}"#.to_string()),
+            PortalTransitionResult::UnknownPlayer => return ("404 Not Found", r#"{"error":"unknown player"}"#.to_string()),
+            PortalTransitionResult::NotOnPortal => return ("400 Bad Request", r#"{"error":"spawn tile not walkable"}"#.to_string()),
+        }
+    }
+
+    // POST /use_portal — body: {player_id}. Uses the portal at the player's
+    // current interior tile; falls back to overworld_return if none. No-op
+    // if the player is on the overworld.
+    if first_line.starts_with("POST /use_portal") {
+        let body = request.find("\r\n\r\n").map(|i| &request[i + 4..]).unwrap_or("");
+        let pid = serde_json::from_str::<serde_json::Value>(body)
+            .ok()
+            .and_then(|v| v.get("player_id")?.as_str().map(|s| s.to_string()))
+            .unwrap_or_default();
+        if pid.is_empty() {
+            return ("400 Bad Request", r#"{"error":"player_id required"}"#.to_string());
+        }
+        use crate::interior::{use_portal, PortalTransitionResult};
+        match use_portal(interiors, state, &pid) {
+            PortalTransitionResult::Moved { new_location, tile } => {
+                let loc_json = serde_json::to_string(&new_location).unwrap_or_default();
+                return ("200 OK", format!(r#"{{"ok":true,"location":{},"tile":[{},{}]}}"#, loc_json, tile.0, tile.1));
+            }
+            PortalTransitionResult::NotOnPortal => return ("400 Bad Request", r#"{"error":"not on a portal"}"#.to_string()),
+            PortalTransitionResult::UnknownInterior => return ("404 Not Found", r#"{"error":"unknown interior"}"#.to_string()),
+            PortalTransitionResult::UnknownPlayer => return ("404 Not Found", r#"{"error":"unknown player"}"#.to_string()),
+        }
     }
 
     // ── Admin endpoints ────────────────────────────────────

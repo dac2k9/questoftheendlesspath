@@ -42,6 +42,24 @@ impl FogBitfield {
         })
     }
 
+    /// Create a fog of arbitrary size. Used for interior maps, which are
+    /// smaller than the overworld (and don't share MAP_W × MAP_H).
+    pub fn new_sized(width: usize, height: usize) -> Self {
+        let num_bytes = (width * height + 7) / 8;
+        Self { bits: vec![0u8; num_bytes], width, height }
+    }
+
+    /// Decode base64 into a fog of the given size (interior maps).
+    pub fn from_base64_sized(encoded: &str, width: usize, height: usize) -> Option<Self> {
+        if encoded.is_empty() {
+            return Some(Self::new_sized(width, height));
+        }
+        let bits = base64_decode(encoded)?;
+        let expected = (width * height + 7) / 8;
+        if bits.len() < expected { return None; }
+        Some(Self { bits, width, height })
+    }
+
     /// Encode to base64 string for storage.
     pub fn to_base64(&self) -> String {
         base64_encode(&self.bits)

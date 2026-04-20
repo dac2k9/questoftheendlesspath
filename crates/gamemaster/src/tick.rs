@@ -35,6 +35,13 @@ pub fn run_tick_dev(
     for player in &players {
         let player_id = &player.id;
 
+        // Players inside an interior are handled by crate::interior::run_interior_tick
+        // in the outer loop. Skip them here entirely so overworld logic (fog,
+        // routes, events, combat) doesn't touch their state.
+        if player.location.interior_id().is_some() {
+            continue;
+        }
+
         // Init fog
         if !player_fogs.contains_key(player_id) {
             let fog = if !player.revealed_tiles.is_empty() {

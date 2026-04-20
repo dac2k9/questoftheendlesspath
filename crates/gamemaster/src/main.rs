@@ -1,5 +1,6 @@
 mod combat;
 mod devserver;
+mod interior;
 mod tick;
 mod walker_bridge;
 
@@ -128,6 +129,13 @@ async fn main() -> Result<()> {
         world.width, world.height, world.pois.len(), world.roads.len()
     );
 
+    // Interior spaces (caves, dungeons, castles) — loaded from JSON at
+    // startup and then treated as read-only reference data. Per-player
+    // interior state (position, fog, opened chests) lives on DevPlayerState.
+    let interiors_dir = std::env::var("INTERIORS_DIR").unwrap_or_else(|_| "adventures/interiors".to_string());
+    let interiors: interior::SharedInteriors = Arc::new(interior::load_interiors(&interiors_dir)?);
+    info!("Loaded {} interior(s) from {}", interiors.len(), interiors_dir);
+
     // Save path is configurable via SAVE_PATH. On Render, set this to a path
     // inside a mounted persistent disk (e.g. "/data/dev_state.json") so state
     // survives redeploys. Locally, defaults to the working directory.
@@ -210,8 +218,9 @@ async fn main() -> Result<()> {
     let server_combat = shared_combat.clone();
     let server_tick_signal = tick_signal.clone();
     let server_bridged = bridged_players.clone();
+    let server_interiors = interiors.clone();
     tokio::spawn(async move {
-        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world, server_combat, server_tick_signal, server_bridged).await {
+        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world, server_combat, server_tick_signal, server_bridged, server_interiors).await {
             error!("Dev server error: {e}");
         }
     });
@@ -234,6 +243,9 @@ async fn main() -> Result<()> {
     let mut player_fogs: HashMap<String, questlib::fog::FogBitfield> = HashMap::new();
     let mut player_last_distance: HashMap<String, f64> = HashMap::new();
     let mut player_boss_wait_notified: HashMap<String, String> = HashMap::new();
+    // Fog of war for each (player, interior) pair. Persisted via
+    // DevPlayerState.interior_fog; this is the hot-path mirror.
+    let mut interior_fogs: HashMap<(String, String), questlib::fog::FogBitfield> = HashMap::new();
 
     info!("Game Master running (dev mode). Tick interval: 3s. Dev server on :3001");
     let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -251,6 +263,28 @@ async fn main() -> Result<()> {
             _ = interval.tick() => {
                 rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
                 let rng_roll = (rng_state >> 33) as f32 / (u32::MAX as f32);
+
+                // Tick interior players first. Their overworld-tick counterpart
+                // is a no-op thanks to the `Location::Interior { .. }` guard
+                // added in tick.rs — so they're handled exactly once.
+                let interior_players: Vec<String> = {
+                    let lock = state.lock().unwrap();
+                    lock.iter()
+                        .filter_map(|(pid, p)| p.location.interior_id().map(|_| pid.clone()))
+                        .collect()
+                };
+                for pid in &interior_players {
+                    if let Err(e) = interior::run_interior_tick(
+                        &interiors,
+                        &state,
+                        &shared_notifs,
+                        &mut player_last_distance,
+                        &mut interior_fogs,
+                        pid,
+                    ) {
+                        error!("Interior tick error for {}: {e:#}", pid);
+                    }
+                }
 
                 if let Err(e) = tick::run_tick_dev(
                     &state,
