@@ -150,31 +150,22 @@ fn check_long_poll(
     });
 }
 
-/// Write the planned route — uses dev server in dev mode.
-/// When `meters` is Some, preserves walked progress (used when extending a route).
-pub fn write_planned_route(
-    player_id: &str,
-    route_json: &str,
-    meters: Option<f64>,
-) {
-    if player_id.is_empty() {
-        return;
-    }
-
+/// Submit a planned route to the server. Client sends ONLY geometry — the
+/// server is authoritative on `route_meters_walked`, which it computes from
+/// the player's current tile position within the new route (see `/set_route`).
+pub fn write_planned_route(player_id: &str, route_json: &str) {
+    if player_id.is_empty() { return; }
     let url = crate::api_url("/set_route");
 
     #[derive(Serialize)]
     struct Params {
         player_id: String,
         route: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        meters: Option<f64>,
     }
 
     let body = serde_json::to_string(&Params {
         player_id: player_id.to_string(),
         route: route_json.to_string(),
-        meters,
     })
     .unwrap_or_default();
 

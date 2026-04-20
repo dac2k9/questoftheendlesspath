@@ -472,26 +472,52 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", json);
     }
 
-    // POST /set_route — set planned route for a player
+    // POST /set_route — set planned route for a player.
     // Body: {"player_id": "...", "route": "[[x,y],...]"}
+    //
+    // Trust boundary: the client submits only geometry. The server owns the
+    // player's position along the route (route_meters_walked). We compute it
+    // by finding the player's current tile in the new route and accumulating
+    // tile costs up to that index — no client-supplied "how far along" values.
     if first_line.starts_with("POST /set_route") {
-        // Extract body after \r\n\r\n
         if let Some(body_start) = request.find("\r\n\r\n") {
             let body = &request[body_start + 4..];
             #[derive(Deserialize)]
             struct RouteReq {
                 player_id: String,
                 route: String,
-                /// When extending a route, the client sends current meters so
-                /// already-walked progress is preserved. Omit or 0 for fresh routes.
-                #[serde(default)]
-                meters: Option<f64>,
             }
             if let Ok(req) = serde_json::from_str::<RouteReq>(body) {
+                let parsed = questlib::route::parse_route_json(&req.route).unwrap_or_default();
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
+                    let current = (player.map_tile_x as usize, player.map_tile_y as usize);
+                    let new_meters = match player.location.interior_id() {
+                        Some(id) => {
+                            // Interior cost: every floor tile is flat floor_cost_m.
+                            let per_tile = interiors.get(id).map(|i| i.floor_cost_m).unwrap_or(40) as f64;
+                            match parsed.iter().position(|&t| t == current) {
+                                Some(idx) => idx as f64 * per_tile,
+                                None => 0.0,
+                            }
+                        }
+                        None => {
+                            // Overworld cost: accumulate each tile's biome cost,
+                            // taking roads into account (same function the route
+                            // advance logic uses).
+                            match parsed.iter().position(|&t| t == current) {
+                                Some(idx) => parsed[..idx].iter()
+                                    .map(|&(x, y)| questlib::route::tile_cost(
+                                        world.biome_at(x, y),
+                                        world.has_road_at(x, y),
+                                    ) as f64)
+                                    .sum(),
+                                None => 0.0,
+                            }
+                        }
+                    };
                     player.planned_route = req.route;
-                    player.route_meters_walked = req.meters.unwrap_or(0.0);
+                    player.route_meters_walked = new_meters;
                     return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
             }

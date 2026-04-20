@@ -380,19 +380,11 @@ fn neighbors(x: usize, y: usize, w: usize, h: usize) -> Vec<(usize, usize)> {
     out
 }
 
-/// POST /set_route with an interior-tile route. Same shape as overworld.
+/// POST /set_route with an interior-tile route. Same shape as overworld —
+/// client submits only geometry; server owns route_meters_walked.
 fn post_route(player_id: &str, route: &[(usize, usize)]) {
     let route_json = serde_json::to_string(route).unwrap_or_default();
-    let body = serde_json::json!({
-        "player_id": player_id,
-        "route": route_json,
-        "meters": 0.0,
-    });
-    let url = crate::api_url("/set_route");
-    wasm_bindgen_futures::spawn_local(async move {
-        let client = reqwest::Client::new();
-        let _ = client.post(&url).json(&body).send().await;
-    });
+    crate::supabase::write_planned_route(player_id, &route_json);
 }
 
 /// Portal destination matches for use-portal eligibility (future wiring).

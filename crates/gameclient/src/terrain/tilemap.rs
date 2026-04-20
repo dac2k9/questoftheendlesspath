@@ -777,9 +777,12 @@ fn handle_map_click(
     if mouse.just_pressed(MouseButton::Left) && terrain.is_passable() && is_revealed && !ui_hovered {
         let current_pos = (state.tile_x as usize, state.tile_y as usize);
         let has_active_route = !display_route.waypoints.is_empty();
+        // Shift-click extends the current route; plain click replaces it.
+        let extending = has_active_route
+            && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight));
 
-        // Determine pathfinding start: extend from last waypoint, or start fresh
-        let start = if has_active_route {
+        // Plan path: from last waypoint when extending, from current tile otherwise.
+        let start = if extending {
             *display_route.waypoints.last().unwrap()
         } else {
             current_pos
@@ -808,25 +811,25 @@ fn handle_map_click(
             return;
         }
         if let Some(mut segment) = path_result {
-            let send_meters;
             let marker_skip;
 
-            if has_active_route {
-                // Extending: append new segment, preserve walked progress.
+            if extending {
+                // Append the new segment after the last waypoint. First tile of
+                // the segment IS the last waypoint; drop it to avoid duplication.
                 if !segment.is_empty() { segment.remove(0); }
                 display_route.waypoints.extend(segment);
-                let current_meters = interp.current_meters();
-                send_meters = Some(current_meters);
-                marker_skip = tile_index_from_meters(&display_route.waypoints, current_meters, &world);
+                // Skip already-walked tiles in the marker draw based on the last
+                // server-confirmed meters (NOT interpolated — server is source of
+                // truth for distance).
+                marker_skip = tile_index_from_meters(&display_route.waypoints, state.route_meters, &world);
             } else {
-                // Fresh route from current position
+                // Fresh route from current position — clear & reset local state.
                 display_route.waypoints = segment;
                 state.route_meters = 0.0;
                 interp.start_meters = 0.0;
                 interp.target_meters = 0.0;
                 interp.elapsed = 0.0;
                 interp.duration = 0.0;
-                send_meters = None;
                 marker_skip = 0;
             }
             display_route.locally_modified = true;
@@ -836,9 +839,10 @@ fn handle_map_click(
             for entity in &path_markers { commands.entity(entity).despawn(); }
             draw_path_markers(&mut commands, &display_route.waypoints, marker_skip, &fog);
 
-            // Send to server (with meters when extending, so server preserves progress)
+            // Send to server. Client submits ONLY geometry — server recomputes
+            // route_meters_walked from the player's current tile in the new route.
             let route_json = questlib::route::encode_route_json(&display_route.waypoints);
-            supabase::write_planned_route(&session.player_id, &route_json, send_meters);
+            supabase::write_planned_route(&session.player_id, &route_json);
         }
     }
 }
@@ -874,7 +878,7 @@ fn handle_clear_route(
         interp.elapsed = 0.0;
         interp.duration = 0.0;
         for entity in &path_markers { commands.entity(entity).despawn(); }
-        supabase::write_planned_route(&session.player_id, "", None);
+        supabase::write_planned_route(&session.player_id, "");
     }
 }
 

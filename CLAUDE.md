@@ -157,11 +157,20 @@ Diagnostic / recovery:
 - Player must deliberately click on/near POI to walk there — no auto-snapping
 
 ### Movement
-- Player clicks tiles to plan route (A* pathfinding)
+- Player clicks tiles to plan route (A* pathfinding overworld, BFS interior)
 - Walker sends distance deltas every 2s
 - Game Master advances player along route based on accumulated distance
 - Tile costs: Road 20m, Grass 40m, Sand 50m, Forest 70m, Snow 70m, Swamp 100m, Mountain 120m
 - Character interpolates smoothly between tiles based on speed
+
+### Trust boundary: client submits geometry, server owns distance
+- `/set_route` takes ONLY the route waypoints. The server computes
+  `route_meters_walked` by finding the player's current tile in the new
+  route and summing tile costs up to that index (or 0 if not found).
+- The client never tells the server "I have moved X meters." That lets the
+  server stay authoritative on position + prevents the multi-click
+  teleport bug where the client's interpolated meters got handed back.
+- Same rule applies inside interiors (flat `floor_cost_m` per tile).
 - Forward-only: browser never moves current_index backwards
 
 ### Activity Detection
@@ -182,7 +191,8 @@ Diagnostic / recovery:
 
 ## Controls (Browser)
 
-- **Left click** — plan route to tile (extends existing route)
+- **Left click** — plan a new route to the clicked tile (replaces any current route)
+- **Shift + Left click** — extend the current route with another destination
 - **Right click drag** — pan camera
 - **Scroll wheel** — zoom (smooth, 500ms easeout)
 - **ESC** — clear planned route
