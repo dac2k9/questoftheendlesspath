@@ -164,17 +164,76 @@ on Render with a persistent disk mounted at `/data`).
 
 ### Interior spaces (caves / dungeons / castles)
 
-- `GET /interior?id=X` — tile grid, portals, chests for an interior
-- `POST /enter_interior` — `{"player_id":"...","interior_id":"whispering_cave","spawn":[1,1]}`
-- `POST /use_portal` — `{"player_id":"..."}` — takes the portal at the player's current interior tile
+Design principle: **one abstraction for every walk-into-something space**.
+Whether it's a single-chamber cave, a shortcut tunnel connecting two
+overworld tiles, or a multi-room castle, they're all `InteriorMap`s
+connected by `Portal`s. A portal's `destination` is either an overworld
+tile or another interior — so a shortcut is just a cave with two
+portals pointing to different overworld tiles, and a castle is a set
+of interiors linked by portals to each other.
 
-Interiors are loaded at startup from `adventures/interiors/*.json`. Each
-`InteriorMap` is tile-grid data (wall/floor), plus portals (destinations
-can be overworld tiles or other interiors), plus chest spawns. Player
-state gains a `location` (overworld vs interior), `overworld_return`
-(tile to pop back to), and per-interior `interior_fog`. While inside,
-the overworld tick is skipped; `crate::interior::run_interior_tick`
-handles movement, fog, and chests.
+#### Data model (`questlib::interior`)
+
+- `Location::Overworld | Location::Interior { id }` — on `DevPlayerState.location`
+- `InteriorMap { id, name, width, height, tiles, portals, chests, floor_cost_m }`
+- `InteriorTile::Wall | Floor`
+- `Portal { x, y, destination, label }` with `PortalDest::Overworld { x, y } | Interior { id, x, y }`
+- Compound chest key `"<interior_id>:chest:<idx>"` in `player.opened_chests`
+  (overworld chest keys are still plain numeric ids)
+
+Interiors load from `adventures/interiors/*.json` at startup into an
+`Arc<HashMap<String, InteriorMap>>` shared with the devserver and tick
+loop. `INTERIORS_DIR` env var overrides the path.
+
+#### Endpoints
+
+- `GET /interior?id=X` — full `InteriorMap` (tiles + portals + chests)
+- `POST /enter_interior` — `{"player_id":"...","interior_id":"whispering_cave","spawn":[1,1]}`
+- `POST /use_portal` — `{"player_id":"..."}` — takes the portal at the
+  player's current interior tile (falls back to `overworld_return` if off-portal)
+
+#### Runtime
+
+`DevPlayerState` gains three fields (all `#[serde(default)]`, so existing
+saves load cleanly):
+- `location: Location` — default `Overworld`
+- `overworld_return: Option<(i32,i32)>` — tile to pop back to
+- `interior_fog: HashMap<String, String>` — base64 fog bitfield per interior id
+
+The overworld tick (`tick::run_tick_dev`) short-circuits for any player
+whose `location.interior_id().is_some()`. Interior players are handled
+separately by `interior::run_interior_tick`, which mirrors the essential
+overworld mechanics (walker-derived delta → route advancement → fog
+reveal → chest open) against `interior.tiles`.
+
+#### Status & roadmap
+
+**Phase 1 (shipped)** — server-only MVP
+- [x] Types in `questlib::interior`
+- [x] Loading + tick + endpoints in `gamemaster::interior`
+- [x] One hand-authored cave (`adventures/interiors/whispering_cave.json`,
+      16×12, 1 chest, 1 exit portal to overworld tile (45, 35))
+- [x] Save-safe schema additions; fog persistence per interior
+- [x] Route planning + walking inside; chest open gives +50 gold
+
+**Phase 2 — client tilemap swap** (not started)
+- [ ] Client watches `polled.location`; on change, despawn overworld tilemap and fetch `/interior?id=X`
+- [ ] Dark tileset atlas (wall, floor, portal-up, portal-down, chest)
+- [ ] Hover a portal tile → label tooltip; click → `POST /use_portal`
+- [ ] Other players in the same interior render alongside you
+- [ ] HUD biome text shows interior name while inside
+
+**Phase 3 — content + world integration** (not started)
+- [ ] Trigger `/enter_interior` from reaching a cave POI (probably a
+      new `EventKind::CaveEntrance { interior_id, spawn }`)
+- [ ] First shortcut cave (two portals to different overworld tiles)
+- [ ] Monsters and combat inside interiors
+- [ ] Per-interior loot tables (currently chest gives flat +50 gold)
+- [ ] Procedural cave generator keyed off POI id for variety
+
+**Phase 4 — castles** (speculative)
+- [ ] Multi-room interiors (several `InteriorMap`s linked by `PortalDest::Interior`)
+- [ ] Richer interior tilesets / boss lairs / lore rooms
 
 ### Admin endpoints
 
