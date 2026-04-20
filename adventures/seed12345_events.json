@@ -126,6 +126,11 @@
             "name": "haste_draught",
             "cost": 50,
             "effect": "use"
+          },
+          {
+            "name": "toe_ring_swiftness",
+            "cost": 80,
+            "effect": "equip"
           }
         ]
       },
@@ -302,6 +307,11 @@
             "name": "haste_draught",
             "cost": 50,
             "effect": "use"
+          },
+          {
+            "name": "toe_ring_adder",
+            "cost": 180,
+            "effect": "equip"
           }
         ]
       },
@@ -445,6 +455,11 @@
             "name": "quicksilver_tonic",
             "cost": 120,
             "effect": "use"
+          },
+          {
+            "name": "toe_ring_thorns",
+            "cost": 220,
+            "effect": "equip"
           }
         ]
       },

@@ -20,6 +20,9 @@ pub enum EquipmentSlot {
     Accessory,
     /// Boots — speed multipliers.
     Feet,
+    /// Toe rings — distinct from Accessory so both can be worn together.
+    /// Small bonuses; flavor choice.
+    ToeRings,
 }
 
 /// What stat an effect modifies.
@@ -169,6 +172,8 @@ pub struct EquipmentLoadout {
     pub accessory: Option<String>,
     #[serde(default)]
     pub feet: Option<String>,
+    #[serde(default)]
+    pub toe_rings: Option<String>,
 }
 
 impl EquipmentLoadout {
@@ -178,6 +183,7 @@ impl EquipmentLoadout {
             || self.armor.as_deref() == Some(item_id)
             || self.accessory.as_deref() == Some(item_id)
             || self.feet.as_deref() == Some(item_id)
+            || self.toe_rings.as_deref() == Some(item_id)
     }
 
     /// Get the item in a given slot.
@@ -187,6 +193,7 @@ impl EquipmentLoadout {
             EquipmentSlot::Armor => self.armor.as_deref(),
             EquipmentSlot::Accessory => self.accessory.as_deref(),
             EquipmentSlot::Feet => self.feet.as_deref(),
+            EquipmentSlot::ToeRings => self.toe_rings.as_deref(),
         }
     }
 
@@ -196,12 +203,19 @@ impl EquipmentLoadout {
             EquipmentSlot::Armor => self.armor = item_id,
             EquipmentSlot::Accessory => self.accessory = item_id,
             EquipmentSlot::Feet => self.feet = item_id,
+            EquipmentSlot::ToeRings => self.toe_rings = item_id,
         }
     }
 
     /// All slots iterable together. Useful for iterating every equipped item.
-    pub fn all_slots() -> [EquipmentSlot; 4] {
-        [EquipmentSlot::Weapon, EquipmentSlot::Armor, EquipmentSlot::Accessory, EquipmentSlot::Feet]
+    pub fn all_slots() -> [EquipmentSlot; 5] {
+        [
+            EquipmentSlot::Weapon,
+            EquipmentSlot::Armor,
+            EquipmentSlot::Accessory,
+            EquipmentSlot::Feet,
+            EquipmentSlot::ToeRings,
+        ]
     }
 }
 
@@ -391,6 +405,7 @@ mod tests {
             armor: Some("leather_vest".to_string()),
             accessory: Some("warm_cloak".to_string()),
             feet: None,
+            toe_rings: None,
         };
         let (atk, def, hp) = equipment_bonuses(&loadout, &cat);
         assert_eq!(atk, 5);

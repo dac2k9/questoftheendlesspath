@@ -367,6 +367,19 @@ reveal → chest open) against `interior.tiles`.
       including proper monster sprites reusing the overworld loader)
 - [ ] Procedural cave generator keyed off POI id
 
+**Phase 4 (planned)** — character paper-doll inventory
+- [ ] Rework the inventory panel: character silhouette with slot outlines
+      (weapon, armor, accessory, feet, toe rings, and a reserved head
+      slot for later)
+- [ ] Drag-and-drop: press an inventory item → drag → drop on a slot to
+      equip. Drag equipped item back onto the list to unequip.
+- [ ] Visual feedback: ghost image following the cursor, valid drop
+      zones highlight, invalid (wrong slot for that item) dim.
+- [ ] Keep click-to-equip as a fallback for accessibility / mobile.
+- [ ] Open design questions: add a head slot now or wait? show slot
+      icons or generic outlines? should "unequip to full inventory"
+      reject the drop with a tooltip or swap-drop the oldest?
+
 **Phase 5 (planned)** — player co-location features
 - [ ] When two players share a tile, reveal each other's fog maps to each
       other (one-time merge at the moment of overlap, or continuous while

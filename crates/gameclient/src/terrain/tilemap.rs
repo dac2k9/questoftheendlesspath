@@ -800,8 +800,9 @@ fn handle_map_click(
         if start == (tx, ty) { return; }
 
         let mut inv_ids: Vec<String> = state.inventory.iter().map(|s| s.item_id.clone()).collect();
-        // Include equipped items for biome gate checks
-        for slot in [questlib::items::EquipmentSlot::Weapon, questlib::items::EquipmentSlot::Armor, questlib::items::EquipmentSlot::Accessory] {
+        // Include equipped items for biome gate checks. Using all_slots()
+        // means new slots (Feet, ToeRings, future) are included automatically.
+        for slot in questlib::items::EquipmentLoadout::all_slots() {
             if let Some(id) = state.equipment.get_slot(slot) {
                 inv_ids.push(id.to_string());
             }

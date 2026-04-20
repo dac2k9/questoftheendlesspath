@@ -523,6 +523,52 @@
           "duration_secs": 300
         }
       ]
+    },
+    {
+      "id": "toe_ring_swiftness",
+      "display_name": "Toe Ring of Swiftness",
+      "description": "A silver band worn on the toe. +5 % movement speed.",
+      "category": "equipment",
+      "slot": "toe_rings",
+      "effects": [
+        {
+          "type": "speed_multiplier",
+          "multiplier": 1.05
+        }
+      ]
+    },
+    {
+      "id": "toe_ring_adder",
+      "display_name": "Toe Ring of the Adder",
+      "description": "Forged from a serpent's fang. +3 Attack.",
+      "category": "equipment",
+      "slot": "toe_rings",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 3
+        }
+      ]
+    },
+    {
+      "id": "toe_ring_thorns",
+      "display_name": "Toe Ring of Thorns",
+      "description": "Pricks as you walk, toughening your resolve. +2 Defense, -2 Max HP.",
+      "category": "equipment",
+      "slot": "toe_rings",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 2
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "max_hp",
+          "amount": -2
+        }
+      ]
     }
   ]
 }

@@ -93,6 +93,7 @@ fn prune_missing_items(players: &mut HashMap<String, DevPlayerState>, catalog: &
                         questlib::items::EquipmentSlot::Armor     => p.equipment.armor = None,
                         questlib::items::EquipmentSlot::Accessory => p.equipment.accessory = None,
                         questlib::items::EquipmentSlot::Feet      => p.equipment.feet = None,
+                        questlib::items::EquipmentSlot::ToeRings  => p.equipment.toe_rings = None,
                     }
                     dropped.push(id);
                 }
