@@ -193,6 +193,45 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
             } else if first_line.starts_with("POST /join") {
                 // Handle join asynchronously (needs Walker API lookup)
                 handle_join(&request, &state, &world, &bridged_players).await
+            } else if first_line.starts_with("POST /admin/respawn_bridge") {
+                // Force-respawn a player's Walker bridge. Needed when the bridge
+                // hits its retry cap or silently dies — avoids having to redeploy.
+                // Gated on ADMIN_TOKEN.
+                let expected = std::env::var("ADMIN_TOKEN").unwrap_or_default();
+                let got = request.lines()
+                    .find(|l| l.to_lowercase().starts_with("x-admin-token:"))
+                    .and_then(|l| l.splitn(2, ':').nth(1))
+                    .map(|s| s.trim())
+                    .unwrap_or("");
+                if expected.is_empty() {
+                    ("403 Forbidden", r#"{"error":"ADMIN_TOKEN unset"}"#.to_string())
+                } else if got != expected {
+                    ("401 Unauthorized", r#"{"error":"bad admin token"}"#.to_string())
+                } else {
+                    let body = request.find("\r\n\r\n").map(|i| &request[i + 4..]).unwrap_or("");
+                    let pid = serde_json::from_str::<serde_json::Value>(body).ok()
+                        .and_then(|v| v.get("player_id")?.as_str().map(|s| s.to_string()))
+                        .unwrap_or_default();
+                    if pid.is_empty() {
+                        ("400 Bad Request", r#"{"error":"player_id required"}"#.to_string())
+                    } else {
+                        // Remove from bridged set so ensure_bridge will spawn fresh.
+                        if let Ok(mut lock) = bridged_players.lock() {
+                            lock.remove(&pid);
+                        }
+                        // Look up walker_uuid and respawn.
+                        let wid = state.lock().ok()
+                            .and_then(|s| s.get(&pid).and_then(|p| p.walker_uuid.clone()));
+                        match wid {
+                            Some(w) => {
+                                crate::walker_bridge::ensure_bridge(state.clone(), bridged_players.clone(), &pid, &w);
+                                tracing::info!("[admin] respawned Walker bridge for {}", pid);
+                                ("200 OK", r#"{"ok":true}"#.to_string())
+                            }
+                            None => ("404 Not Found", r#"{"error":"player has no walker_uuid"}"#.to_string()),
+                        }
+                    }
+                }
             } else {
                 handle_request(&request, &state, &events, &notifs, &world, &combat, &interiors)
             };
