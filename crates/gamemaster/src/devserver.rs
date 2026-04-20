@@ -241,7 +241,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
             if first_line.starts_with("GET /") && !path.starts_with("/api")
                 && !path.starts_with("/players") && !path.starts_with("/events")
                 && !path.starts_with("/combat") && !path.starts_with("/set_route")
-                && !path.starts_with("/walker_update") && !path.starts_with("/debug_walk")
+                && !path.starts_with("/debug_walk")
                 && !path.starts_with("/buy_item") && !path.starts_with("/sell_item")
                 && !path.starts_with("/use_item") && !path.starts_with("/equip_item")
                 && !path.starts_with("/unequip_item") && !path.starts_with("/heartbeat")
@@ -525,39 +525,9 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
     }
 
-    // POST /walker_update — walker writes treadmill data
-    // Body: {"player_id": "...", "speed": 1.5, "distance": 200, "incline": 0.0}
-    if first_line.starts_with("POST /walker_update") {
-        if let Some(body_start) = request.find("\r\n\r\n") {
-            let body = &request[body_start + 4..];
-            #[derive(Deserialize)]
-            struct WalkerReq {
-                player_id: String,
-                speed: f32,
-                distance: f64,
-                #[serde(default)]
-                incline: f32,
-                #[serde(default)]
-                steps: u64,
-                #[serde(default)]
-                actually_walking: bool,
-            }
-            if let Ok(req) = serde_json::from_str::<WalkerReq>(body) {
-                let mut lock = state.lock().unwrap();
-                if let Some(player) = lock.get_mut(&req.player_id) {
-                    // Don't override if debug_walk is active
-                    if !player.debug_walking {
-                        player.current_speed_kmh = req.speed;
-                        player.total_distance_m += req.distance;
-                        player.current_incline = req.incline;
-                        player.is_walking = req.actually_walking;
-                    }
-                    return ("200 OK", r#"{"ok":true}"#.to_string());
-                }
-            }
-        }
-        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
-    }
+    // `/walker_update` was removed. Treadmill data flows through the
+    // WebSocket bridge (`gamemaster::walker_bridge`) directly into
+    // DevPlayerState; no client-supplied distance.
 
     // POST /buy_item — buy an item from a shop
     if first_line.starts_with("POST /buy_item") {

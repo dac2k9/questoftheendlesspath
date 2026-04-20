@@ -107,6 +107,13 @@ The gamemaster opens a WebSocket to `wss://walker.akerud.se/ws/live/<walker_uuid
 per player and translates Walker's segment updates into `is_walking` /
 `current_speed_kmh` / `total_distance_m` on `DevPlayerState`.
 
+This is the **only** path that writes treadmill-derived data into game state.
+The legacy `POST /walker_update` HTTP endpoint — which the excluded `walker/`
+crate used to call with client-supplied `distance` — was removed: it was
+dead code AND would have let any client write arbitrary distance to any
+player. Trust boundary is now: clients submit geometry (`/set_route`) and
+admin intents (`/admin/*`); the server owns positions, distances, and state.
+
 Resilience:
 
 - **Active keepalive.** The bridge sends a WebSocket PING every 30s. If no
@@ -205,7 +212,6 @@ Diagnostic / recovery:
 
 - `GET /players` — all player states
 - `POST /set_route` — `{"player_id":"...","route":"[[x,y],...]"}`
-- `POST /walker_update` — `{"player_id":"...","speed":1.5,"distance":10,"steps":50,"actually_walking":true}`
 - `POST /debug_walk` — `{"player_id":"...","speed":3.0}` (simulate walking)
 - `GET /events/active?player_id=X` — events currently visible to this player
 - `POST /events/{id}/complete` — `{"player_id":"..."}` required; mark event completed
