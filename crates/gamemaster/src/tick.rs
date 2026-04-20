@@ -339,8 +339,12 @@ pub fn run_tick_dev(
         // events this player has already completed personally.
         let triggered_ids: Vec<String> = events_lock.events.iter()
             .filter(|e| {
-                // Skip if this player already completed it
-                if player.completed_events.contains(&e.id) { return false; }
+                // CaveEntrance events are naturally re-triggerable: you should
+                // be able to walk back to a cave mouth and re-enter. Every
+                // other event type obeys the "completed once, never again for
+                // this player" rule.
+                let is_cave_entrance = matches!(e.kind, questlib::events::kind::EventKind::CaveEntrance { .. });
+                if !is_cave_entrance && player.completed_events.contains(&e.id) { return false; }
                 // Skip repeatable (shops etc — handled by client)
                 if e.repeatable { return false; }
                 // Must be Pending or Completed-by-another-player
@@ -353,23 +357,53 @@ pub fn run_tick_dev(
             .collect();
 
         for event_id in &triggered_ids {
-            // CaveEntrance: teleport the player into the interior immediately
-            // and mark the event completed. No dialog, no combat gate.
-            let cave_entry: Option<(String, usize, usize, String)> = {
+            // CaveEntrance: teleport the player into the interior immediately.
+            // No dialog, no combat gate. Optionally consumes an item (torch).
+            // Unlike other events, CaveEntrances are naturally re-triggerable:
+            // walking back onto the entrance tile should let you re-enter.
+            // See the filter in triggered_ids above for the per-player dedup.
+            let cave_entry: Option<(String, usize, usize, String, Option<String>)> = {
                 if let Some(event) = events_lock.get(event_id) {
-                    if let questlib::events::kind::EventKind::CaveEntrance { interior_id, spawn_x, spawn_y, flavor } = &event.kind {
-                        Some((interior_id.clone(), *spawn_x, *spawn_y, flavor.clone()))
+                    if let questlib::events::kind::EventKind::CaveEntrance { interior_id, spawn_x, spawn_y, flavor, consume_on_entry } = &event.kind {
+                        Some((interior_id.clone(), *spawn_x, *spawn_y, flavor.clone(), consume_on_entry.clone()))
                     } else { None }
                 } else { None }
             };
-            if let Some((interior_id, spawn_x, spawn_y, flavor)) = cave_entry {
-                // Try to teleport the player. We ignore failures (unknown
-                // interior id will have already logged; player not found is
-                // impossible since we're iterating their tick).
-                use crate::interior::{enter_interior, PortalTransitionResult};
+            if let Some((interior_id, spawn_x, spawn_y, flavor, consume)) = cave_entry {
+                // Torch check + consumption (if required). If the player lacks
+                // the item we don't enter, don't mark completed, and don't
+                // flip the event status — they can try again with a torch.
+                if let Some(item_id) = consume.as_deref() {
+                    let has_item = {
+                        let lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+                        lock.get(player_id)
+                            .map(|p| p.inventory.iter().any(|s| s.item_id == item_id))
+                            .unwrap_or(false)
+                    };
+                    if !has_item {
+                        if let Ok(mut n) = shared_notifs.lock() {
+                            crate::push_notif(&mut n, player_id,
+                                format!("You need a {} to enter the darkness.",
+                                    crate::item_catalog().get(item_id)
+                                        .map(|d| d.display_name.clone())
+                                        .unwrap_or_else(|| item_id.to_string())));
+                        }
+                        info!("[{}] cave entry blocked: missing {}", player.name, item_id);
+                        continue;
+                    }
+                    // Consume one of the required item.
+                    if let Ok(mut lock) = state.lock() {
+                        if let Some(p) = lock.get_mut(player_id) {
+                            questlib::items::remove_item(&mut p.inventory, item_id);
+                        }
+                    }
+                }
+
+                use crate::interior::enter_interior;
                 let _ = enter_interior(interiors, state, player_id, &interior_id, (spawn_x, spawn_y));
-                // Mark the event personally completed and Completed globally
-                // so it doesn't re-trigger next tick when the player surfaces.
+                // Record personal completion for unlock checks on portals that
+                // reference this event id. (First entry adds it; subsequent
+                // re-entries are no-ops thanks to the `contains` guard.)
                 if let Some(event) = events_lock.get_mut(event_id) {
                     let _ = event.transition(EventStatus::Completed);
                 }

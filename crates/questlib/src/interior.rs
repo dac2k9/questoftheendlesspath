@@ -57,6 +57,11 @@ pub struct Portal {
     /// Shown on hover / in entry prompts. e.g. "Deeper into the dark…"
     #[serde(default)]
     pub label: String,
+    /// If set, the player must have this event id in their completed_events
+    /// before they can use this portal. Used for shortcut caves: each
+    /// entrance is unlocked only by discovering that side from the outside.
+    #[serde(default)]
+    pub unlock_event_id: Option<String>,
 }
 
 // ── InteriorMap ─────────────────────────────────────
@@ -236,6 +241,7 @@ mod tests {
                 x: 1, y: 0,
                 destination: PortalDest::Overworld { x: 10, y: 10 },
                 label: "Exit".into(),
+                unlock_event_id: None,
             }],
             chests: vec![InteriorChest { x: 1, y: 2, loot: ChestLoot::default() }],
             monsters: vec![],

@@ -59,6 +59,10 @@ pub struct PlayerRow {
     /// Some(interior_id) = inside that interior.
     #[serde(default, deserialize_with = "deserialize_location")]
     pub location: Option<String>,
+    /// Events this player has personally completed. Used client-side for
+    /// things like portal-unlock visuals (shortcut caves).
+    #[serde(default)]
+    pub completed_events: Vec<String>,
 }
 
 /// The server sends `location` as `{"kind": "overworld"}` or

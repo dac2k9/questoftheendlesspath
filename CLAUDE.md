@@ -302,9 +302,28 @@ reveal → chest open) against `interior.tiles`.
 - [x] Whispering Cave chest upgraded to `{ gold: 80, items: ["health_potion", "torch"] }`
 - [x] Monsters still use the overworld difficulty-scaled drop table — separate concern
 
+**Phase 3d (shipped)** — shortcut caves + torches
+- [x] `Portal.unlock_event_id: Option<String>` — portal refuses transition
+      until the named event is in the player's `completed_events`
+- [x] `PortalTransitionResult::Locked { label }` + `/use_portal` returns
+      403 when locked; auto-portal-on-arrival pushes a "sealed from this
+      side" notification instead of transitioning
+- [x] `EventKind::CaveEntrance.consume_on_entry: Option<String>` — if set
+      (e.g. `"torch"`), one is required in inventory and consumed on entry.
+      Missing the item: notify + skip, no transition, no progress recorded
+- [x] CaveEntrance events re-trigger even after completion (filter in
+      `tick.rs` allows repeated entry) — walk back to a cave mouth and
+      re-enter with another torch
+- [x] **Stone Tunnel** shortcut cave (22×12) with two portals:
+      north → overworld (37, 58), south → overworld (66, 63);
+      chest in the middle with 120 gold + Greater Health Potion
+- [x] Both stone-tunnel entrances + the whispering-cave entrance require
+      `consume_on_entry: "torch"`. Torches sold at Forest Town + Midland
+      Village shops for 20g
+- [x] Client dims locked portals (orange) vs. unlocked (teal); the color
+      re-syncs the tick the unlock event lands in `completed_events`
+
 **Phase 3 remaining**
-- [ ] First shortcut cave (two-portal cave where one portal leads to a
-      distant overworld tile — "discover a tunnel through the mountain")
 - [ ] Real dark tileset (replace colored quads in `terrain/interior.rs`,
       including proper monster sprites reusing the overworld loader)
 - [ ] Procedural cave generator keyed off POI id

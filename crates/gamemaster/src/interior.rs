@@ -251,7 +251,12 @@ pub fn run_interior_tick(
     // Auto-use portal after the position is recorded. Don't transition if
     // we just started combat — portal step + monster step collide otherwise.
     if stepped_onto_portal && monster_to_fight.is_none() {
-        let _ = use_portal(interiors, state, player_id);
+        if let PortalTransitionResult::Locked { label } = use_portal(interiors, state, player_id) {
+            if let Ok(mut n) = shared_notifs.lock() {
+                crate::push_notif(&mut n, player_id,
+                    format!("The passage to {} is sealed. Find its other end first.", label));
+            }
+        }
     }
     Ok(())
 }
@@ -269,6 +274,10 @@ pub enum PortalTransitionResult {
     UnknownInterior,
     /// Player_id not in state.
     UnknownPlayer,
+    /// The portal exists but the player hasn't unlocked it yet (e.g. hasn't
+    /// discovered the other side of a shortcut from the overworld). Contains
+    /// the human-readable label so the client can tell the player why.
+    Locked { label: String },
 }
 
 /// Enter the portal the player is currently standing on. The player must
@@ -336,7 +345,22 @@ pub fn use_portal(
     };
 
     let portal_idx = interior.portal_at(p.map_tile_x as usize, p.map_tile_y as usize);
-    let dest = match portal_idx.and_then(|i| interior.portals.get(i)) {
+    let portal_ref = portal_idx.and_then(|i| interior.portals.get(i));
+
+    // Shortcut-cave unlock check: if the portal requires an event id that's
+    // not in the player's completed_events, refuse the transition and return
+    // a Locked result so the caller can notify.
+    if let Some(portal) = portal_ref {
+        if let Some(ref unlock_id) = portal.unlock_event_id {
+            if !p.completed_events.contains(unlock_id) {
+                return PortalTransitionResult::Locked {
+                    label: if portal.label.is_empty() { unlock_id.clone() } else { portal.label.clone() },
+                };
+            }
+        }
+    }
+
+    let dest = match portal_ref {
         Some(portal) => portal.destination.clone(),
         None => {
             // Fallback: pretend they took the exit-to-overworld portal.
@@ -401,7 +425,7 @@ mod tests {
         InteriorMap {
             id: "cave".into(), name: "Cave".into(),
             width: 3, height: 3, tiles,
-            portals: vec![Portal { x: 1, y: 0, destination: PortalDest::Overworld { x: 5, y: 5 }, label: "out".into() }],
+            portals: vec![Portal { x: 1, y: 0, destination: PortalDest::Overworld { x: 5, y: 5 }, label: "out".into(), unlock_event_id: None }],
             chests: vec![questlib::interior::InteriorChest {
                 x: 1, y: 2,
                 loot: questlib::interior::ChestLoot::default(),

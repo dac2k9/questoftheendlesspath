@@ -1,0 +1,838 @@
+{
+  "id": "stone_tunnel",
+  "name": "Stone Tunnel",
+  "width": 22,
+  "height": 12,
+  "tiles": [
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    }
+  ],
+  "portals": [
+    {
+      "x": 1,
+      "y": 1,
+      "destination": {
+        "kind": "overworld",
+        "x": 37,
+        "y": 58
+      },
+      "label": "North pass",
+      "unlock_event_id": "stone_tunnel_north"
+    },
+    {
+      "x": 19,
+      "y": 1,
+      "destination": {
+        "kind": "overworld",
+        "x": 66,
+        "y": 63
+      },
+      "label": "South pass",
+      "unlock_event_id": "stone_tunnel_south"
+    }
+  ],
+  "chests": [
+    {
+      "x": 3,
+      "y": 5,
+      "loot": {
+        "gold": 120,
+        "items": [
+          "greater_health_potion"
+        ]
+      }
+    }
+  ],
+  "monsters": [],
+  "floor_cost_m": 40
+}

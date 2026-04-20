@@ -63,6 +63,10 @@ pub enum EventKind {
         /// Optional one-liner flavor text shown in a notification.
         #[serde(default)]
         flavor: String,
+        /// If set, the player must have this item in inventory to enter.
+        /// One is consumed on successful entry. Typical: "torch".
+        #[serde(default)]
+        consume_on_entry: Option<String>,
     },
 }
 

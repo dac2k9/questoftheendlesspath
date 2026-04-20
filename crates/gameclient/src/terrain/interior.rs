@@ -44,6 +44,7 @@ impl Plugin for InteriorPlugin {
                     handle_interior_click,
                     update_hud_label,
                     sync_monster_visibility,
+                    sync_portal_lock_color,
                 )
                     .run_if(in_state(AppState::InGame)),
             );
@@ -76,6 +77,8 @@ struct InteriorEntity;
 struct InteriorPortal {
     pub idx: usize,
     pub label: String,
+    /// Mirrors Portal.unlock_event_id. None = always usable.
+    pub unlock_event_id: Option<String>,
 }
 
 #[derive(Component)]
@@ -179,7 +182,10 @@ fn apply_fetched_interior(
         }
     }
 
-    // Portals — bright teal quad + hover label text above.
+    // Portals — bright teal if unlocked / unconditional, dim orange if the
+    // player hasn't discovered the other side yet. Visibility is synced by
+    // sync_portal_visibility each frame against state.completed_events so
+    // the moment a shortcut unlocks, the color changes.
     for (i, portal) in map.portals.iter().enumerate() {
         let pos = WorldGrid::tile_to_world(portal.x, portal.y);
         commands.spawn((
@@ -189,7 +195,11 @@ fn apply_fetched_interior(
                 ..default()
             },
             Transform::from_xyz(pos.x, pos.y, 1.0),
-            InteriorPortal { idx: i, label: portal.label.clone() },
+            InteriorPortal {
+                idx: i,
+                label: portal.label.clone(),
+                unlock_event_id: portal.unlock_event_id.clone(),
+            },
             InteriorEntity,
         ));
     }
@@ -249,6 +259,27 @@ fn apply_fetched_interior(
     log::info!("[interior] rendered '{}' ({}x{}, {} portals, {} chests)",
         map.id, map.width, map.height, map.portals.len(), map.chests.len());
     current.map = Some(map);
+}
+
+/// Tint locked portals differently so the player can tell a shortcut end
+/// hasn't been discovered yet. Unlocked = teal (default); locked = dim
+/// orange. Flips back to teal the moment the corresponding CaveEntrance
+/// event lands in state.completed_events.
+fn sync_portal_lock_color(
+    state: Res<MyPlayerState>,
+    mut portals: Query<(&InteriorPortal, &mut Sprite)>,
+) {
+    for (portal, mut sprite) in &mut portals {
+        let locked = match &portal.unlock_event_id {
+            Some(id) => !state.completed_events.contains(id),
+            None => false,
+        };
+        sprite.color = if locked {
+            Color::srgb(0.55, 0.40, 0.20) // dim orange
+        } else {
+            Color::srgb(0.20, 0.70, 0.85) // teal
+        };
+    }
 }
 
 /// Hide interior monster sprites whose compound key is in the player's
@@ -413,7 +444,7 @@ mod tests {
                 InteriorTile::Floor, InteriorTile::Wall,  InteriorTile::Floor,
                 InteriorTile::Floor, InteriorTile::Floor, InteriorTile::Floor,
             ],
-            portals: vec![Portal { x: 2, y: 2, destination: PortalDest::Overworld { x: 0, y: 0 }, label: "".into() }],
+            portals: vec![Portal { x: 2, y: 2, destination: PortalDest::Overworld { x: 0, y: 0 }, label: "".into(), unlock_event_id: None }],
             chests: vec![],
             monsters: vec![],
             floor_cost_m: 40,

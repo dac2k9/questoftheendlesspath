@@ -1586,11 +1586,54 @@
         "interior_id": "whispering_cave",
         "spawn_x": 2,
         "spawn_y": 10,
-        "flavor": "You step into the Whispering Cave. The air is cold and still."
+        "flavor": "You step into the Whispering Cave. The air is cold and still.",
+        "consume_on_entry": "torch"
       },
       "trigger": {
         "condition": "at_poi",
         "poi_id": 12
+      },
+      "outcomes": [],
+      "requires_browser": false,
+      "repeatable": false
+    },
+    {
+      "id": "stone_tunnel_north",
+      "name": "Stone Tunnel (North)",
+      "description": "A dark passage burrowed into the rock.",
+      "kind": {
+        "type": "cave_entrance",
+        "interior_id": "stone_tunnel",
+        "spawn_x": 2,
+        "spawn_y": 1,
+        "flavor": "You descend into the Stone Tunnel from the north mouth.",
+        "consume_on_entry": "torch"
+      },
+      "trigger": {
+        "condition": "at_tile",
+        "x": 37,
+        "y": 58
+      },
+      "outcomes": [],
+      "requires_browser": false,
+      "repeatable": false
+    },
+    {
+      "id": "stone_tunnel_south",
+      "name": "Stone Tunnel (South)",
+      "description": "A dark passage burrowed into the rock.",
+      "kind": {
+        "type": "cave_entrance",
+        "interior_id": "stone_tunnel",
+        "spawn_x": 18,
+        "spawn_y": 1,
+        "flavor": "You descend into the Stone Tunnel from the south mouth.",
+        "consume_on_entry": "torch"
+      },
+      "trigger": {
+        "condition": "at_tile",
+        "x": 66,
+        "y": 63
       },
       "outcomes": [],
       "requires_browser": false,

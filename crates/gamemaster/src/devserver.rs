@@ -1024,6 +1024,9 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             PortalTransitionResult::UnknownInterior => return ("404 Not Found", r#"{"error":"unknown interior"}"#.to_string()),
             PortalTransitionResult::UnknownPlayer => return ("404 Not Found", r#"{"error":"unknown player"}"#.to_string()),
             PortalTransitionResult::NotOnPortal => return ("400 Bad Request", r#"{"error":"spawn tile not walkable"}"#.to_string()),
+            // enter_interior never returns Locked (no unlock gate on entry);
+            // kept exhaustive for the compiler.
+            PortalTransitionResult::Locked { .. } => return ("500 Internal Server Error", r#"{"error":"unexpected locked on enter"}"#.to_string()),
         }
     }
 
@@ -1048,6 +1051,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             PortalTransitionResult::NotOnPortal => return ("400 Bad Request", r#"{"error":"not on a portal"}"#.to_string()),
             PortalTransitionResult::UnknownInterior => return ("404 Not Found", r#"{"error":"unknown interior"}"#.to_string()),
             PortalTransitionResult::UnknownPlayer => return ("404 Not Found", r#"{"error":"unknown player"}"#.to_string()),
+            PortalTransitionResult::Locked { label } => return ("403 Forbidden", format!(r#"{{"error":"locked","label":"{}"}}"#, label.replace('"', "\\\""))),
         }
     }
 

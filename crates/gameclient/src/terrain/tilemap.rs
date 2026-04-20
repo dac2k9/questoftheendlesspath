@@ -218,6 +218,9 @@ pub struct MyPlayerState {
     pub defeated_monsters: Vec<String>,
     /// None = overworld; Some(id) = inside that interior.
     pub location: Option<String>,
+    /// Events this player has personally completed. Mirrors the server-side
+    /// `DevPlayerState.completed_events`. Used for portal-unlock visuals.
+    pub completed_events: Vec<String>,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -530,6 +533,7 @@ fn apply_server_state(
     state.opened_chests = me.opened_chests.clone();
     state.defeated_monsters = me.defeated_monsters.clone();
     state.location = me.location.clone();
+    state.completed_events = me.completed_events.clone();
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {
