@@ -246,9 +246,9 @@ impl Default for DebugOptions {
 }
 
 #[derive(Resource)]
-struct FogOfWar {
-    revealed: Vec<bool>,
-    dirty: bool,
+pub struct FogOfWar {
+    pub revealed: Vec<bool>,
+    pub dirty: bool,
 }
 
 impl FogOfWar {

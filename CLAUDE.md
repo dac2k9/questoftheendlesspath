@@ -39,7 +39,7 @@ CyberPad treadmill → Walker (Rust/BLE) → Dev Server (:3001) → Game Master 
 - `crates/gamemaster/src/tick.rs` — Main game tick (3s interval)
 - `crates/gamemaster/src/devserver.rs` — Local HTTP dev server (replaces Supabase)
 - `crates/gameclient/src/terrain/tilemap.rs` — World rendering, pathfinding, camera, player sprite
-- `crates/gameclient/src/hud/` — Gold counter, speed, distance, floating text
+- `crates/gameclient/src/hud/` — Gold counter, speed, distance, floating text, journal panel (J), minimap (bottom-right)
 - `crates/gameclient/src/dialogue/` — JRPG dialogue box, notification banners, event polling
 - `adventures/seed12345_events.json` — Event definitions for the default world
   (seed set via `MAP_SEED`, events file via `EVENTS_PATH`)

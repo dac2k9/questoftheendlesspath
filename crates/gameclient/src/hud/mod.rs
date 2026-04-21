@@ -1,5 +1,6 @@
 pub mod floating_text;
 pub mod journal;
+pub mod minimap;
 
 use bevy::prelude::*;
 
@@ -21,6 +22,7 @@ impl Plugin for HudPlugin {
             .insert_resource(LastInventorySnapshot::default())
             .insert_resource(ItemCatalogRes(catalog))
             .add_plugins(journal::JournalPlugin)
+            .add_plugins(minimap::MinimapPlugin)
             .add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
                 Update,
