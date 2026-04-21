@@ -347,7 +347,13 @@ fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font:
         TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
         TextColor(Color::srgb(0.6, 0.6, 0.5)),
     ));
-    for (label, slot) in [("Weapon", questlib::items::EquipmentSlot::Weapon), ("Armor", questlib::items::EquipmentSlot::Armor), ("Accessory", questlib::items::EquipmentSlot::Accessory)] {
+    for (label, slot) in [
+        ("Weapon",    questlib::items::EquipmentSlot::Weapon),
+        ("Armor",     questlib::items::EquipmentSlot::Armor),
+        ("Accessory", questlib::items::EquipmentSlot::Accessory),
+        ("Feet",      questlib::items::EquipmentSlot::Feet),
+        ("Toe Rings", questlib::items::EquipmentSlot::ToeRings),
+    ] {
         let equipped_id = state.equipment.get_slot(slot);
         let name = equipped_id
             .and_then(|id| catalog.get(id))
