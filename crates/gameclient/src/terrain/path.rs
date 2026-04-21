@@ -252,9 +252,14 @@ fn neighbors(x: usize, y: usize) -> [(usize, usize); 4] {
 }
 
 fn heuristic(a: (usize, usize), b: (usize, usize)) -> u32 {
+    // Manhattan distance times the cheapest per-tile cost (Road = 20 m).
+    // Must be an admissible lower bound — never overestimate — or A*
+    // degenerates toward greedy best-first and returns "fewer tiles" paths
+    // instead of cheapest-meters paths. Previously 100 (5× overestimate),
+    // which made the pathfinder ignore tile-cost differences.
     let dx = (a.0 as i32 - b.0 as i32).unsigned_abs();
     let dy = (a.1 as i32 - b.1 as i32).unsigned_abs();
-    (dx + dy) * 100
+    (dx + dy) * 20
 }
 
 #[derive(Eq, PartialEq)]
