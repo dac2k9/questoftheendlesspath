@@ -1029,6 +1029,7 @@ fn update_other_players(
     mut existing: Query<(Entity, &OtherPlayerSprite, &mut Transform, &mut Sprite, &mut OtherPlayerAnim, &mut Visibility), Without<OtherPlayerName>>,
     mut name_q: Query<(&OtherPlayerName, &mut Transform, &mut Visibility), (Without<OtherPlayerSprite>, Without<PlayerNameTag>)>,
     font: Res<GameFont>,
+    keys: Res<ButtonInput<KeyCode>>,
 ) {
     let Some(world) = world else { return; };
     let Ok(lock) = polled.players.lock() else { return; };
@@ -1130,18 +1131,25 @@ fn update_other_players(
                 OtherPlayerSprite(other.id.clone()),
                 OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false, cols: info.cols, facing_rows: info.facing_rows, facing_flip: info.facing_flip },
             ));
-            // Name tag
+            // Name tag — hidden by default; the TAB pass below reveals it
+            // whenever the player holds TAB and the owner is co-located.
             commands.spawn((
                 Text2d::new(&other.name),
                 TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
                 TextColor(Color::srgb(0.5, 0.8, 1.0)),
                 Transform::from_xyz(pos.x, pos.y + 12.0, 6.0),
+                Visibility::Hidden,
                 OtherPlayerName(other.id.clone()),
             ));
         }
     }
 
-    // Update name tag positions
+    // Update name tag positions. Visibility is gated on TAB — the label
+    // only shows while the player is holding it, matching the way the
+    // local player's own name tag + POI labels work. Position still
+    // tracks the sprite each frame so TAB reveals the label in the
+    // right place.
+    let show_tab = keys.pressed(KeyCode::Tab);
     for other in &others {
         let target_pos = WorldGrid::tile_to_world(
             other.map_tile_x.unwrap_or(0) as usize,
@@ -1149,7 +1157,7 @@ fn update_other_players(
         );
         for (name_comp, mut tf, mut vis) in name_q.iter_mut() {
             if name_comp.0 == other.id {
-                *vis = Visibility::Visible;
+                *vis = if show_tab { Visibility::Visible } else { Visibility::Hidden };
                 let dt = time.delta_secs();
                 let lerp = 1.0 - (-6.0_f32 * dt).exp();
                 tf.translation.x += (target_pos.x - tf.translation.x) * lerp;

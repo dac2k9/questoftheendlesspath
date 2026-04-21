@@ -222,7 +222,7 @@ Diagnostic / recovery:
 - **Right click drag** — pan camera
 - **Scroll wheel** — zoom (smooth, 500ms easeout)
 - **ESC** — clear planned route
-- **TAB (hold)** — show player name, tile info on hover, POI labels
+- **TAB (hold)** — show your name tag, other players' name tags, tile info on hover, POI labels
 - **I** — toggle inventory panel (right side)
 - **J** — toggle journal panel ("story so far" of completed events)
 - **X** — dismiss notification banner
