@@ -223,6 +223,8 @@ Diagnostic / recovery:
 - **Scroll wheel** — zoom (smooth, 500ms easeout)
 - **ESC** — clear planned route
 - **TAB (hold)** — show player name, tile info on hover, POI labels
+- **I** — toggle inventory panel (right side)
+- **J** — toggle journal panel ("story so far" of completed events)
 - **X** — dismiss notification banner
 - **Enter/Space/Click** — advance dialogue
 - **F3** — debug menu (FPS, fog toggle, POI toggle)
@@ -234,6 +236,9 @@ Diagnostic / recovery:
 - `POST /debug_walk` — `{"player_id":"...","speed":3.0}` (simulate walking)
 - `GET /events/active?player_id=X` — events currently visible to this player
 - `POST /events/{id}/complete` — `{"player_id":"..."}` required; mark event completed
+- `GET /journal?player_id=X` — completed events for this player, rendered by
+  the Journal panel (J). Skips shops and environmental effects. Each entry is
+  `{id, name, description, kind}` in completion order.
 - `GET /notifications?player_id=X` — fetch + clear this player's pending notifications
 - `POST /heartbeat` — browser presence (no-op in dev)
 - `GET /leaderboard` — proxy to walker.akerud.se leaderboard (bypasses CORS)

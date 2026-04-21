@@ -773,6 +773,55 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
     // `/events/active?player_id=X` which filters by per-player completion.
     // Leaving the whole catalog reachable leaked other players' completion state.
 
+    // GET /journal?player_id=X — "story so far" view of completed events for
+    // a specific player. Returns id/name/description for each completed
+    // event, preserving completion order. Shops and environmental effects
+    // are filtered out — they're not story achievements.
+    if first_line.starts_with("GET /journal") {
+        let player_id = first_line.split('?').nth(1)
+            .and_then(|qs| qs.split('&').find(|p| p.starts_with("player_id=")))
+            .and_then(|p| p.strip_prefix("player_id="))
+            .and_then(|v| v.split_whitespace().next())
+            .unwrap_or("");
+        if player_id.is_empty() {
+            return ("400 Bad Request", r#"{"error":"player_id required"}"#.to_string());
+        }
+        let completed: Vec<String> = state.lock().ok()
+            .and_then(|s| s.get(player_id).map(|p| p.completed_events.clone()))
+            .unwrap_or_default();
+
+        let lock = events.lock().unwrap();
+        #[derive(serde::Serialize)]
+        struct JournalEntry<'a> {
+            id: &'a str,
+            name: &'a str,
+            description: &'a str,
+            kind: &'static str,
+        }
+        let entries: Vec<JournalEntry> = completed.iter()
+            .filter_map(|id| lock.events.iter().find(|e| &e.id == id))
+            .filter(|e| {
+                use questlib::events::kind::EventKind::*;
+                !matches!(e.kind, Shop { .. } | EnvironmentalEffect { .. })
+            })
+            .map(|e| {
+                use questlib::events::kind::EventKind::*;
+                let kind = match &e.kind {
+                    NpcDialogue { .. } => "dialogue",
+                    Treasure { .. } => "treasure",
+                    RandomEncounter { .. } => "encounter",
+                    Quest { .. } => "quest",
+                    Boss { .. } => "boss",
+                    StoryBeat { .. } => "story",
+                    CaveEntrance { .. } => "cave",
+                    Shop { .. } | EnvironmentalEffect { .. } => "misc",
+                };
+                JournalEntry { id: &e.id, name: &e.name, description: &e.description, kind }
+            })
+            .collect();
+        return ("200 OK", serde_json::to_string(&entries).unwrap_or_default());
+    }
+
     // POST /events/{id}/complete — mark event as completed and apply outcomes
     if first_line.contains("/events/") && first_line.contains("/complete") {
         let body_player_id = request.find("\r\n\r\n")

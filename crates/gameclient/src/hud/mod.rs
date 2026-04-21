@@ -1,4 +1,5 @@
 pub mod floating_text;
+pub mod journal;
 
 use bevy::prelude::*;
 
@@ -19,6 +20,7 @@ impl Plugin for HudPlugin {
         app.insert_resource(InventoryOpen(false))
             .insert_resource(LastInventorySnapshot::default())
             .insert_resource(ItemCatalogRes(catalog))
+            .add_plugins(journal::JournalPlugin)
             .add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
                 Update,
