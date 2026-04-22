@@ -97,6 +97,11 @@ on Render with a persistent disk mounted at `/data`).
 - Always build from `crates/gameclient/` directory: `cd crates/gameclient && cargo build --target wasm32-unknown-unknown`
 - Building from workspace root fails (mio/tokio don't compile for WASM)
 - Bump `?v=N` in index.html after each build to bust browser cache
+- **ALSO** bump `CLIENT_VERSION` in `crates/gameclient/src/version.rs` to
+  the same number. The server exposes that `?v=N` via `GET /version`;
+  the client polls it every 60 s and if server version > CLIENT_VERSION,
+  a "New version available" banner with a Refresh button appears. Missing
+  bump = clients never realize they're stale.
 - `getrandom` needs both `js` (v0.2) and `wasm_js` (v0.3) features
 - `webgl2` feature required for Bevy in browser (WebGPU not supported everywhere)
 - `AssetPlugin { meta_check: AssetMetaCheck::Never }` — required for WASM asset loading
@@ -250,6 +255,9 @@ Diagnostic / recovery:
 - `POST /debug_walk` — `{"player_id":"...","speed":3.0}` (simulate walking)
 - `GET /events/active?player_id=X` — events currently visible to this player
 - `POST /events/{id}/complete` — `{"player_id":"..."}` required; mark event completed
+- `GET /version` — returns `{"version": N}` parsed from index.html's `?v=N`
+  cache-bust number. Clients poll this to detect stale WASM after a deploy
+  and surface a Refresh banner. Cached on first hit per process.
 - `GET /journal?player_id=X` — completed events for this player, rendered by
   the Journal panel (J). Skips shops and environmental effects. Each entry is
   `{id, name, description, kind}` in completion order.

@@ -769,6 +769,26 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", json);
     }
 
+    // GET /version — returns the cache-bust number baked into index.html
+    // (`?v=N` in the import line). Clients poll this and compare against
+    // their own compiled-in CLIENT_VERSION to detect a stale bundle after
+    // a redeploy. Parsed once at process start and cached.
+    if first_line.starts_with("GET /version") {
+        static VERSION: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+        let v = *VERSION.get_or_init(|| {
+            std::fs::read_to_string("crates/gameclient/index.html")
+                .ok()
+                .and_then(|s| s.find("gameclient.js?v=").map(|i| (s, i)))
+                .and_then(|(s, i)| {
+                    let tail = &s[i + "gameclient.js?v=".len()..];
+                    let n: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    n.parse::<u32>().ok()
+                })
+                .unwrap_or(0)
+        });
+        return ("200 OK", format!(r#"{{"version":{}}}"#, v));
+    }
+
     // `GET /events` (whole catalog) was removed — clients now use
     // `/events/active?player_id=X` which filters by per-player completion.
     // Leaving the whole catalog reachable leaked other players' completion state.

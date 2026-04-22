@@ -7,6 +7,7 @@ mod dialogue;
 mod hud;
 mod music;
 mod sfx;
+mod version;
 mod states;
 pub mod supabase;
 pub mod terrain;
@@ -54,6 +55,7 @@ pub fn start() {
         .add_plugins(music::MusicPlugin)
         .add_plugins(sfx::SfxPlugin)
         .add_plugins(ambient::AmbientPlugin)
+        .add_plugins(version::VersionPlugin)
         .insert_resource(UiHovered(false))
         .add_systems(Update, (detect_ui_hover, update_cursor))
         .run();
