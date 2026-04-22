@@ -200,6 +200,17 @@ Diagnostic / recovery:
 - Walking distance = XP. Formula: `3 * N^3 + 70 * N` meters for level N
 - Lvl 2: 164m, Lvl 10: 3.7km, Lvl 30: 83km
 
+### Ambient effects
+- **Clouds** drift across the overworld in `crates/gameclient/src/ambient.rs`.
+  A 64×32 soft-blob texture is generated programmatically at startup; 10
+  instances are spawned with randomized position, scale (0.7–1.5),
+  alpha (0.25–0.55), and west→east drift speed (8–15 px/s). Clouds wrap
+  horizontally: going off the right edge respawns them on the left with
+  a new vertical position. Z=20 puts them above terrain/player but
+  below UI. Hidden automatically while inside an interior
+  (`MyPlayerState.location.is_some()`). Randomness uses
+  `js_sys::Math::random()` — no `rand` dep on the WASM side.
+
 ### Sound effects
 - 8-bit square-wave blips synthesized on-the-fly in `crates/gameclient/src/sfx.rs`.
   No audio assets shipped — each sound is a short note sequence built with

@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use wasm_bindgen::prelude::*;
 
+mod ambient;
 mod combat;
 mod dialogue;
 mod hud;
@@ -52,6 +53,7 @@ pub fn start() {
         .add_plugins(combat::CombatPlugin)
         .add_plugins(music::MusicPlugin)
         .add_plugins(sfx::SfxPlugin)
+        .add_plugins(ambient::AmbientPlugin)
         .insert_resource(UiHovered(false))
         .add_systems(Update, (detect_ui_hover, update_cursor))
         .run();
