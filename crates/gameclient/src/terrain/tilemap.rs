@@ -180,10 +180,14 @@ fn poi_sprite_path(ty: questlib::mapgen::PoiType) -> Option<(&'static str, u32)>
         Village => Some(("poi/village.png", 1)),
         Cave    => Some(("poi/cave_entrance.png", 1)),
         Cabin   => Some(("poi/cabin.png", 1)),
-        // witch_hut is a placeholder — assigned to Shrine for now since
-        // Shrine has no custom art yet. Reassign when more PNGs arrive.
         Shrine  => Some(("poi/witch_hut.png", 1)),
-        // Dungeon example for a future castle.png (3×3 tile landmark):
+        Ruins   => Some(("poi/ruins.png", 1)),
+        Dungeon => Some(("poi/dungeon.png", 1)),
+        Camp    => Some(("poi/camp.png", 1)),
+        // Tower and Port still have no custom art; they fall back to the
+        // tile-atlas overlay (Overlay::Village). Drop a PNG into
+        // assets/poi/ + add a branch here when art arrives.
+        // Example for a future castle.png at 3×3 tiles:
         //   Dungeon => Some(("poi/castle.png", 3)),
         _       => None,
     }
