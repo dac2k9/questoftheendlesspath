@@ -216,8 +216,10 @@ fn update_music(
     } else {
         music.context_elapsed = 0.0;
     }
+    // Don't reset context_elapsed here — if the switch below is blocked
+    // by switch_cooldown, we'd waste the reroll and wait another 180 s.
+    // Reset it only inside the branch that actually changes tracks.
     let force_reroll = music.context_elapsed >= CONTEXT_REROLL_SECONDS;
-    if force_reroll { music.context_elapsed = 0.0; }
 
     // Find best track for this context + speed. On a reroll we clear
     // current_track so pick_track falls through to a fresh random choice.
@@ -250,6 +252,10 @@ fn update_music(
                 music.current_track = Some(track.id.clone());
                 music.current_context = desired_context;
                 music.switch_cooldown = SWITCH_COOLDOWN;
+                // Reset the variety timer only on an actual switch —
+                // otherwise a blocked reroll (cooldown or same-track
+                // re-pick) throws away the 3-minute window.
+                music.context_elapsed = 0.0;
             }
         } else {
             // Fade to silence
