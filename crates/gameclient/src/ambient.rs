@@ -27,12 +27,14 @@ fn rand01() -> f32 { js_sys::Math::random() as f32 }
 
 fn rand_range(lo: f32, hi: f32) -> f32 { lo + rand01() * (hi - lo) }
 
-const CLOUD_COUNT: usize = 10;
+const CLOUD_COUNT: usize = 25;
 /// Soft-blob texture dimensions (power-of-two friendly).
-const CLOUD_TEX_W: u32 = 64;
-const CLOUD_TEX_H: u32 = 32;
+const CLOUD_TEX_W: u32 = 96;
+const CLOUD_TEX_H: u32 = 48;
 
-/// World rectangle in pixels, from the world grid dimensions.
+/// World rectangle in world-space pixels. tile_to_world maps tile y to
+/// `-y * TILE_PX`, so the world's Y range is [-WORLD_PX_H, 0] and X range
+/// is [0, WORLD_PX_W]. Cloud positions use these bounds directly.
 fn world_px_w() -> f32 { WORLD_W as f32 * TILE_PX }
 fn world_px_h() -> f32 { WORLD_H as f32 * TILE_PX }
 
@@ -103,10 +105,11 @@ fn spawn_clouds(
     let tex = images.add(generate_cloud_image());
     for _ in 0..CLOUD_COUNT {
         let x = rand_range(0.0, world_px_w());
-        let y = rand_range(0.0, world_px_h());
-        let scale = rand_range(0.7, 1.5);
-        let alpha = rand_range(0.25, 0.55);
-        let vx = rand_range(8.0, 15.0);
+        // World Y is NEGATIVE (tile row 0 at y=0, last row at y=-world_px_h).
+        let y = rand_range(-world_px_h(), 0.0);
+        let scale = rand_range(1.5, 3.0);
+        let alpha = rand_range(0.35, 0.65);
+        let vx = rand_range(10.0, 18.0);
         let vy = rand_range(-1.5, 1.5); // tiny vertical drift for life
         commands.spawn((
             Sprite {
@@ -134,7 +137,7 @@ fn drift_clouds(
     let wh = world_px_h();
     // A bit of horizontal padding — cloud texture is CLOUD_TEX_W wide,
     // scaled — so the wrap happens cleanly off-screen.
-    let pad_x = (CLOUD_TEX_W as f32) * 1.5;
+    let pad_x = (CLOUD_TEX_W as f32) * 3.0;
     for (cloud, mut tf) in &mut q {
         tf.translation.x += cloud.velocity.x * dt;
         tf.translation.y += cloud.velocity.y * dt;
@@ -142,11 +145,12 @@ fn drift_clouds(
             // Wrap to the left edge, randomize vertical so it doesn't
             // look like the same cloud coming back.
             tf.translation.x = -pad_x;
-            tf.translation.y = rand_range(0.0, wh);
+            tf.translation.y = rand_range(-wh, 0.0);
         }
-        // Clamp vertical so over very long sessions clouds don't escape.
-        if tf.translation.y > wh { tf.translation.y = wh; }
-        if tf.translation.y < 0.0 { tf.translation.y = 0.0; }
+        // Clamp vertical to the world's (negative-Y) range so clouds don't
+        // escape over long idle sessions.
+        if tf.translation.y > 0.0 { tf.translation.y = 0.0; }
+        if tf.translation.y < -wh { tf.translation.y = -wh; }
     }
 }
 
