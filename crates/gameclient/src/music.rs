@@ -109,6 +109,10 @@ pub struct MusicState {
     target_volume: f32,
     /// Cooldown to prevent rapid switching.
     switch_cooldown: f32,
+    /// Seconds of continuous play in the current context. Used to
+    /// force a track re-roll after a while so tracks with the same
+    /// context get variety even on long walks.
+    context_elapsed: f32,
     /// Music enabled by user.
     enabled: bool,
     /// User has clicked to activate audio (browser autoplay policy).
@@ -131,6 +135,7 @@ impl Default for MusicState {
             fading: false,
             target_volume: 0.7,
             switch_cooldown: 0.0,
+            context_elapsed: 0.0,
             enabled: true,
             user_activated: false,
             master_volume: 0.35,
@@ -202,8 +207,22 @@ fn update_music(
     let desired_context = determine_context(&state, &player, &world, &combat);
     let speed = player.as_ref().map(|p| p.speed_kmh).unwrap_or(0.0);
 
-    // Find best track for this context + speed
-    let desired_track = pick_track(&catalog, &desired_context, speed);
+    // Track how long we've been in this context; force a re-roll every
+    // 3 min so long walks in one biome actually cycle through their
+    // available tracks.
+    const CONTEXT_REROLL_SECONDS: f32 = 180.0;
+    if desired_context == music.current_context {
+        music.context_elapsed += dt;
+    } else {
+        music.context_elapsed = 0.0;
+    }
+    let force_reroll = music.context_elapsed >= CONTEXT_REROLL_SECONDS;
+    if force_reroll { music.context_elapsed = 0.0; }
+
+    // Find best track for this context + speed. On a reroll we clear
+    // current_track so pick_track falls through to a fresh random choice.
+    let current_for_pick = if force_reroll { None } else { music.current_track.as_deref() };
+    let desired_track = pick_track(&catalog, &desired_context, speed, current_for_pick);
 
     // Check if we need to switch
     let should_switch = desired_track.as_ref().map(|t| &t.id) != music.current_track.as_ref();
@@ -412,24 +431,41 @@ fn determine_context(
     }
 }
 
-fn pick_track<'a>(catalog: &'a MusicCatalog, context: &MusicContext, speed: f32) -> Option<&'a TrackDef> {
+fn pick_track<'a>(
+    catalog: &'a MusicCatalog,
+    context: &MusicContext,
+    speed: f32,
+    current_track: Option<&str>,
+) -> Option<&'a TrackDef> {
     let context_str = context.as_str();
     if context_str.is_empty() { return None; }
 
-    let mut candidates: Vec<&TrackDef> = catalog.tracks.iter()
+    let candidates: Vec<&TrackDef> = catalog.tracks.iter()
         .filter(|t| t.context == context_str)
         .collect();
-
     if candidates.is_empty() { return None; }
 
-    // Pick the track with closest recommended_kmh to current speed
-    candidates.sort_by(|a, b| {
-        let da = (a.recommended_kmh - speed).abs();
-        let db = (b.recommended_kmh - speed).abs();
-        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Stability: if we're already playing a track valid for this context,
+    // keep it. Otherwise we'd snap from track-N to track-M every time the
+    // player's speed nudged past a recommended_kmh midpoint — forcing
+    // constant music changes on a normal walk.
+    if let Some(cur) = current_track {
+        if let Some(&t) = candidates.iter().find(|t| t.id == cur) {
+            return Some(t);
+        }
+    }
 
-    Some(candidates[0])
+    // First-time pick (or a context re-roll): prefer tracks whose
+    // recommended_kmh is within ±1.5 km/h of the player's speed — among
+    // those, pick RANDOMLY so we don't always land on the same one.
+    // Fall back to any track in the context if nothing matches the band.
+    let in_band: Vec<&TrackDef> = candidates.iter()
+        .copied()
+        .filter(|t| (t.recommended_kmh - speed).abs() <= 1.5)
+        .collect();
+    let pool: &[&TrackDef] = if in_band.is_empty() { &candidates } else { &in_band };
+    let idx = (js_sys::Math::random() * pool.len() as f64) as usize;
+    pool.get(idx).copied()
 }
 
 // ── Music Button (top-right HUD) ────────────────────
