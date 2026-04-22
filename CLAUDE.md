@@ -207,12 +207,15 @@ Diagnostic / recovery:
 
 ### Ambient effects
 - **Clouds** drift across the overworld in `crates/gameclient/src/ambient.rs`.
-  A 64×32 soft-blob texture is generated programmatically at startup; 10
-  instances are spawned with randomized position, scale (0.7–1.5),
-  alpha (0.25–0.55), and west→east drift speed (8–15 px/s). Clouds wrap
-  horizontally: going off the right edge respawns them on the left with
-  a new vertical position. Z=20 puts them above terrain/player but
-  below UI. Hidden automatically while inside an interior
+  Each of 3 variant textures (192×96) is shaped by 4-octave fBm value
+  noise × an elliptical radial falloff — gives the irregular-edge look
+  of real clouds rather than a stamped blob. 18 instances are spawned
+  cycling through the textures so the sky isn't made of 18 clones, each
+  with randomized position, scale (2.5–4.5), alpha (0.15–0.30 — low so
+  overlapping clouds build density naturally), and west→east drift speed
+  (8–14 px/s). Clouds wrap horizontally: off the right edge → respawn
+  left with a new vertical position. Z=20 puts them above terrain/player
+  but below UI. Hidden automatically while inside an interior
   (`MyPlayerState.location.is_some()`). Randomness uses
   `js_sys::Math::random()` — no `rand` dep on the WASM side.
 

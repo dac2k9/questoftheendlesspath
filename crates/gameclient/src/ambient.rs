@@ -27,10 +27,14 @@ fn rand01() -> f32 { js_sys::Math::random() as f32 }
 
 fn rand_range(lo: f32, hi: f32) -> f32 { lo + rand01() * (hi - lo) }
 
-const CLOUD_COUNT: usize = 25;
-/// Soft-blob texture dimensions (power-of-two friendly).
-const CLOUD_TEX_W: u32 = 96;
-const CLOUD_TEX_H: u32 = 48;
+const CLOUD_COUNT: usize = 18;
+/// Cloud texture dimensions. Bigger canvas + larger on-screen scale gives
+/// the fBm detail room to read instead of smearing into a blob.
+const CLOUD_TEX_W: u32 = 192;
+const CLOUD_TEX_H: u32 = 96;
+/// Number of distinct textures generated at startup. Each cloud picks one
+/// at random, so the sky isn't made of 18 copies of the same shape.
+const CLOUD_VARIANTS: u32 = 3;
 
 /// World rectangle in world-space pixels. tile_to_world maps tile y to
 /// `-y * TILE_PX`, so the world's Y range is [-WORLD_PX_H, 0] and X range
@@ -60,29 +64,41 @@ struct Cloud {
 #[derive(Component)]
 struct CloudRoot; // tag on every cloud for easy show/hide
 
-/// Generate a 64×32 cloud-blob texture: radial alpha gradient feathered
-/// to zero at the edges; color is warm near-white. One image, shared
-/// across all cloud instances.
-fn generate_cloud_image() -> Image {
+/// Generate a cloud texture shaped by fractal Brownian motion noise.
+/// The raw noise is multiplied by a soft elliptical falloff so edges
+/// fade to transparent rather than getting chopped at the texture
+/// boundary. Each call with a different `seed` produces a distinct
+/// shape — we bake a few at startup and let clouds pick from them.
+fn generate_cloud_image(seed: u32) -> Image {
     let w = CLOUD_TEX_W;
     let h = CLOUD_TEX_H;
     let cx = w as f32 / 2.0;
     let cy = h as f32 / 2.0;
-    // An elliptical falloff: clouds are wider than tall, so shape the
-    // gradient to match the 2:1 aspect. Soft edges look more cloud-like
-    // than a crisp circle.
-    let rx = cx * 0.92;
-    let ry = cy * 0.85;
+    let rx = cx * 0.95;
+    let ry = cy * 0.90;
     let mut data = Vec::with_capacity((w * h * 4) as usize);
     for y in 0..h {
         for x in 0..w {
+            // Noise scaled so ~2-3 "cells" span the width — produces
+            // recognizable cloud clumps rather than TV static.
+            let nx = x as f32 * 0.035;
+            let ny = y as f32 * 0.060;
+            let n = fbm(nx, ny, seed);
+            // Threshold + stretch so the lowest-noise regions go fully
+            // transparent and the peaks are near solid — gives the
+            // irregular-edge look rather than a uniform haze.
+            let density = ((n - 0.40) * 2.2).clamp(0.0, 1.0);
+
+            // Elliptical falloff — values already in [0, 1] outside center
+            // and 1 in the middle; smoothstep for a soft halo.
             let dx = (x as f32 - cx) / rx;
             let dy = (y as f32 - cy) / ry;
             let d2 = dx * dx + dy * dy;
-            // Smoothstep: solid in the middle, feathering near the edge.
             let t = (1.0 - d2).clamp(0.0, 1.0);
-            let alpha = (t * t * (3.0 - 2.0 * t) * 255.0) as u8;
-            // Warm near-white so clouds don't look frozen-blue
+            let radial = t * t * (3.0 - 2.0 * t);
+
+            let alpha = (density * radial * 255.0) as u8;
+            // Warm near-white — keeps clouds from looking steel-blue.
             data.push(250);
             data.push(248);
             data.push(240);
@@ -98,22 +114,80 @@ fn generate_cloud_image() -> Image {
     )
 }
 
+/// 2D value noise — hash-based random at integer lattice points,
+/// smoothly interpolated inside each cell. Output is in [0, 1).
+fn value_noise(x: f32, y: f32, seed: u32) -> f32 {
+    let xi = x.floor() as i32;
+    let yi = y.floor() as i32;
+    let fx = x - xi as f32;
+    let fy = y - yi as f32;
+
+    let v00 = hash2d(xi,     yi,     seed);
+    let v10 = hash2d(xi + 1, yi,     seed);
+    let v01 = hash2d(xi,     yi + 1, seed);
+    let v11 = hash2d(xi + 1, yi + 1, seed);
+
+    // Smoothstep eases the grid so we don't see cell boundaries.
+    let sx = fx * fx * (3.0 - 2.0 * fx);
+    let sy = fy * fy * (3.0 - 2.0 * fy);
+
+    let a = v00 + (v10 - v00) * sx;
+    let b = v01 + (v11 - v01) * sx;
+    a + (b - a) * sy
+}
+
+/// Deterministic unit-interval hash — same (x, y, seed) → same output.
+fn hash2d(x: i32, y: i32, seed: u32) -> f32 {
+    let mut h = (x as u32)
+        .wrapping_mul(374761393)
+        .wrapping_add((y as u32).wrapping_mul(668265263))
+        .wrapping_add(seed);
+    h ^= h >> 13;
+    h = h.wrapping_mul(1274126177);
+    h ^= h >> 16;
+    (h & 0x00FF_FFFF) as f32 / (1u32 << 24) as f32
+}
+
+/// Fractal Brownian motion: stack four octaves of value noise with
+/// doubling frequency and halving amplitude. Output normalized to [0, 1).
+fn fbm(x: f32, y: f32, seed: u32) -> f32 {
+    let mut sum = 0.0;
+    let mut amp = 0.5;
+    let mut freq = 1.0;
+    // Sum of amps = 0.5 + 0.25 + 0.125 + 0.0625 = 0.9375 — near 1,
+    // so result already ~[0, 1) without explicit normalization.
+    for octave in 0..4 {
+        sum += value_noise(x * freq, y * freq, seed.wrapping_add(octave * 101)) * amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    sum.min(1.0)
+}
+
 fn spawn_clouds(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let tex = images.add(generate_cloud_image());
-    for _ in 0..CLOUD_COUNT {
+    // Bake a few distinct fBm textures so clouds aren't identical
+    // silhouettes. Different noise seeds = different shapes.
+    let textures: Vec<Handle<Image>> = (0..CLOUD_VARIANTS)
+        .map(|i| images.add(generate_cloud_image(0x1234 + i * 7919)))
+        .collect();
+
+    for i in 0..CLOUD_COUNT {
         let x = rand_range(0.0, world_px_w());
         // World Y is NEGATIVE (tile row 0 at y=0, last row at y=-world_px_h).
         let y = rand_range(-world_px_h(), 0.0);
-        let scale = rand_range(1.5, 3.0);
-        let alpha = rand_range(0.35, 0.65);
-        let vx = rand_range(10.0, 18.0);
-        let vy = rand_range(-1.5, 1.5); // tiny vertical drift for life
+        let scale = rand_range(2.5, 4.5);
+        // Low alpha so overlapping clouds naturally build density; each
+        // pass adds only a small amount of haze.
+        let alpha = rand_range(0.15, 0.30);
+        let vx = rand_range(8.0, 14.0);
+        let vy = rand_range(-1.0, 1.0); // tiny vertical drift for life
+        let tex = textures[i % textures.len()].clone();
         commands.spawn((
             Sprite {
-                image: tex.clone(),
+                image: tex,
                 color: Color::srgba(1.0, 1.0, 1.0, alpha),
                 ..default()
             },
