@@ -194,7 +194,12 @@ fn spawn_clouds(
                 color: Color::srgba(1.0, 1.0, 1.0, alpha),
                 ..default()
             },
-            Transform::from_xyz(x, y, 20.0).with_scale(Vec3::splat(scale)),
+            // Scale only X/Y. Bevy's transform propagation multiplies a
+            // child's local Z by the parent's scale.z; if we scaled Z
+            // here too, the child shadow's local z=-19.5 would get
+            // multiplied to -40+ and end up below the ground sprite
+            // at z=0 — invisible. Scale.z is cosmetic for 2D sprites.
+            Transform::from_xyz(x, y, 20.0).with_scale(Vec3::new(scale, scale, 1.0)),
             Cloud { velocity: Vec2::new(vx, vy) },
             CloudRoot,
         )).with_children(|p| {
@@ -216,8 +221,9 @@ fn spawn_clouds(
                     color: Color::srgba(0.0, 0.02, 0.08, alpha * 0.8),
                     ..default()
                 },
+                // Same "don't scale Z" rule — keep child z math exact.
                 Transform::from_xyz(8.0, -6.0, -19.5)
-                    .with_scale(Vec3::splat(1.15)),
+                    .with_scale(Vec3::new(1.15, 1.15, 1.0)),
                 CloudShadow,
             ));
         });
