@@ -215,15 +215,16 @@ fn spawn_clouds(
             p.spawn((
                 Sprite {
                     image: tex,
-                    // Dark, blue-tinted so the shadow reads as atmospheric
-                    // rather than oily. Alpha a bit below the cloud's so
-                    // the shadow is never darker than the cloud is bright.
-                    color: Color::srgba(0.0, 0.02, 0.08, alpha * 0.8),
+                    // Pure dark, not blue-tinted — the dark blue version
+                    // was too close to fog-of-war darkness to read as a
+                    // distinct shadow. Alpha scaled up + floored so even
+                    // a thin cloud throws a visible patch of shade.
+                    color: Color::srgba(0.05, 0.05, 0.07, (alpha * 1.5).max(0.30)),
                     ..default()
                 },
                 // Same "don't scale Z" rule — keep child z math exact.
-                Transform::from_xyz(8.0, -6.0, -19.5)
-                    .with_scale(Vec3::new(1.15, 1.15, 1.0)),
+                Transform::from_xyz(12.0, -10.0, -19.5)
+                    .with_scale(Vec3::new(1.25, 1.25, 1.0)),
                 CloudShadow,
             ));
         });
