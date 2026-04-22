@@ -168,12 +168,15 @@ Diagnostic / recovery:
 - POI tiles are set to Road ground (cheap traversal)
 - Player must deliberately click on/near POI to walk there — no auto-snapping
 - **Visual markers on the map:** POI types with a custom PNG in
-  `crates/gameclient/assets/poi/` render a 48×48 illustrated landmark
+  `crates/gameclient/assets/poi/` render an illustrated landmark
   sprite (Town, Village, Cave, Cabin, Shrine currently). Types without
-  custom art fall back to the old `Overlay::Village` tile-atlas marker
-  (Ruins, Dungeon, Tower, Camp, Port, Dungeon). Mapping lives in
-  `tilemap::poi_sprite_path` — add a branch when a new PNG arrives.
-  Hovering with TAB still shows the exact POI type as text.
+  custom art fall back to the `Overlay::Village` tile-atlas marker
+  (Ruins, Dungeon, Tower, Camp, Port). Mapping lives in
+  `tilemap::poi_sprite_path`, returning `(path, tile_size)` where
+  tile_size is 1–3 tiles — small landmarks use 1, iconic ones
+  (castles, fortresses) use 3. Widening beyond 3 requires expanding
+  the 3×3 overlay-clearing pass in `terrain/world.rs`. Hovering with
+  TAB still shows the exact POI type as text.
 
 ### Movement
 - Player clicks tiles to plan route (A* pathfinding overworld, BFS interior)

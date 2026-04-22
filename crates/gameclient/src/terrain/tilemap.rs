@@ -165,19 +165,27 @@ struct PoiLabel;
 #[derive(Component)]
 struct PoiCustomSprite;
 
-/// Maps a POI type to its custom landmark asset path, if one exists.
+/// Maps a POI type to its custom landmark asset: `(asset_path, tile_size)`.
+/// tile_size = 1 → sprite fits one tile (default, small landmarks).
+/// tile_size = 3 → sprite spans 3×3 tiles (large iconic landmarks like
+/// castles or fortresses). The world.rs pass clears overlays in a 3×3
+/// area around each POI, so tile_size up to 3 renders cleanly; larger
+/// would require widening that pass.
+///
 /// Add new entries here when new PNGs are dropped in `assets/poi/`.
-fn poi_sprite_path(ty: questlib::mapgen::PoiType) -> Option<&'static str> {
+fn poi_sprite_path(ty: questlib::mapgen::PoiType) -> Option<(&'static str, u32)> {
     use questlib::mapgen::PoiType::*;
     match ty {
-        Town   => Some("poi/town.png"),
-        Village => Some("poi/village.png"),
-        Cave   => Some("poi/cave_entrance.png"),
-        Cabin  => Some("poi/cabin.png"),
+        Town    => Some(("poi/town.png", 1)),
+        Village => Some(("poi/village.png", 1)),
+        Cave    => Some(("poi/cave_entrance.png", 1)),
+        Cabin   => Some(("poi/cabin.png", 1)),
         // witch_hut is a placeholder — assigned to Shrine for now since
         // Shrine has no custom art yet. Reassign when more PNGs arrive.
-        Shrine => Some("poi/witch_hut.png"),
-        _      => None,
+        Shrine  => Some(("poi/witch_hut.png", 1)),
+        // Dungeon example for a future castle.png (3×3 tile landmark):
+        //   Dungeon => Some(("poi/castle.png", 3)),
+        _       => None,
     }
 }
 
@@ -516,22 +524,25 @@ fn spawn_world(
     }
 
     // Custom POI sprites — illustrated landmark art drawn over the tile
-    // overlay for supported POI types. Sized to one tile (16×16) so they
-    // fit the grid. Z=1.7 puts them above ground (0.0) + monsters (1.5)
-    // but below fog (2.0), so fogged landmarks stay hidden until the
-    // player reveals the tile. PNGs live in assets/poi/.
+    // overlay for supported POI types. Size per POI type: 1×1 tile for
+    // small landmarks (houses, huts), up to 3×3 tiles for iconic ones
+    // (castles, fortresses). Z=1.7 puts them above ground (0.0) +
+    // monsters (1.5) but below fog (2.0), so fogged landmarks stay
+    // hidden until the player reveals the tile.
     //
     // To add a new POI type here later: drop a PNG into
-    // crates/gameclient/assets/poi/ and add a branch to poi_sprite_path.
-    // Source PNGs should have a transparent background; RGB-only PNGs
-    // will show their baked background rectangle.
+    // crates/gameclient/assets/poi/ and add a branch to poi_sprite_path
+    // with its desired tile_size (1–3). Source PNGs should have a
+    // transparent background; RGB-only PNGs will show their baked
+    // background rectangle.
     for poi in &world.map.pois {
-        if let Some(path) = poi_sprite_path(poi.poi_type) {
+        if let Some((path, tile_size)) = poi_sprite_path(poi.poi_type) {
             let pos = WorldGrid::tile_to_world(poi.x, poi.y);
+            let px = TILE_PX * tile_size as f32;
             commands.spawn((
                 Sprite {
                     image: asset_server.load(path),
-                    custom_size: Some(Vec2::new(TILE_PX, TILE_PX)),
+                    custom_size: Some(Vec2::new(px, px)),
                     ..default()
                 },
                 Transform::from_xyz(pos.x, pos.y, 1.7),
