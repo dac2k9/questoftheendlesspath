@@ -204,11 +204,14 @@ Diagnostic / recovery:
 - 8-bit square-wave blips synthesized on-the-fly in `crates/gameclient/src/sfx.rs`.
   No audio assets shipped — each sound is a short note sequence built with
   the browser's Web Audio API (`AudioContext` + `OscillatorNode` + `GainNode`).
-- Four events, all detected client-side from state deltas:
-  - **GoldGained** (positive gold jump): C5 → E5 chirp
+- Three events, all detected client-side from state deltas:
   - **RouteArrived** (planned route went empty): E5 → C5 soft descending
   - **LevelUp** (character level increased): C5 → E5 → G5 triad
   - **CombatVictory** (combat went active → inactive): G4 → C5 → E5 → G5 fanfare
+- Gold gain (chest, monster loot, quest reward) is intentionally
+  silent — too frequent to sound good. CombatVictory covers the
+  "defeated an enemy" feedback; chest opens show floating `+N gold`
+  text and a notification banner.
 - SFX volume multiplies the music master volume, so the existing mute /
   slider controls SFX too.
 - To replace synthesized sounds with sampled MP3s later: swap the body of

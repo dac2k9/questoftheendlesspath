@@ -5,8 +5,7 @@
 //! deterministic, no sample files to manage. If you later want proper
 //! samples, replace `play_sfx` below with `HtmlAudioElement::new_with_src`.
 //!
-//! Fired from Bevy event `SfxEvent`. Four kinds:
-//!   - GoldGained     (chest open, monster loot, quest reward)
+//! Fired from Bevy event `SfxEvent`. Three kinds:
 //!   - RouteArrived   (player reached the end of their planned route)
 //!   - LevelUp        (+1 character level)
 //!   - CombatVictory  (combat state went from active → none)
@@ -25,12 +24,10 @@ impl Plugin for SfxPlugin {
             .add_event::<SfxEvent>()
             .init_resource::<LastRouteLen>()
             .init_resource::<LastCombatActive>()
-            .init_resource::<LastGold>()
             .init_resource::<LastLevel>()
             .add_systems(
                 Update,
                 (
-                    detect_gold_gain,
                     detect_route_arrival,
                     detect_level_up,
                     detect_combat_victory,
@@ -48,16 +45,12 @@ pub struct SfxEvent(pub SfxKind);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SfxKind {
-    GoldGained,
     RouteArrived,
     LevelUp,
     CombatVictory,
 }
 
 // ── Tracker resources (client-side deltas) ─────────
-
-#[derive(Resource, Default)]
-struct LastGold(i32);
 
 #[derive(Resource, Default)]
 struct LastLevel(u32);
@@ -69,23 +62,6 @@ struct LastRouteLen(usize);
 struct LastCombatActive(bool);
 
 // ── Detection systems ──────────────────────────────
-
-fn detect_gold_gain(
-    state: Res<MyPlayerState>,
-    mut last: ResMut<LastGold>,
-    mut writer: EventWriter<SfxEvent>,
-) {
-    // First-tick initialization (last.0 starts at 0 but the server hands us a
-    // real gold number; we don't want to fire a sound on initial sync).
-    if last.0 == 0 && state.gold > 0 {
-        last.0 = state.gold;
-        return;
-    }
-    if state.gold > last.0 {
-        writer.send(SfxEvent(SfxKind::GoldGained));
-    }
-    last.0 = state.gold;
-}
 
 fn detect_route_arrival(
     state: Res<MyPlayerState>,
@@ -187,11 +163,6 @@ struct Note {
 /// Frequencies roughly C5=523 Hz, E5=659, G5=784, G4=392.
 fn notes_for(kind: SfxKind) -> &'static [Note] {
     match kind {
-        // GoldGained — quick rising chirp (C5 → E5)
-        SfxKind::GoldGained => &[
-            Note { offset_s: 0.00, duration_s: 0.08, freq_hz: 523.0, gain: 0.25 },
-            Note { offset_s: 0.06, duration_s: 0.10, freq_hz: 659.0, gain: 0.22 },
-        ],
         // RouteArrived — soft descending 2-note (E5 → C5), quieter
         SfxKind::RouteArrived => &[
             Note { offset_s: 0.00, duration_s: 0.08, freq_hz: 659.0, gain: 0.15 },
