@@ -516,21 +516,22 @@ fn spawn_world(
     }
 
     // Custom POI sprites — illustrated landmark art drawn over the tile
-    // overlay for supported POI types. Scaled to 48×48 px (≈ 3 tiles)
-    // so they read as a landmark without dominating the view. Z=1.7 puts
-    // them above ground (0.0) + monsters (1.5) but below fog (2.0), so
-    // fogged landmarks stay hidden until the player gets close enough
-    // to reveal the tile. assets/poi/*.png come from custom_assets/.
+    // overlay for supported POI types. Sized to one tile (16×16) so they
+    // fit the grid. Z=1.7 puts them above ground (0.0) + monsters (1.5)
+    // but below fog (2.0), so fogged landmarks stay hidden until the
+    // player reveals the tile. PNGs live in assets/poi/.
     //
     // To add a new POI type here later: drop a PNG into
     // crates/gameclient/assets/poi/ and add a branch to poi_sprite_path.
+    // Source PNGs should have a transparent background; RGB-only PNGs
+    // will show their baked background rectangle.
     for poi in &world.map.pois {
         if let Some(path) = poi_sprite_path(poi.poi_type) {
             let pos = WorldGrid::tile_to_world(poi.x, poi.y);
             commands.spawn((
                 Sprite {
                     image: asset_server.load(path),
-                    custom_size: Some(Vec2::new(48.0, 48.0)),
+                    custom_size: Some(Vec2::new(TILE_PX, TILE_PX)),
                     ..default()
                 },
                 Transform::from_xyz(pos.x, pos.y, 1.7),
