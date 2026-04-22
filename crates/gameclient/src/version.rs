@@ -15,7 +15,7 @@ use crate::GameFont;
 
 /// Must match the `?v=NNN` number in crates/gameclient/index.html.
 /// Bumped together by hand on every WASM rebuild.
-pub const CLIENT_VERSION: u32 = 198;
+pub const CLIENT_VERSION: u32 = 199;
 
 /// How often to poll the server for version. 60s is frequent enough that
 /// players notice a deploy within a minute without hammering the server.
@@ -69,7 +69,9 @@ fn spawn_banner(mut commands: Commands, font: Res<GameFont>) {
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(4.0),
+            // Below the 28 px top HUD bar — previously at top=4 the banner
+            // was hidden behind the semi-opaque HUD background.
+            top: Val::Px(34.0),
             left: Val::Percent(50.0),
             margin: UiRect::left(Val::Px(-160.0)),  // centered: half of width
             width: Val::Px(320.0),
@@ -81,6 +83,9 @@ fn spawn_banner(mut commands: Commands, font: Res<GameFont>) {
             column_gap: Val::Px(10.0),
             ..default()
         },
+        // Explicit high z so the banner renders above any other absolute
+        // UI node regardless of spawn order.
+        ZIndex(100),
         BackgroundColor(Color::srgba(0.15, 0.10, 0.02, 0.95)),
         BorderColor(Color::srgb(0.95, 0.75, 0.25)),
         BorderRadius::all(Val::Px(4.0)),
