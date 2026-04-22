@@ -221,10 +221,14 @@ fn update_music(
     // Reset it only inside the branch that actually changes tracks.
     let force_reroll = music.context_elapsed >= CONTEXT_REROLL_SECONDS;
 
-    // Find best track for this context + speed. On a reroll we clear
-    // current_track so pick_track falls through to a fresh random choice.
-    let current_for_pick = if force_reroll { None } else { music.current_track.as_deref() };
-    let desired_track = pick_track(&catalog, &desired_context, speed, current_for_pick);
+    // Find best track for this context + speed. Always pass current
+    // track id — it's used for no-repeat filtering. `stability` toggles
+    // whether we also KEEP current if it's still valid for the context.
+    let desired_track = pick_track(
+        &catalog, &desired_context, speed,
+        music.current_track.as_deref(),
+        /* stability = */ !force_reroll,
+    );
 
     // Check if we need to switch
     let should_switch = desired_track.as_ref().map(|t| &t.id) != music.current_track.as_ref();
@@ -442,6 +446,7 @@ fn pick_track<'a>(
     context: &MusicContext,
     speed: f32,
     current_track: Option<&str>,
+    stability: bool,
 ) -> Option<&'a TrackDef> {
     let context_str = context.as_str();
     if context_str.is_empty() { return None; }
@@ -449,10 +454,10 @@ fn pick_track<'a>(
     let mut candidates: Vec<&TrackDef> = catalog.tracks.iter()
         .filter(|t| t.context == context_str)
         .collect();
-    // Fallback: contexts without their own tracks (currently Mountain
-    // and Swamp) borrow from grassland so music doesn't go silent when
-    // the player walks into those biomes. Drop these lines as soon as
-    // mountain/swamp-specific tracks get added to tracks.json.
+    // Fallback: contexts without their own tracks (currently Mountain)
+    // borrow from grassland so music doesn't go silent when the player
+    // walks into those biomes. Drop these lines as soon as mountain-
+    // specific tracks get added to tracks.json.
     if candidates.is_empty() && context_str != "grassland" {
         candidates = catalog.tracks.iter()
             .filter(|t| t.context == "grassland")
@@ -463,10 +468,13 @@ fn pick_track<'a>(
     // Stability: if we're already playing a track valid for this context,
     // keep it. Otherwise we'd snap from track-N to track-M every time the
     // player's speed nudged past a recommended_kmh midpoint — forcing
-    // constant music changes on a normal walk.
-    if let Some(cur) = current_track {
-        if let Some(&t) = candidates.iter().find(|t| t.id == cur) {
-            return Some(t);
+    // constant music changes on a normal walk. Caller sets stability=false
+    // on a forced reroll.
+    if stability {
+        if let Some(cur) = current_track {
+            if let Some(&t) = candidates.iter().find(|t| t.id == cur) {
+                return Some(t);
+            }
         }
     }
 
@@ -478,9 +486,27 @@ fn pick_track<'a>(
         .copied()
         .filter(|t| (t.recommended_kmh - speed).abs() <= 1.5)
         .collect();
-    let pool: &[&TrackDef] = if in_band.is_empty() { &candidates } else { &in_band };
-    let idx = (js_sys::Math::random() * pool.len() as f64) as usize;
-    pool.get(idx).copied()
+    let pool: Vec<&TrackDef> = if in_band.is_empty() {
+        candidates.clone()
+    } else {
+        in_band
+    };
+
+    // Avoid repeating the just-played track if the pool has any other
+    // option. If the track catalog has only one entry, we'll still pick
+    // that same one — better than silence.
+    let filtered: Vec<&TrackDef> = if let Some(cur) = current_track {
+        let without_current: Vec<&TrackDef> = pool.iter()
+            .copied()
+            .filter(|t| t.id != cur)
+            .collect();
+        if without_current.is_empty() { pool } else { without_current }
+    } else {
+        pool
+    };
+
+    let idx = (js_sys::Math::random() * filtered.len() as f64) as usize;
+    filtered.get(idx).copied()
 }
 
 // ── Music Button (top-right HUD) ────────────────────
