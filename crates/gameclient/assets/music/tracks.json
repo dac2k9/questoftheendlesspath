@@ -17,6 +17,22 @@
       "loop": true
     },
     {
+      "id": "walk_plain_happy",
+      "file": "walk_plain_happy.mp3",
+      "context": "grassland",
+      "recommended_kmh": 2.5,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "walk_plain_happy_2",
+      "file": "walk_plain_happy_2.mp3",
+      "context": "grassland",
+      "recommended_kmh": 3.0,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
       "id": "walk_on_the_road",
       "file": "walk_on_the_road.mp3",
       "context": "grassland",
@@ -41,9 +57,73 @@
       "loop": true
     },
     {
+      "id": "walk_on_the_road_4",
+      "file": "walk_on_the_road_4.mp3",
+      "context": "grassland",
+      "recommended_kmh": 4.5,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
       "id": "forest_mystery",
       "file": "forest_mystery.mp3",
       "context": "forest",
+      "recommended_kmh": 3.0,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "forest_2",
+      "file": "forest_2.mp3",
+      "context": "forest",
+      "recommended_kmh": 2.5,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "forest_3",
+      "file": "forest_3.mp3",
+      "context": "forest",
+      "recommended_kmh": 3.5,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "forest_4",
+      "file": "forest_4.mp3",
+      "context": "forest",
+      "recommended_kmh": 4.0,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "forest_5",
+      "file": "forest_5.mp3",
+      "context": "forest",
+      "recommended_kmh": 4.5,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "cave1",
+      "file": "cave1.mp3",
+      "context": "interior",
+      "recommended_kmh": 2.5,
+      "volume": 0.65,
+      "loop": true
+    },
+    {
+      "id": "cave2",
+      "file": "cave2.mp3",
+      "context": "interior",
+      "recommended_kmh": 3.5,
+      "volume": 0.65,
+      "loop": true
+    },
+    {
+      "id": "castle_or_dungeon",
+      "file": "castle_or_dungeon.mp3",
+      "context": "interior",
       "recommended_kmh": 3.0,
       "volume": 0.7,
       "loop": true
@@ -69,6 +149,14 @@
       "file": "boss_fight.mp3",
       "context": "boss",
       "recommended_kmh": 3.0,
+      "volume": 0.85,
+      "loop": true
+    },
+    {
+      "id": "boss_fight_3",
+      "file": "boss_fight_3.mp3",
+      "context": "boss",
+      "recommended_kmh": 4.5,
       "volume": 0.85,
       "loop": true
     }

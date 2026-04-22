@@ -167,11 +167,13 @@ Diagnostic / recovery:
 - `poi_at()` matches within 1 tile of POI center
 - POI tiles are set to Road ground (cheap traversal)
 - Player must deliberately click on/near POI to walk there — no auto-snapping
-- **Visual markers on the map:** `PoiType::Cave` renders an `Overlay::CaveEntrance`
-  sprite (tile atlas index 43); all other POI types render `Overlay::Village`
-  (index 84, well). Hovering with TAB still shows the exact POI type as text.
-  Cave entrances are visually distinct so players can find them without
-  needing to hover.
+- **Visual markers on the map:** POI types with a custom PNG in
+  `crates/gameclient/assets/poi/` render a 48×48 illustrated landmark
+  sprite (Town, Village, Cave, Cabin, Shrine currently). Types without
+  custom art fall back to the old `Overlay::Village` tile-atlas marker
+  (Ruins, Dungeon, Tower, Camp, Port, Dungeon). Mapping lives in
+  `tilemap::poi_sprite_path` — add a branch when a new PNG arrives.
+  Hovering with TAB still shows the exact POI type as text.
 
 ### Movement
 - Player clicks tiles to plan route (A* pathfinding overworld, BFS interior)

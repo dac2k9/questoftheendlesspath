@@ -60,6 +60,10 @@ enum MusicContext {
     Forest,
     Mountain,
     Swamp,
+    /// Inside any interior (cave, dungeon, castle). Overrides biome so
+    /// caves don't play "Mountain" music just because the cave entrance
+    /// happens to sit on a mountain tile in the overworld.
+    Interior,
     Combat,
     Boss,
     Victory,
@@ -75,6 +79,7 @@ impl MusicContext {
             Self::Forest => "forest",
             Self::Mountain => "mountain",
             Self::Swamp => "swamp",
+            Self::Interior => "interior",
             Self::Combat => "combat",
             Self::Boss => "boss",
             Self::Victory => "victory",
@@ -380,6 +385,13 @@ fn determine_context(
     }
 
     let Some(player) = player else { return MusicContext::Silent };
+
+    // Inside an interior? Distinct context — don't inherit the overworld
+    // biome's track just because the cave mouth happens to sit in a forest.
+    if player.location.is_some() {
+        return MusicContext::Interior;
+    }
+
     let Some(world) = world else { return MusicContext::Silent };
 
     // Check if at a village/town POI

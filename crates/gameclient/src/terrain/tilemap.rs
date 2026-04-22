@@ -159,6 +159,28 @@ struct TileInfoText;
 #[derive(Component)]
 struct PoiLabel;
 
+/// Custom landmark sprite placed over POIs whose type has a matching
+/// PNG in assets/poi/. Kept as a marker component in case we later want
+/// to fade them in/out, scale them by zoom, etc.
+#[derive(Component)]
+struct PoiCustomSprite;
+
+/// Maps a POI type to its custom landmark asset path, if one exists.
+/// Add new entries here when new PNGs are dropped in `assets/poi/`.
+fn poi_sprite_path(ty: questlib::mapgen::PoiType) -> Option<&'static str> {
+    use questlib::mapgen::PoiType::*;
+    match ty {
+        Town   => Some("poi/town.png"),
+        Village => Some("poi/village.png"),
+        Cave   => Some("poi/cave_entrance.png"),
+        Cabin  => Some("poi/cabin.png"),
+        // witch_hut is a placeholder — assigned to Shrine for now since
+        // Shrine has no custom art yet. Reassign when more PNGs arrive.
+        Shrine => Some("poi/witch_hut.png"),
+        _      => None,
+    }
+}
+
 /// A shop marker — spawned once per shop in the player's revealed_shops.
 /// `String` is the shop's event id so we can avoid duplicate spawns
 /// across refetches.
@@ -491,6 +513,30 @@ fn spawn_world(
     for poi in &world.map.pois {
         let pos = WorldGrid::tile_to_world(poi.x, poi.y);
         commands.spawn((Text2d::new(format!("{:?}", poi.poi_type)), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(pos.x, pos.y - 12.0, 8.0), Visibility::Hidden, PoiLabel));
+    }
+
+    // Custom POI sprites — illustrated landmark art drawn over the tile
+    // overlay for supported POI types. Scaled to 48×48 px (≈ 3 tiles)
+    // so they read as a landmark without dominating the view. Z=1.7 puts
+    // them above ground (0.0) + monsters (1.5) but below fog (2.0), so
+    // fogged landmarks stay hidden until the player gets close enough
+    // to reveal the tile. assets/poi/*.png come from custom_assets/.
+    //
+    // To add a new POI type here later: drop a PNG into
+    // crates/gameclient/assets/poi/ and add a branch to poi_sprite_path.
+    for poi in &world.map.pois {
+        if let Some(path) = poi_sprite_path(poi.poi_type) {
+            let pos = WorldGrid::tile_to_world(poi.x, poi.y);
+            commands.spawn((
+                Sprite {
+                    image: asset_server.load(path),
+                    custom_size: Some(Vec2::new(48.0, 48.0)),
+                    ..default()
+                },
+                Transform::from_xyz(pos.x, pos.y, 1.7),
+                PoiCustomSprite,
+            ));
+        }
     }
 
     commands.insert_resource(fog);

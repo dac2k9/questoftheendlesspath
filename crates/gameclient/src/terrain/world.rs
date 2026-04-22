@@ -92,12 +92,21 @@ impl WorldGrid {
 
         // Place POI overlays — make POI tiles walkable (Road) and mark the
         // center tile with a type-appropriate overlay so players can see
-        // what each POI is from the map. Cave POIs get a distinct marker
-        // so the "enter here for a cave" signal doesn't require TAB.
+        // what each POI is from the map.
+        //
+        // POIs whose type has a custom landmark PNG (see
+        // `tilemap::poi_sprite_path`) get a separate 48×48 Sprite spawned
+        // later, so we skip the tile-atlas overlay for them. Otherwise a
+        // tiny well icon would be stacked under the illustration.
         for poi in &map.pois {
             if poi.x < WORLD_W && poi.y < WORLD_H {
+                use questlib::mapgen::PoiType::*;
+                let has_custom_sprite = matches!(
+                    poi.poi_type,
+                    Town | Village | Cave | Cabin | Shrine
+                );
                 let poi_overlay = match poi.poi_type {
-                    questlib::mapgen::PoiType::Cave => Overlay::CaveEntrance,
+                    Cave => Overlay::CaveEntrance,
                     _ => Overlay::Village,
                 };
                 for dy in -1i32..=1 {
@@ -107,7 +116,7 @@ impl WorldGrid {
                         if px < WORLD_W && py < WORLD_H {
                             cells[py][px].ground = Ground::Road; // cheap to walk through
                             cells[py][px].overlay = None;
-                            if dx == 0 && dy == 0 {
+                            if dx == 0 && dy == 0 && !has_custom_sprite {
                                 cells[py][px].overlay = Some(poi_overlay);
                             }
                         }
