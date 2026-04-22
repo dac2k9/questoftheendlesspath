@@ -215,15 +215,14 @@ fn spawn_clouds(
             p.spawn((
                 Sprite {
                     image: tex,
-                    // Pure black + higher alpha — the subtler blue-tint
-                    // version was hard to separate from fog-of-war. With
-                    // the alpha multiplier + floor, even a very thin
-                    // cloud throws a visibly dark patch.
+                    // Pure black reads as shadow (not haze / fog) without
+                    // going so deep it looks like smoke. `alpha * 1.3` with
+                    // a 0.25 floor — visible but subtle.
                     //
-                    // For future weather: multiply `alpha * 2.0` by a
+                    // For future weather: multiply `alpha * 1.3` by a
                     // WeatherDarkness resource so overcast/rain makes
                     // shadows denser without touching this literal.
-                    color: Color::srgba(0.0, 0.0, 0.0, (alpha * 2.0).max(0.40)),
+                    color: Color::srgba(0.0, 0.0, 0.0, (alpha * 1.3).max(0.25)),
                     ..default()
                 },
                 // Same "don't scale Z" rule — keep child z math exact.

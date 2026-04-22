@@ -49,6 +49,11 @@ pub struct DevPlayerState {
     /// Events this player has personally completed (for per-player quest triggers).
     #[serde(default)]
     pub completed_events: Vec<String>,
+    /// Shop event ids the player has discovered — either by visiting or
+    /// (Phase B, later) by an NPC-revealed outcome. Populates the shop
+    /// markers the client draws over the map when TAB is held.
+    #[serde(default)]
+    pub revealed_shops: Vec<String>,
     /// Previous tile before entering current tile (for retreat).
     #[serde(default)]
     pub prev_tile: Option<(i32, i32)>,
@@ -789,6 +794,57 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", format!(r#"{{"version":{}}}"#, v));
     }
 
+    // GET /shops?player_id=X — shops the player has already discovered
+    // (i.e. in their revealed_shops list). Phase A: a shop lands here
+    // after the player visits it once. Phase B (future): NPCs can also
+    // reveal shops via a RevealShop outcome.
+    if first_line.starts_with("GET /shops") {
+        let player_id = first_line.split('?').nth(1)
+            .and_then(|qs| qs.split('&').find(|p| p.starts_with("player_id=")))
+            .and_then(|p| p.strip_prefix("player_id="))
+            .and_then(|v| v.split_whitespace().next())
+            .unwrap_or("");
+        if player_id.is_empty() {
+            return ("400 Bad Request", r#"{"error":"player_id required"}"#.to_string());
+        }
+        let revealed: Vec<String> = state.lock().ok()
+            .and_then(|s| s.get(player_id).map(|p| p.revealed_shops.clone()))
+            .unwrap_or_default();
+
+        let lock = events.lock().unwrap();
+        #[derive(serde::Serialize)]
+        struct ShopMarker<'a> {
+            id: &'a str,
+            name: &'a str,
+            tile_x: i32,
+            tile_y: i32,
+        }
+        let markers: Vec<ShopMarker> = lock.events.iter()
+            .filter(|e| revealed.contains(&e.id))
+            .filter_map(|e| {
+                use questlib::events::kind::EventKind;
+                use questlib::events::trigger::TriggerCondition;
+                let merchant = match &e.kind {
+                    EventKind::Shop { merchant_name, .. } => merchant_name.as_str(),
+                    _ => return None,
+                };
+                // Resolve the trigger to a (tile_x, tile_y). Shop triggers
+                // in the current dataset are AtPoi or AtTile; anything else
+                // we quietly skip (can't place a map marker without coords).
+                let (x, y) = match &e.trigger {
+                    TriggerCondition::AtTile { x, y } => (*x as i32, *y as i32),
+                    TriggerCondition::AtPoi { poi_id } => {
+                        let p = world.pois.get(*poi_id)?;
+                        (p.x as i32, p.y as i32)
+                    }
+                    _ => return None,
+                };
+                Some(ShopMarker { id: &e.id, name: merchant, tile_x: x, tile_y: y })
+            })
+            .collect();
+        return ("200 OK", serde_json::to_string(&markers).unwrap_or_default());
+    }
+
     // `GET /events` (whole catalog) was removed — clients now use
     // `/events/active?player_id=X` which filters by per-player completion.
     // Leaving the whole catalog reachable leaked other players' completion state.
@@ -873,6 +929,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     if event.transition(questlib::events::EventStatus::Completed).is_ok() {
                         let outcomes = event.outcomes.clone();
                         let repeatable = event.repeatable;
+                        let is_shop = matches!(event.kind, questlib::events::EventKind::Shop { .. });
                         if repeatable {
                             event.force_status(questlib::events::EventStatus::Pending);
                         }
@@ -881,6 +938,10 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                         if let Some(player) = player {
                             if !player.completed_events.contains(&event_id.to_string()) {
                                 player.completed_events.push(event_id.to_string());
+                            }
+                            // First time visiting a shop → pin it on the map.
+                            if is_shop && !player.revealed_shops.contains(&event_id.to_string()) {
+                                player.revealed_shops.push(event_id.to_string());
                             }
                             for outcome in &outcomes {
                                 match outcome {

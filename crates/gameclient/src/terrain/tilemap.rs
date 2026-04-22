@@ -101,6 +101,8 @@ impl Plugin for TilemapPlugin {
                     update_chest_sprites,
                     animate_monsters,
                     update_other_players,
+                    poll_shops,
+                    toggle_shop_labels,
                 ).run_if(in_state(AppState::InGame)),
             );
     }
@@ -156,6 +158,12 @@ struct TileInfoText;
 
 #[derive(Component)]
 struct PoiLabel;
+
+/// A shop marker — spawned once per shop in the player's revealed_shops.
+/// `String` is the shop's event id so we can avoid duplicate spawns
+/// across refetches.
+#[derive(Component)]
+struct ShopLabel(String);
 
 #[derive(Component)]
 struct PlayerNameTag;
@@ -491,6 +499,7 @@ fn spawn_world(
     commands.insert_resource(DisplayRoute::default());
     commands.insert_resource(InterpolationState::default());
     commands.insert_resource(VisualState::default());
+    commands.insert_resource(ShopPollState::default());
     commands.insert_resource(CameraPan::default());
     commands.insert_resource(world);
 }
@@ -1248,4 +1257,99 @@ fn handle_debug_menu(
     let fps = (1.0 / time.delta_secs()).round() as u32;
     let text = format!("=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{:}]\n2: POIs [{}]", fps, if debug.fog_disabled {"OFF"} else {"ON"}, if debug.show_pois {"ON"} else {"OFF"});
     commands.spawn((Text::new(text), TextFont { font: font.0.clone(), font_size: 10.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 0.0)), Node { position_type: PositionType::Absolute, top: Val::Px(10.0), left: Val::Px(10.0), ..default() }, DebugMenuUi));
+}
+
+// ── Shop markers (TAB) ────────────────────────────────
+
+/// A single shop as returned by GET /shops.
+#[derive(serde::Deserialize, Clone)]
+struct ShopMarker {
+    id: String,
+    name: String,
+    tile_x: i32,
+    tile_y: i32,
+}
+
+/// Polling state for the shops list. Refetches every 15 s so that visiting
+/// a new shop makes its marker appear without needing a reload.
+#[derive(Resource)]
+struct ShopPollState {
+    timer: f32,
+    latest: std::sync::Arc<std::sync::Mutex<Option<Vec<ShopMarker>>>>,
+}
+
+impl Default for ShopPollState {
+    fn default() -> Self {
+        Self {
+            // Fire the first fetch ~2 s after load so the player isn't
+            // waiting for the world to appear.
+            timer: 13.0,
+            latest: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+}
+
+fn poll_shops(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut poll: ResMut<ShopPollState>,
+    session: Res<GameSession>,
+    font: Res<GameFont>,
+    existing: Query<(Entity, &ShopLabel)>,
+) {
+    // Refresh every 15 s. Cheap: small JSON list.
+    poll.timer += time.delta_secs();
+    if poll.timer >= 15.0 {
+        poll.timer = 0.0;
+        if !session.player_id.is_empty() {
+            let url = format!("/shops?player_id={}", session.player_id);
+            let slot = poll.latest.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let Ok(resp) = reqwest::Client::new().get(&url).send().await else { return };
+                let markers: Vec<ShopMarker> = resp.json().await.unwrap_or_default();
+                if let Ok(mut g) = slot.lock() { *g = Some(markers); }
+            });
+        }
+    }
+
+    // Consume the latest fetched list (if any). Reconcile spawned labels
+    // with the target set — spawn new ones, leave existing ones in place.
+    let Ok(mut guard) = poll.latest.lock() else { return };
+    let Some(markers) = guard.take() else { return };
+    let existing_ids: std::collections::HashSet<&str> =
+        existing.iter().map(|(_, l)| l.0.as_str()).collect();
+    // Despawn any that were removed (shouldn't happen in Phase A but
+    // cheap to handle so Phase B's dynamic reveal/revoke "just works").
+    let target_ids: std::collections::HashSet<&str> =
+        markers.iter().map(|m| m.id.as_str()).collect();
+    for (e, label) in &existing {
+        if !target_ids.contains(label.0.as_str()) {
+            commands.entity(e).despawn_recursive();
+        }
+    }
+    for m in markers {
+        if existing_ids.contains(m.id.as_str()) { continue; }
+        let pos = WorldGrid::tile_to_world(m.tile_x as usize, m.tile_y as usize);
+        // Bronze-ish color; offset below the POI label so they don't overlap
+        // when TAB is held on a shop-in-a-town tile.
+        commands.spawn((
+            Text2d::new(format!("Shop: {}", m.name)),
+            TextFont { font: font.0.clone(), font_size: 7.0, ..default() },
+            TextColor(Color::srgb(0.85, 0.65, 0.25)),
+            Transform::from_xyz(pos.x, pos.y - 20.0, 8.0),
+            Visibility::Hidden,
+            ShopLabel(m.id),
+        ));
+    }
+}
+
+fn toggle_shop_labels(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut labels: Query<&mut Visibility, With<ShopLabel>>,
+) {
+    let show = keys.pressed(KeyCode::Tab);
+    let want = if show { Visibility::Visible } else { Visibility::Hidden };
+    for mut vis in &mut labels {
+        if *vis != want { *vis = want; }
+    }
 }

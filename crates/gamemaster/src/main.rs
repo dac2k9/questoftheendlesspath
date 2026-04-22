@@ -105,6 +105,26 @@ fn prune_missing_items(players: &mut HashMap<String, DevPlayerState>, catalog: &
     }
 }
 
+/// Derive revealed_shops from completed_events for players who played
+/// before the field existed. Idempotent — safe to run every startup.
+fn backfill_revealed_shops(
+    players: &mut HashMap<String, DevPlayerState>,
+    catalog: &questlib::events::EventCatalog,
+) {
+    use questlib::events::kind::EventKind;
+    let shop_ids: std::collections::HashSet<&str> = catalog.events.iter()
+        .filter(|e| matches!(e.kind, EventKind::Shop { .. }))
+        .map(|e| e.id.as_str())
+        .collect();
+    for (_, p) in players.iter_mut() {
+        for eid in &p.completed_events {
+            if shop_ids.contains(eid.as_str()) && !p.revealed_shops.contains(eid) {
+                p.revealed_shops.push(eid.clone());
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -201,6 +221,12 @@ async fn main() -> Result<()> {
         });
         // Drop references to items that no longer exist in the catalog (renames etc.)
         prune_missing_items(&mut loaded, item_catalog());
+        // Populate revealed_shops for players whose completed_events already
+        // includes a shop — otherwise existing saves would show no shop
+        // markers until the player revisits each one.
+        if let Ok(cat) = shared_events.lock() {
+            backfill_revealed_shops(&mut loaded, &cat);
+        }
         loaded
     }));
 

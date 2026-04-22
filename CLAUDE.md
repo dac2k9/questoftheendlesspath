@@ -258,6 +258,10 @@ Diagnostic / recovery:
 - `POST /debug_walk` — `{"player_id":"...","speed":3.0}` (simulate walking)
 - `GET /events/active?player_id=X` — events currently visible to this player
 - `POST /events/{id}/complete` — `{"player_id":"..."}` required; mark event completed
+- `GET /shops?player_id=X` — shops the player has discovered
+  (`revealed_shops` list). Phase A: populated when the player completes a
+  shop event for the first time. Phase B (planned): NPCs will also grant
+  reveals. Used by the client to draw "Shop: Name" labels on TAB.
 - `GET /version` — returns `{"version": N}` parsed from index.html's `?v=N`
   cache-bust number. Clients poll this to detect stale WASM after a deploy
   and surface a Refresh banner. Cached on first hit per process.
