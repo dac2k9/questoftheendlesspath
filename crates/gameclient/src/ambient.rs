@@ -64,6 +64,9 @@ struct Cloud {
 #[derive(Component)]
 struct CloudRoot; // tag on every cloud for easy show/hide
 
+#[derive(Component)]
+struct CloudShadow; // ground shadow, child of a CloudRoot
+
 /// Generate a cloud texture shaped by fractal Brownian motion noise.
 /// The raw noise is multiplied by a soft elliptical falloff so edges
 /// fade to transparent rather than getting chopped at the texture
@@ -187,14 +190,37 @@ fn spawn_clouds(
         let tex = textures[i % textures.len()].clone();
         commands.spawn((
             Sprite {
-                image: tex,
+                image: tex.clone(),
                 color: Color::srgba(1.0, 1.0, 1.0, alpha),
                 ..default()
             },
             Transform::from_xyz(x, y, 20.0).with_scale(Vec3::splat(scale)),
             Cloud { velocity: Vec2::new(vx, vy) },
             CloudRoot,
-        ));
+        )).with_children(|p| {
+            // Ground shadow — same noise texture, dark color, slightly
+            // larger, offset down-right to imply sun from upper-left.
+            // Child transform is in the parent's local space, so (dx, dy)
+            // here is in "texture units" that scale with the cloud.
+            // Local z is parent_z + local_z = 20 - 19.5 = 0.5 world —
+            // above ground (0.0) but below monsters (1.5), fog (2.0),
+            // path markers (3.0), and the player (5.0). So the shadow
+            // darkens the ground without dimming anything that's ON the
+            // ground.
+            p.spawn((
+                Sprite {
+                    image: tex,
+                    // Dark, blue-tinted so the shadow reads as atmospheric
+                    // rather than oily. Alpha a bit below the cloud's so
+                    // the shadow is never darker than the cloud is bright.
+                    color: Color::srgba(0.0, 0.02, 0.08, alpha * 0.8),
+                    ..default()
+                },
+                Transform::from_xyz(8.0, -6.0, -19.5)
+                    .with_scale(Vec3::splat(1.15)),
+                CloudShadow,
+            ));
+        });
     }
 }
 
