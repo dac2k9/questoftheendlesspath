@@ -440,9 +440,18 @@ fn pick_track<'a>(
     let context_str = context.as_str();
     if context_str.is_empty() { return None; }
 
-    let candidates: Vec<&TrackDef> = catalog.tracks.iter()
+    let mut candidates: Vec<&TrackDef> = catalog.tracks.iter()
         .filter(|t| t.context == context_str)
         .collect();
+    // Fallback: contexts without their own tracks (currently Mountain
+    // and Swamp) borrow from grassland so music doesn't go silent when
+    // the player walks into those biomes. Drop these lines as soon as
+    // mountain/swamp-specific tracks get added to tracks.json.
+    if candidates.is_empty() && context_str != "grassland" {
+        candidates = catalog.tracks.iter()
+            .filter(|t| t.context == "grassland")
+            .collect();
+    }
     if candidates.is_empty() { return None; }
 
     // Stability: if we're already playing a track valid for this context,
