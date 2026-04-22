@@ -330,7 +330,19 @@ pub fn run_tick_dev(
             nearby_poi_ids: nearby_pois,
             player_biome: biome,
             total_distance_m: player.total_distance_m as u32,
-            inventory: player.inventory.iter().map(|s| s.item_id.clone()).collect(),
+            // Equipped items count as "having" them for trigger purposes —
+            // wearing the Bog Charm should satisfy has_item("bog_charm")
+            // the same way carrying one in inventory does. Without this,
+            // equipping a quest-gate item hides the gate from the player.
+            inventory: {
+                let mut ids: Vec<String> = player.inventory.iter().map(|s| s.item_id.clone()).collect();
+                for slot in questlib::items::EquipmentLoadout::all_slots() {
+                    if let Some(id) = player.equipment.get_slot(slot) {
+                        ids.push(id.to_string());
+                    }
+                }
+                ids
+            },
             completed_events: events_lock.completed_ids(),
             rng_roll,
         };
