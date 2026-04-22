@@ -105,6 +105,38 @@
       "loop": true
     },
     {
+      "id": "swamp1",
+      "file": "swamp1.mp3",
+      "context": "swamp",
+      "recommended_kmh": 2.0,
+      "volume": 0.65,
+      "loop": true
+    },
+    {
+      "id": "swamp2",
+      "file": "swamp2.mp3",
+      "context": "swamp",
+      "recommended_kmh": 2.5,
+      "volume": 0.65,
+      "loop": true
+    },
+    {
+      "id": "swamp3",
+      "file": "swamp3.mp3",
+      "context": "swamp",
+      "recommended_kmh": 3.0,
+      "volume": 0.65,
+      "loop": true
+    },
+    {
+      "id": "swamp4",
+      "file": "swamp4.mp3",
+      "context": "swamp",
+      "recommended_kmh": 3.5,
+      "volume": 0.65,
+      "loop": true
+    },
+    {
       "id": "cave1",
       "file": "cave1.mp3",
       "context": "interior",
