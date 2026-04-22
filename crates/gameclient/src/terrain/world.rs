@@ -103,7 +103,7 @@ impl WorldGrid {
                 use questlib::mapgen::PoiType::*;
                 let has_custom_sprite = matches!(
                     poi.poi_type,
-                    Town | Village | Cave | Cabin | Shrine | Ruins | Dungeon | Camp
+                    Town | Village | Cave | Cabin | Shrine | Ruins | Dungeon | Camp | Tower
                 );
                 let poi_overlay = match poi.poi_type {
                     Cave => Overlay::CaveEntrance,
