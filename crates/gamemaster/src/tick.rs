@@ -368,6 +368,28 @@ pub fn run_tick_dev(
             .map(|e| e.id.clone())
             .collect();
 
+        // Shop markers: walking onto a shop POI reveals it on the player's
+        // map. Shops are repeatable and never hit /events/{id}/complete, so
+        // the previous "first-time complete" hook never fired. This pass
+        // checks shop events against the player's current trigger context
+        // and adds any matches to revealed_shops. Idempotent — existing
+        // entries are preserved untouched.
+        let shop_ids_here: Vec<String> = events_lock.events.iter()
+            .filter(|e| matches!(e.kind, questlib::events::kind::EventKind::Shop { .. }))
+            .filter(|e| e.trigger.evaluate(&ctx))
+            .map(|e| e.id.clone())
+            .collect();
+        if !shop_ids_here.is_empty() {
+            let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if let Some(p) = lock.get_mut(player_id) {
+                for id in shop_ids_here {
+                    if !p.revealed_shops.contains(&id) {
+                        p.revealed_shops.push(id);
+                    }
+                }
+            }
+        }
+
         for event_id in &triggered_ids {
             // CaveEntrance: teleport the player into the interior immediately.
             // No dialog, no combat gate. Optionally consumes an item (torch).

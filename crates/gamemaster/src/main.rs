@@ -107,19 +107,47 @@ fn prune_missing_items(players: &mut HashMap<String, DevPlayerState>, catalog: &
 
 /// Derive revealed_shops from completed_events for players who played
 /// before the field existed. Idempotent — safe to run every startup.
+///
+/// Two sources feed revealed_shops:
+///   1. A directly-completed shop event id — the player has been to the
+///      shop. (In practice shops are repeatable and usually don't land
+///      in completed_events, but we check just in case one does.)
+///   2. Any completed event with a RevealShop outcome — the player
+///      finished an NPC dialogue that told them about a shop. Applies
+///      retroactively so outcomes added to pre-completed events still
+///      take effect.
 fn backfill_revealed_shops(
     players: &mut HashMap<String, DevPlayerState>,
     catalog: &questlib::events::EventCatalog,
 ) {
-    use questlib::events::kind::EventKind;
+    use questlib::events::{kind::EventKind, EventOutcome};
+    // Index shop event ids and completed-event → revealed-shop mappings.
     let shop_ids: std::collections::HashSet<&str> = catalog.events.iter()
         .filter(|e| matches!(e.kind, EventKind::Shop { .. }))
         .map(|e| e.id.as_str())
         .collect();
+    let reveals_by_event: std::collections::HashMap<&str, Vec<&str>> = catalog.events.iter()
+        .map(|e| (e.id.as_str(), e.outcomes.iter().filter_map(|o| match o {
+            EventOutcome::RevealShop { shop_event_id } => Some(shop_event_id.as_str()),
+            _ => None,
+        }).collect::<Vec<_>>()))
+        .filter(|(_, v)| !v.is_empty())
+        .collect();
+
     for (_, p) in players.iter_mut() {
-        for eid in &p.completed_events {
+        for eid in &p.completed_events.clone() {
+            // (1) Direct shop completion.
             if shop_ids.contains(eid.as_str()) && !p.revealed_shops.contains(eid) {
                 p.revealed_shops.push(eid.clone());
+            }
+            // (2) RevealShop outcomes on any completed event.
+            if let Some(shop_ids) = reveals_by_event.get(eid.as_str()) {
+                for shop_id in shop_ids {
+                    let s = shop_id.to_string();
+                    if !p.revealed_shops.contains(&s) {
+                        p.revealed_shops.push(s);
+                    }
+                }
             }
         }
     }
