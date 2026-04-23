@@ -487,10 +487,19 @@
       "name": "Crumbling Fortress",
       "description": "An overgrown fortress.",
       "kind": {
-        "type": "random_encounter",
-        "enemy_name": "Fortress Guardian",
-        "description": "A stone golem stirs to life!",
-        "difficulty": 3
+        "type": "boss",
+        "boss_name": "Fortress Guardian",
+        "max_hp": 100,
+        "dialogue_intro": [
+          "A colossal stone sentinel rises from the ruins.",
+          "Ancient runes blaze along its arms.",
+          "\"NONE SHALL PASS WITHOUT PROVING THEIR WORTH.\""
+        ],
+        "dialogue_defeat": [
+          "The guardian crumbles into dust.",
+          "Elder Maren's promised reward awaits."
+        ],
+        "scales_with_player": true
       },
       "trigger": {
         "condition": "at_poi",
@@ -604,10 +613,19 @@
       "name": "The Dark Descent",
       "description": "A yawning chasm into darkness.",
       "kind": {
-        "type": "random_encounter",
-        "enemy_name": "Cavern Wyrm",
-        "description": "A massive wyrm coils in the depths, guarding something that glows!",
-        "difficulty": 4
+        "type": "boss",
+        "boss_name": "Cavern Wyrm",
+        "max_hp": 140,
+        "dialogue_intro": [
+          "A massive wyrm uncoils from the darkness.",
+          "Its scales drip with molten rock.",
+          "You feel the heat from across the chamber."
+        ],
+        "dialogue_defeat": [
+          "The wyrm thrashes, then falls still.",
+          "Its hoard is yours to pick over."
+        ],
+        "scales_with_player": true
       },
       "trigger": {
         "condition": "all",
@@ -880,10 +898,19 @@
       "name": "The Forgotten Crypt",
       "description": "An ancient crypt sealed for centuries.",
       "kind": {
-        "type": "random_encounter",
-        "enemy_name": "Crypt Guardian",
-        "description": "A skeletal warrior rises, ancient blade in hand!",
-        "difficulty": 6
+        "type": "boss",
+        "boss_name": "Crypt Guardian",
+        "max_hp": 180,
+        "dialogue_intro": [
+          "Bones lift from the crypt floor, knitting together.",
+          "A skeletal warden in shattered plate raises its blade.",
+          "\"You trespass upon the dead.\""
+        ],
+        "dialogue_defeat": [
+          "The guardian collapses into a heap of bones.",
+          "Silence returns to the crypt."
+        ],
+        "scales_with_player": true
       },
       "trigger": {
         "condition": "all",
@@ -1107,10 +1134,19 @@
       "name": "The Frozen Spire",
       "description": "An immense tower of ice and ancient stone.",
       "kind": {
-        "type": "random_encounter",
-        "enemy_name": "Frost Lord",
-        "description": "The Frost Lord awakens! Ice cracks and reforms as a towering figure of pure cold rises!",
-        "difficulty": 8
+        "type": "boss",
+        "boss_name": "Frost Lord",
+        "max_hp": 260,
+        "dialogue_intro": [
+          "The Frost Lord emerges from the spire's heart.",
+          "Each step cracks the floor with rime.",
+          "\"The Starstone bearer. At last.\""
+        ],
+        "dialogue_defeat": [
+          "The Frost Lord's form shatters like glass.",
+          "The Starstone grows warm in your hand \u2014 the way to the Spire is clear."
+        ],
+        "scales_with_player": true
       },
       "trigger": {
         "condition": "all",
