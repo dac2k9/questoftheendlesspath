@@ -31,12 +31,13 @@ const QUANT_STEPS: f32 = 5.0;
 /// black under the deepest slope.
 const MAX_ALPHA: f32 = 0.40;
 
-/// Shoreline bevel: land pixels within this distance of a water tile
-/// get a cosine-falloff darkening. In tiles — 0.35 ≈ 5 pixels at
-/// TILE_PX=16, which keeps the effect right at the edge rather than
-/// bleeding into the land interior. Sun-independent on purpose:
-/// beaches feel beveled from every angle.
-const SHORELINE_BEVEL_WIDTH: f32 = 0.35;
+/// Shoreline bevel: land pixels within this many PIXELS of a water
+/// tile's boundary get a cosine-falloff darkening. Measured in world
+/// pixels, NOT tiles. Effect is on land only — water pixels don't get
+/// bevelled. Simulates the normal rotating from "up" (0,1,0) at the
+/// bevel's far side to "horizontal toward water" at the edge, which
+/// reads as a curved bevel.
+const SHORELINE_BEVEL_WIDTH_PX: f32 = 5.0;
 const SHORELINE_BEVEL_STRENGTH: f32 = 0.55;
 
 pub struct LightingPlugin;
@@ -106,10 +107,10 @@ fn generate_lighting_image(world: &WorldGrid) -> Image {
         blurred = box_blur_3x3(&blurred, w, h);
     }
 
-    // ── 2b. Distance-to-water per tile (BFS from every water tile
-    //       outward). Land tiles get their chessboard distance; water
-    //       tiles are 0.
-    let dist_to_water = water_distance_field(world);
+    // ── 2b. (removed — the tile-level distance field was causing the
+    //       bevel to bleed onto water via bilinear interpolation.
+    //       Replaced with per-pixel `pixel_distance_to_water_boundary`
+    //       that only returns >0 for land pixels.)
 
     // ── 3. Upsample to world pixel size (TILE_PX per tile) with bilinear
     //      interpolation. Also does implicit smoothing between tile cells.
@@ -149,11 +150,13 @@ fn generate_lighting_image(world: &WorldGrid) -> Image {
             let slope_alpha = shade * MAX_ALPHA;
 
             // Shoreline bevel: cosine-falloff darkening on land pixels
-            // near water. Skip water itself (d=0) — only apply to land.
-            let d = sample_bilinear(&dist_to_water, w, h, tx, ty);
-            let bevel = if d > 0.0 && d < SHORELINE_BEVEL_WIDTH {
-                let t = d / SHORELINE_BEVEL_WIDTH; // 0..=1
-                0.5 * (1.0 + (t * std::f32::consts::PI).cos()) // 1 → 0
+            // within SHORELINE_BEVEL_WIDTH_PX of a water tile's edge.
+            // Euclidean pixel distance — returns 0 for water itself,
+            // positive for land. So the effect only shows on land.
+            let d_px = pixel_distance_to_water_boundary(world, px as f32, py as f32);
+            let bevel = if d_px > 0.0 && d_px < SHORELINE_BEVEL_WIDTH_PX {
+                let t = d_px / SHORELINE_BEVEL_WIDTH_PX; // 0..=1
+                0.5 * (1.0 + (t * std::f32::consts::PI).cos()) // 1 at edge → 0 inland
             } else {
                 0.0
             };
@@ -201,43 +204,50 @@ fn biome_height(world: &WorldGrid, x: usize, y: usize) -> f32 {
     }
 }
 
-/// Chessboard distance from every tile to the nearest water tile.
-/// Water tiles themselves are 0. Runs a single BFS per overlay build;
-/// cheap at 100×80 tiles. 8-connected so diagonals cost 1 (not √2) —
-/// close enough to Euclidean for the shoreline bevel's ≤3-tile range.
-fn water_distance_field(world: &WorldGrid) -> Vec<f32> {
+/// Euclidean pixel distance from a land pixel `(px, py)` to the nearest
+/// water-tile boundary. Returns 0 for pixels whose own tile is water
+/// (so bevel never applies on water). Returns `f32::INFINITY` for land
+/// pixels whose tile has no water neighbor in 8-connectivity — those
+/// are too far from shore to matter.
+fn pixel_distance_to_water_boundary(world: &WorldGrid, px: f32, py: f32) -> f32 {
     use questlib::mapgen::Biome::*;
-    use std::collections::VecDeque;
-    let w = WORLD_W;
-    let h = WORLD_H;
-    let mut dist = vec![f32::INFINITY; w * h];
-    let mut q = VecDeque::new();
-    for y in 0..h {
-        for x in 0..w {
-            if matches!(world.map.biome_at(x, y), Water | DeepWater) {
-                dist[y * w + x] = 0.0;
-                q.push_back((x as i32, y as i32));
+    let tile_x = (px / TILE_PX).floor() as i32;
+    let tile_y = (py / TILE_PX).floor() as i32;
+    if tile_x < 0 || tile_y < 0 || tile_x >= WORLD_W as i32 || tile_y >= WORLD_H as i32 {
+        return f32::INFINITY;
+    }
+    let own_biome = world.map.biome_at(tile_x as usize, tile_y as usize);
+    if matches!(own_biome, Water | DeepWater) { return 0.0; }
+
+    // For each of our 8 neighbor tiles that's water, compute the
+    // distance from this pixel to the nearest point on that neighbor
+    // tile's rectangle. The minimum across all water neighbors is the
+    // pixel's distance to the nearest water boundary.
+    let mut min_d = f32::INFINITY;
+    for ny in -1i32..=1 {
+        for nx in -1i32..=1 {
+            if nx == 0 && ny == 0 { continue; }
+            let bx = tile_x + nx;
+            let by = tile_y + ny;
+            if bx < 0 || by < 0 || bx >= WORLD_W as i32 || by >= WORLD_H as i32 { continue; }
+            if !matches!(world.map.biome_at(bx as usize, by as usize), Water | DeepWater) {
+                continue;
             }
+            // Neighbor tile occupies rect [bx*TILE_PX, (bx+1)*TILE_PX] × same for y.
+            let n_left   = bx as f32 * TILE_PX;
+            let n_right  = n_left + TILE_PX;
+            let n_top    = by as f32 * TILE_PX;
+            let n_bottom = n_top  + TILE_PX;
+            // Closest point on the rectangle to (px, py):
+            let cx = px.clamp(n_left, n_right);
+            let cy = py.clamp(n_top,  n_bottom);
+            let dx = px - cx;
+            let dy = py - cy;
+            let d = (dx * dx + dy * dy).sqrt();
+            if d < min_d { min_d = d; }
         }
     }
-    while let Some((cx, cy)) = q.pop_front() {
-        let base = dist[cy as usize * w + cx as usize];
-        for dy in -1i32..=1 {
-            for dx in -1i32..=1 {
-                if dx == 0 && dy == 0 { continue; }
-                let nx = cx + dx;
-                let ny = cy + dy;
-                if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 { continue; }
-                let nd = base + 1.0;
-                let idx = ny as usize * w + nx as usize;
-                if nd < dist[idx] {
-                    dist[idx] = nd;
-                    q.push_back((nx, ny));
-                }
-            }
-        }
-    }
-    dist
+    min_d
 }
 
 fn box_blur_3x3(input: &[f32], w: usize, h: usize) -> Vec<f32> {
