@@ -20,6 +20,7 @@ impl Plugin for JournalPlugin {
             .insert_resource(JournalOpen(false))
             .insert_resource(JournalData::default())
             .insert_resource(JournalHover::default())
+            .insert_resource(JournalScroll::default())
             .add_systems(
                 Update,
                 (
@@ -37,7 +38,11 @@ impl Plugin for JournalPlugin {
 // ── Data ────────────────────────────────────────────
 
 #[derive(Resource, Default)]
-struct JournalOpen(bool);
+pub struct JournalOpen(bool);
+
+impl JournalOpen {
+    pub fn is_open(&self) -> bool { self.0 }
+}
 
 #[derive(Resource, Default, Clone)]
 struct JournalData {
@@ -281,12 +286,20 @@ fn update_journal_panel(
                                 TextColor(tag_color),
                             ));
                         });
-                        row.spawn((
-                            Text::new(entry.description.clone()),
-                            TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
-                            TextColor(Color::srgb(0.75, 0.75, 0.7)),
-                            Node { padding: UiRect::left(Val::Px(6.0)), ..default() },
-                        ));
+                        // Wrap description in a Node that takes the same
+                        // left-padding as the title_row so title and
+                        // description are left-aligned. Raw Text with a
+                        // Node+padding doesn't indent visibly — wrap it.
+                        row.spawn(Node {
+                            padding: UiRect::left(Val::Px(6.0)),
+                            ..default()
+                        }).with_children(|desc_wrap| {
+                            desc_wrap.spawn((
+                                Text::new(entry.description.clone()),
+                                TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+                                TextColor(Color::srgb(0.75, 0.75, 0.7)),
+                            ));
+                        });
                     });
                 }
             }
@@ -398,27 +411,54 @@ fn update_popup(
     });
 }
 
+/// Target scroll offset with smooth ease-out animation — the rendered
+/// ScrollPosition glides toward `target` each frame rather than snapping
+/// (matches the feel of the zoom/camera interpolation elsewhere).
+#[derive(Resource, Default)]
+struct JournalScroll {
+    target: f32,
+}
+
 /// Scroll the journal panel with the mouse wheel while it's open. Bevy
 /// UI doesn't wire wheel events automatically to ScrollPosition — we
-/// forward them here.
+/// forward them here. We also CONSUME the wheel events (via `clear`)
+/// so the camera's zoom handler doesn't react on the same tick.
 fn handle_scroll(
+    time: Res<Time>,
     mut wheel: EventReader<bevy::input::mouse::MouseWheel>,
     open: Res<JournalOpen>,
+    mut scroll: ResMut<JournalScroll>,
     mut panel_q: Query<&mut ScrollPosition, With<JournalPanel>>,
 ) {
-    if !open.0 { wheel.clear(); return; }
+    if !open.0 {
+        wheel.clear();
+        // Reset so the next open starts at the top.
+        scroll.target = 0.0;
+        if let Ok(mut pos) = panel_q.get_single_mut() { pos.offset_y = 0.0; }
+        return;
+    }
+
+    // Accumulate wheel delta into the target.
     let mut dy: f32 = 0.0;
     for ev in wheel.read() {
-        // Normalize line vs pixel scroll units. `Line` units are ~1 per
-        // tick; multiply by a pixel step.
         use bevy::input::mouse::MouseScrollUnit;
         dy += match ev.unit {
-            MouseScrollUnit::Line  => ev.y * 30.0,
+            MouseScrollUnit::Line  => ev.y * 40.0,
             MouseScrollUnit::Pixel => ev.y,
         };
     }
-    if dy == 0.0 { return; }
-    for mut pos in &mut panel_q {
-        pos.offset_y = (pos.offset_y - dy).max(0.0);
+    if dy != 0.0 {
+        scroll.target = (scroll.target - dy).max(0.0);
     }
+    // Consume any remaining events so the camera zoom handler (which
+    // runs later) doesn't also see them. `clear` discards events still
+    // in the reader's view without letting them reach other readers.
+    wheel.clear();
+
+    // Ease-out interpolation — each frame lerp current toward target
+    // by the same exponential decay the zoom uses.
+    let Ok(mut pos) = panel_q.get_single_mut() else { return };
+    let dt = time.delta_secs();
+    let lerp = 1.0 - (-12.0_f32 * dt).exp();
+    pos.offset_y += (scroll.target - pos.offset_y) * lerp;
 }

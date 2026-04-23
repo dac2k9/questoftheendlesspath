@@ -49,6 +49,12 @@ pub enum EventKind {
         dialogue_intro: Vec<String>,
         #[serde(default)]
         dialogue_defeat: Vec<String>,
+        /// Scales the boss's HP and attack with the player's level so
+        /// late-game story bosses still feel challenging. Base formula:
+        /// `hp += 20 × (lvl−1)`, `atk += 2 × (lvl−1)`. Defaults to false —
+        /// existing bosses keep fixed stats unless explicitly marked.
+        #[serde(default)]
+        scales_with_player: bool,
     },
     StoryBeat {
         lines: Vec<String>,

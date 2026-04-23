@@ -114,18 +114,29 @@ pub struct EnemyStats {
 pub fn enemy_stats_from_event(kind: &EventKind, player_level: u32) -> EnemyStats {
     let lvl = player_level as i32;
     match kind {
-        EventKind::Boss { max_hp, .. } => EnemyStats {
-            max_hp: *max_hp,
-            attack: 4 + lvl * 2,
-            defense: 2 + lvl,
-            difficulty: 3,
-        },
+        // Bosses authored to scale with the player get +20 HP / +2 ATK
+        // per level so late-game encounters stay challenging. Bosses
+        // without the flag use their authored HP + a flat difficulty-
+        // bracket ATK/DEF — they're meant to stay as an early-game
+        // challenge that an over-leveled player can stomp.
+        EventKind::Boss { max_hp, scales_with_player, .. } => {
+            let lvl_bonus = if *scales_with_player { (lvl - 1).max(0) } else { 0 };
+            EnemyStats {
+                max_hp: *max_hp + 20 * lvl_bonus,
+                attack: 8 + 2 * lvl_bonus,
+                defense: 4,
+                difficulty: 3,
+            }
+        }
+        // Random encounters are fixed-by-difficulty — no player-level
+        // scaling. Outgrowing road goblins is intended feedback that
+        // the player has progressed.
         EventKind::RandomEncounter { difficulty, .. } => {
             let d = *difficulty as i32;
             EnemyStats {
-                max_hp: 20 + d * 15 + lvl * 8,
-                attack: 3 + d * 2 + lvl,
-                defense: 1 + d + lvl / 2,
+                max_hp: 20 + d * 15,
+                attack: 3 + d * 2,
+                defense: 1 + d,
                 difficulty: *difficulty,
             }
         }

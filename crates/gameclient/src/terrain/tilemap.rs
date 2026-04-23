@@ -1047,8 +1047,20 @@ fn handle_zoom(
     mut camera_q: Query<&mut OrthographicProjection, With<Camera2d>>,
     mut zoom: Local<ZoomTarget>,
     time: Res<Time>,
+    journal: Res<crate::hud::journal::JournalOpen>,
 ) {
     let Ok(mut proj) = camera_q.get_single_mut() else { return };
+    // Suppress zoom while journal is open so scrolling the journal
+    // doesn't also zoom the map. Wheel events are still consumed to
+    // prevent stale state leaking into the next frame.
+    if journal.is_open() {
+        scroll_evr.clear();
+        // Still interpolate toward existing target so zoom animation
+        // finishes smoothly.
+        let diff = zoom.target - proj.scale;
+        proj.scale += diff * (1.0 - (-6.0 * time.delta_secs()).exp());
+        return;
+    }
     for ev in scroll_evr.read() {
         if ev.y > 0.0 { zoom.target = (zoom.target * 0.75).max(0.15); }
         else if ev.y < 0.0 { zoom.target = (zoom.target * 1.5).min(3.0); }
