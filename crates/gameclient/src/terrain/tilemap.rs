@@ -544,9 +544,15 @@ fn spawn_world(
         if let Some((path, tile_size)) = poi_sprite_path(poi.poi_type) {
             let pos = WorldGrid::tile_to_world(poi.x, poi.y);
             let px = TILE_PX * tile_size as f32;
+            // Append CLIENT_VERSION to the asset URL so re-exported art
+            // invalidates the browser cache on the next deploy. Without
+            // this, users can see stale PNGs after a build even though
+            // the WASM has updated (WASM is cache-busted via index.html's
+            // ?v=N but static assets weren't).
+            let url = format!("{}?v={}", path, crate::version::CLIENT_VERSION);
             commands.spawn((
                 Sprite {
-                    image: asset_server.load(path),
+                    image: asset_server.load(url),
                     custom_size: Some(Vec2::new(px, px)),
                     ..default()
                 },

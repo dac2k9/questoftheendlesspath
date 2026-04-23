@@ -223,6 +223,14 @@ Diagnostic / recovery:
   but below UI. Hidden automatically while inside an interior
   (`MyPlayerState.location.is_some()`). Randomness uses
   `js_sys::Math::random()` — no `rand` dep on the WASM side.
+- **Rain.** ~30 % of clouds get a `RainyCloud` marker on spawn — rendered
+  darker (muted grey-blue tint) and emit rain drops (`DROPS_PER_CLOUD_PER_SEC`)
+  from the cloud's current position. Drops are 1×5 px blue-white sprites
+  falling straight down at 240 px/s, despawning after they've travelled
+  `DROP_FALL_DISTANCE` below the spawn line. Rain drifts with its cloud
+  naturally — no global "it's raining" toggle, each storm is local.
+  Drops despawn entirely on interior entry; rainy clouds pause emission
+  since they're `Visibility::Hidden` under the same rule as all clouds.
 
 ### Sound effects
 - 8-bit square-wave blips synthesized on-the-fly in `crates/gameclient/src/sfx.rs`.

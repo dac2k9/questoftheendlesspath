@@ -36,6 +36,16 @@ const CLOUD_TEX_H: u32 = 96;
 /// at random, so the sky isn't made of 18 copies of the same shape.
 const CLOUD_VARIANTS: u32 = 3;
 
+/// Fraction of clouds that are "rainy" — darker tint, emits rain drops.
+const RAINY_FRACTION: f32 = 0.30;
+/// Rain drops emitted per rainy cloud per second.
+const DROPS_PER_CLOUD_PER_SEC: f32 = 6.0;
+/// How far below the cloud a drop starts, and how far it falls before
+/// despawning. Both in world-space pixels.
+const DROP_START_Y_BELOW_CLOUD: f32 = 12.0;
+const DROP_FALL_DISTANCE: f32 = 160.0;
+const DROP_SPEED: f32 = 240.0; // px/s (straight down)
+
 /// World rectangle in world-space pixels. tile_to_world maps tile y to
 /// `-y * TILE_PX`, so the world's Y range is [-WORLD_PX_H, 0] and X range
 /// is [0, WORLD_PX_W]. Cloud positions use these bounds directly.
@@ -50,7 +60,7 @@ impl Plugin for AmbientPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn_clouds)
             .add_systems(
                 Update,
-                (drift_clouds, hide_in_interiors)
+                (drift_clouds, emit_rain, fall_rain, hide_in_interiors)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -66,6 +76,20 @@ struct CloudRoot; // tag on every cloud for easy show/hide
 
 #[derive(Component)]
 struct CloudShadow; // ground shadow, child of a CloudRoot
+
+/// Marker + emit-rate carry for rainy clouds. Accumulates fractional
+/// "drops owed" so non-integer per-frame emission rates work out.
+#[derive(Component, Default)]
+struct RainyCloud {
+    drops_owed: f32,
+}
+
+#[derive(Component)]
+struct RainDrop {
+    /// Y coordinate (world-space) where the drop was spawned. Used to
+    /// despawn the drop once it has fallen DROP_FALL_DISTANCE.
+    spawn_y: f32,
+}
 
 /// Generate a cloud texture shaped by fractal Brownian motion noise.
 /// The raw noise is multiplied by a soft elliptical falloff so edges
@@ -182,16 +206,24 @@ fn spawn_clouds(
         // World Y is NEGATIVE (tile row 0 at y=0, last row at y=-world_px_h).
         let y = rand_range(-world_px_h(), 0.0);
         let scale = rand_range(2.5, 4.5);
+        // Rainy clouds are darker + emit drops. ~30 % of the pool.
+        let is_rainy = rand01() < RAINY_FRACTION;
         // Low alpha so overlapping clouds naturally build density; each
-        // pass adds only a small amount of haze.
-        let alpha = rand_range(0.15, 0.30);
+        // pass adds only a small amount of haze. Rainy clouds slightly
+        // opaquer + desaturated so they read as "the storm clouds".
+        let alpha = if is_rainy { rand_range(0.35, 0.55) } else { rand_range(0.15, 0.30) };
+        let tint = if is_rainy {
+            Color::srgba(0.55, 0.58, 0.65, alpha)   // muted grey-blue
+        } else {
+            Color::srgba(1.0, 1.0, 1.0, alpha)
+        };
         let vx = rand_range(8.0, 14.0);
         let vy = rand_range(-1.0, 1.0); // tiny vertical drift for life
         let tex = textures[i % textures.len()].clone();
-        commands.spawn((
+        let mut cloud_entity = commands.spawn((
             Sprite {
                 image: tex.clone(),
-                color: Color::srgba(1.0, 1.0, 1.0, alpha),
+                color: tint,
                 ..default()
             },
             // Scale only X/Y. Bevy's transform propagation multiplies a
@@ -202,7 +234,9 @@ fn spawn_clouds(
             Transform::from_xyz(x, y, 20.0).with_scale(Vec3::new(scale, scale, 1.0)),
             Cloud { velocity: Vec2::new(vx, vy) },
             CloudRoot,
-        )).with_children(|p| {
+        ));
+        if is_rainy { cloud_entity.insert(RainyCloud::default()); }
+        cloud_entity.with_children(|p| {
             // Ground shadow — same noise texture, dark color, slightly
             // larger, offset down-right to imply sun from upper-left.
             // Child transform is in the parent's local space, so (dx, dy)
@@ -267,10 +301,14 @@ fn drift_clouds(
 /// Hide clouds when the player is in an interior — caves/castles have
 /// no sky. Toggling visibility is cheaper than despawning + respawning
 /// and keeps the drift state intact so clouds resume where they left off.
+/// Rain drops are despawned entirely when indoors — they're cheap to
+/// re-spawn and would otherwise accumulate while hidden.
 fn hide_in_interiors(
+    mut commands: Commands,
     state: Res<MyPlayerState>,
     world: Option<Res<WorldGrid>>,
     mut q: Query<&mut Visibility, With<CloudRoot>>,
+    drops: Query<Entity, With<RainDrop>>,
 ) {
     // MyPlayerState.location is None on the overworld and Some(id) while
     // inside an interior. WorldGrid presence is a secondary safety check
@@ -278,5 +316,61 @@ fn hide_in_interiors(
     let show = world.is_some() && state.location.is_none();
     for mut vis in &mut q {
         *vis = if show { Visibility::Visible } else { Visibility::Hidden };
+    }
+    if !show {
+        for e in &drops { commands.entity(e).despawn(); }
+    }
+}
+
+/// Each rainy cloud spawns drops at DROPS_PER_CLOUD_PER_SEC. The entity
+/// carries a fractional "owed" counter so non-integer per-frame rates
+/// integrate correctly over time.
+fn emit_rain(
+    mut commands: Commands,
+    time: Res<Time>,
+    state: Res<MyPlayerState>,
+    world: Option<Res<WorldGrid>>,
+    mut q: Query<(&Transform, &mut RainyCloud, &Visibility), With<CloudRoot>>,
+) {
+    if world.is_none() || state.location.is_some() { return; }
+    let dt = time.delta_secs();
+    for (tf, mut rainy, vis) in &mut q {
+        if *vis == Visibility::Hidden { continue; }
+        rainy.drops_owed += DROPS_PER_CLOUD_PER_SEC * dt;
+        while rainy.drops_owed >= 1.0 {
+            rainy.drops_owed -= 1.0;
+            // Spawn inside the cloud's footprint. World coords are already
+            // baked into the cloud's Transform; use its scale to spread
+            // drops across the visible cloud width.
+            // cloud scale.x represents its world-scale factor (sprite is
+            // CLOUD_TEX_W wide before scaling).
+            let half_w = (CLOUD_TEX_W as f32 * tf.scale.x) * 0.4;
+            let spawn_x = tf.translation.x + rand_range(-half_w, half_w);
+            let spawn_y = tf.translation.y - DROP_START_Y_BELOW_CLOUD;
+            commands.spawn((
+                Sprite {
+                    color: Color::srgba(0.70, 0.80, 0.95, 0.70),
+                    custom_size: Some(Vec2::new(1.0, 5.0)),
+                    ..default()
+                },
+                Transform::from_xyz(spawn_x, spawn_y, 19.0), // below clouds (z=20), above shadows
+                RainDrop { spawn_y },
+            ));
+        }
+    }
+}
+
+/// Move drops downward and despawn once they've fallen far enough.
+fn fall_rain(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &RainDrop, &mut Transform)>,
+) {
+    let dt = time.delta_secs();
+    for (e, drop, mut tf) in &mut q {
+        tf.translation.y -= DROP_SPEED * dt;
+        if drop.spawn_y - tf.translation.y >= DROP_FALL_DISTANCE {
+            commands.entity(e).despawn();
+        }
     }
 }
