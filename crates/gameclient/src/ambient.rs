@@ -37,7 +37,8 @@ const CLOUD_TEX_H: u32 = 96;
 const CLOUD_VARIANTS: u32 = 3;
 
 /// Fraction of clouds that are "rainy" — darker tint, emits rain drops.
-const RAINY_FRACTION: f32 = 0.30;
+/// With 18 clouds total, 5 % means ~1 rainy cloud on the map at a time.
+const RAINY_FRACTION: f32 = 0.05;
 /// Rain drops emitted per rainy cloud per second.
 const DROPS_PER_CLOUD_PER_SEC: f32 = 6.0;
 /// How far below the cloud a drop starts, and how far it falls before
