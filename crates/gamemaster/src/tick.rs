@@ -465,12 +465,16 @@ pub fn run_tick_dev(
                 let Some(event) = events_lock.get(event_id) else { continue };
                 let is_combat = matches!(event.kind, questlib::events::kind::EventKind::Boss { .. }
                     | questlib::events::kind::EventKind::RandomEncounter { .. });
-                let difficulty = match &event.kind {
-                    questlib::events::kind::EventKind::RandomEncounter { difficulty, .. } => *difficulty,
-                    questlib::events::kind::EventKind::Boss { .. } => 8,
-                    _ => 3,
+                // Coop-wait only for bosses that opt in via requires_coop,
+                // or high-difficulty RandomEncounters (legacy behavior for
+                // any remaining diff>=6 encounters). Mid-tier bosses like
+                // the Cavern Wyrm should be solo-able.
+                let is_boss = match &event.kind {
+                    questlib::events::kind::EventKind::Boss { requires_coop, .. } => *requires_coop,
+                    questlib::events::kind::EventKind::RandomEncounter { difficulty, .. } => *difficulty >= 6,
+                    _ => false,
                 };
-                (is_combat, difficulty >= 6)
+                (is_combat, is_boss)
             };
 
             // Gate: boss fights wait for everyone. Evaluated BEFORE force_status,

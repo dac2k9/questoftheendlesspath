@@ -55,6 +55,12 @@ pub enum EventKind {
         /// existing bosses keep fixed stats unless explicitly marked.
         #[serde(default)]
         scales_with_player: bool,
+        /// When true, the fight waits for every online player to be on
+        /// the POI tile before it starts. Use for climactic shared-goal
+        /// encounters only — forcing the whole party to converge for a
+        /// mid-tier cave boss is friction, not drama. Defaults false.
+        #[serde(default)]
+        requires_coop: bool,
     },
     StoryBeat {
         lines: Vec<String>,

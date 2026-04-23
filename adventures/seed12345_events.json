@@ -1146,7 +1146,8 @@
           "The Frost Lord's form shatters like glass.",
           "The Starstone grows warm in your hand \u2014 the way to the Spire is clear."
         ],
-        "scales_with_player": true
+        "scales_with_player": true,
+        "requires_coop": true
       },
       "trigger": {
         "condition": "all",
