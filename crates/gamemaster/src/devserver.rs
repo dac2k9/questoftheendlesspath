@@ -915,6 +915,10 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             name: &'a str,
             description: &'a str,
             kind: &'static str,
+            /// Full dialogue / story text for kinds that carry it. Empty for
+            /// treasure / encounter / cave / boss (those don't have lines).
+            /// Client shows this expanded when a journal entry is clicked.
+            lines: Vec<String>,
         }
         let entries: Vec<JournalEntry> = completed.iter()
             .filter_map(|id| lock.events.iter().find(|e| &e.id == id))
@@ -924,17 +928,19 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             })
             .map(|e| {
                 use questlib::events::kind::EventKind::*;
-                let kind = match &e.kind {
-                    NpcDialogue { .. } => "dialogue",
-                    Treasure { .. } => "treasure",
-                    RandomEncounter { .. } => "encounter",
-                    Quest { .. } => "quest",
-                    Boss { .. } => "boss",
-                    StoryBeat { .. } => "story",
-                    CaveEntrance { .. } => "cave",
-                    Shop { .. } | Forge { .. } | EnvironmentalEffect { .. } => "misc",
+                let (kind, lines) = match &e.kind {
+                    NpcDialogue { lines, .. } => ("dialogue", lines.clone()),
+                    Treasure { .. } => ("treasure", Vec::new()),
+                    RandomEncounter { .. } => ("encounter", Vec::new()),
+                    Quest { description, .. } => ("quest", vec![description.clone()]),
+                    Boss { dialogue_intro, .. } => ("boss", dialogue_intro.clone()),
+                    StoryBeat { lines } => ("story", lines.clone()),
+                    CaveEntrance { flavor, .. } => {
+                        ("cave", if flavor.is_empty() { Vec::new() } else { vec![flavor.clone()] })
+                    }
+                    Shop { .. } | Forge { .. } | EnvironmentalEffect { .. } => ("misc", Vec::new()),
                 };
-                JournalEntry { id: &e.id, name: &e.name, description: &e.description, kind }
+                JournalEntry { id: &e.id, name: &e.name, description: &e.description, kind, lines }
             })
             .collect();
         return ("200 OK", serde_json::to_string(&entries).unwrap_or_default());
