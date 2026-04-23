@@ -287,10 +287,10 @@ impl Default for VisualState {
 struct CameraPan { active: bool, last_pos: Option<Vec2> }
 
 #[derive(Resource)]
-struct DebugOptions { show_menu: bool, fog_disabled: bool, show_pois: bool }
+pub struct DebugOptions { pub show_menu: bool, pub fog_disabled: bool, pub show_pois: bool, pub lighting_enabled: bool }
 
 impl Default for DebugOptions {
-    fn default() -> Self { Self { show_menu: false, fog_disabled: false, show_pois: false } }
+    fn default() -> Self { Self { show_menu: false, fog_disabled: false, show_pois: false, lighting_enabled: false } }
 }
 
 #[derive(Resource)]
@@ -1341,7 +1341,13 @@ fn handle_debug_menu(
     for mut vis in &mut poi_labels { *vis = if debug.show_pois { Visibility::Visible } else { Visibility::Hidden }; }
     for e in &existing { commands.entity(e).despawn_recursive(); }
     let fps = (1.0 / time.delta_secs()).round() as u32;
-    let text = format!("=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{:}]\n2: POIs [{}]", fps, if debug.fog_disabled {"OFF"} else {"ON"}, if debug.show_pois {"ON"} else {"OFF"});
+    let text = format!(
+        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF6: Lighting [{}]",
+        fps,
+        if debug.fog_disabled { "OFF" } else { "ON" },
+        if debug.show_pois { "ON" } else { "OFF" },
+        if debug.lighting_enabled { "ON" } else { "OFF" },
+    );
     commands.spawn((Text::new(text), TextFont { font: font.0.clone(), font_size: 10.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 0.0)), Node { position_type: PositionType::Absolute, top: Val::Px(10.0), left: Val::Px(10.0), ..default() }, DebugMenuUi));
 }
 
