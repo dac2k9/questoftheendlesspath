@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::states::AppState;
-use crate::terrain::tilemap::MyPlayerState;
+use crate::terrain::tilemap::{FogOfWar, MyPlayerState};
 use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_W, WORLD_H};
 
 /// Cheap uniform random in [0, 1) via the browser's Math.random(). Works
@@ -337,6 +337,7 @@ fn emit_rain(
     time: Res<Time>,
     state: Res<MyPlayerState>,
     world: Option<Res<WorldGrid>>,
+    fog: Option<Res<FogOfWar>>,
     mut q: Query<(&Transform, &mut RainyCloud, &Visibility), With<CloudRoot>>,
 ) {
     if world.is_none() || state.location.is_some() { return; }
@@ -355,9 +356,24 @@ fn emit_rain(
             let spawn_x = tf.translation.x + rand_range(-half_w, half_w);
             let spawn_y = tf.translation.y - DROP_START_Y_BELOW_CLOUD;
             let alpha = rand_range(DROP_ALPHA_MIN, DROP_ALPHA_MAX);
+            // "Adaptive" color: check the fog bitfield at the drop's
+            // spawn tile. Over fogged (unrevealed) terrain the drop is
+            // rendered pale-blue so it reads against the dark fog.
+            // Over revealed terrain the drop is dark blue-grey so it
+            // reads against bright biomes. Chosen at spawn — drops fall
+            // only ~5 tiles so the color stays correct through the fall.
+            let (tx, ty) = WorldGrid::world_to_tile(Vec2::new(spawn_x, spawn_y));
+            let revealed = fog.as_ref()
+                .and_then(|f| f.revealed.get(ty * WORLD_W + tx).copied())
+                .unwrap_or(true);
+            let color = if revealed {
+                Color::srgba(0.15, 0.25, 0.50, alpha) // dark over terrain
+            } else {
+                Color::srgba(0.80, 0.88, 1.00, alpha) // light over fog
+            };
             commands.spawn((
                 Sprite {
-                    color: Color::srgba(0.70, 0.80, 0.95, alpha),
+                    color,
                     custom_size: Some(Vec2::new(1.0, 5.0)),
                     ..default()
                 },
