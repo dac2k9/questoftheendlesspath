@@ -97,7 +97,7 @@ pub fn run_tick_dev(
 
         // Apply speed multipliers: passive (boots) × active buffs (potions).
         let catalog = crate::item_catalog();
-        let boots_mult = questlib::items::equipment_speed_multiplier(&player.equipment, catalog);
+        let boots_mult = questlib::items::equipment_speed_multiplier(&player.equipment, catalog, &player.item_upgrades);
         let now_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs()).unwrap_or(0);
@@ -236,7 +236,7 @@ pub fn run_tick_dev(
                     difficulty: m.difficulty,
                 };
                 let catalog = crate::item_catalog();
-                let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog);
+                let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog, &player.item_upgrades);
                 // Only start if THIS player isn't already in combat
                 if !server_combat::player_in_combat(shared_combat, player_id) {
                     server_combat::start_combat(shared_combat, &combat_event_id, &kind, player.total_distance_m as u64, eq_bonus, player_id);
@@ -530,7 +530,7 @@ pub fn run_tick_dev(
                 if is_combat {
                     if !player.planned_route.is_empty() {
                         let catalog = crate::item_catalog();
-                        let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog);
+                        let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog, &player.item_upgrades);
                         server_combat::start_combat(
                             shared_combat,
                             &event.id,

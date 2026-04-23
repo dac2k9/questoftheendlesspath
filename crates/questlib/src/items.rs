@@ -268,7 +268,15 @@ pub fn unequip_item(
 }
 
 /// Compute total stat bonuses from all equipped items.
-pub fn equipment_bonuses(loadout: &EquipmentLoadout, catalog: &ItemCatalog) -> (i32, i32, i32) {
+/// `upgrades` is the per-item forge-upgrade level (0-5). Each level
+/// adds +1 ATK for weapons, +1 DEF for armor, +2 MAX HP for accessories,
+/// +1 ATK for toe rings. Speed bonuses from upgrades live in
+/// `equipment_speed_multiplier`.
+pub fn equipment_bonuses(
+    loadout: &EquipmentLoadout,
+    catalog: &ItemCatalog,
+    upgrades: &std::collections::HashMap<String, u8>,
+) -> (i32, i32, i32) {
     let mut attack = 0;
     let mut defense = 0;
     let mut max_hp = 0;
@@ -285,6 +293,16 @@ pub fn equipment_bonuses(loadout: &EquipmentLoadout, catalog: &ItemCatalog) -> (
                     }
                 }
             }
+            let lvl = upgrades.get(item_id).copied().unwrap_or(0) as i32;
+            if lvl > 0 {
+                match slot {
+                    EquipmentSlot::Weapon   => attack += lvl,
+                    EquipmentSlot::Armor    => defense += lvl,
+                    EquipmentSlot::Accessory => max_hp += 2 * lvl,
+                    EquipmentSlot::ToeRings => attack += lvl,
+                    EquipmentSlot::Feet     => {} // handled in speed multiplier
+                }
+            }
         }
     }
     (attack, defense, max_hp)
@@ -297,7 +315,12 @@ pub fn has_item_or_equipped(inventory: &[InventorySlot], loadout: &EquipmentLoad
 
 /// Compute the passive speed multiplier from equipped boots (and any other
 /// equipment with SpeedMultiplier effects). Returns 1.0 if nothing equipped.
-pub fn equipment_speed_multiplier(loadout: &EquipmentLoadout, catalog: &ItemCatalog) -> f32 {
+/// Forge upgrades on the Feet slot add +1 % per level, multiplicative.
+pub fn equipment_speed_multiplier(
+    loadout: &EquipmentLoadout,
+    catalog: &ItemCatalog,
+    upgrades: &std::collections::HashMap<String, u8>,
+) -> f32 {
     let mut mult = 1.0_f32;
     for slot in EquipmentLoadout::all_slots() {
         if let Some(item_id) = loadout.get_slot(slot) {
@@ -307,6 +330,10 @@ pub fn equipment_speed_multiplier(loadout: &EquipmentLoadout, catalog: &ItemCata
                         mult *= multiplier;
                     }
                 }
+            }
+            if slot == EquipmentSlot::Feet {
+                let lvl = upgrades.get(item_id).copied().unwrap_or(0) as f32;
+                mult *= 1.0 + lvl * 0.01;
             }
         }
     }
@@ -407,7 +434,7 @@ mod tests {
             feet: None,
             toe_rings: None,
         };
-        let (atk, def, hp) = equipment_bonuses(&loadout, &cat);
+        let (atk, def, hp) = equipment_bonuses(&loadout, &cat, &std::collections::HashMap::new());
         assert_eq!(atk, 5);
         assert_eq!(def, 3); // 2 + 1
         assert_eq!(hp, 0);

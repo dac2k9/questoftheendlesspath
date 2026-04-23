@@ -1673,6 +1673,23 @@
       "outcomes": [],
       "requires_browser": false,
       "repeatable": false
+    },
+    {
+      "id": "town_1_forge",
+      "name": "Forgemaster",
+      "description": "An ember-lit forge. Bring equipped gear to sharpen or reinforce it.",
+      "kind": {
+        "type": "forge",
+        "npc_name": "Forgemaster Kael"
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
     }
   ]
 }

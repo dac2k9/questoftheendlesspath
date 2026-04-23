@@ -13,6 +13,13 @@ pub struct CachedShop {
     pub items: Vec<super::ShopItem>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CachedForge {
+    pub event_id: String,
+    pub poi_id: Option<usize>,
+    pub npc_name: String,
+}
+
 #[derive(Resource, Default)]
 pub struct EventPollState {
     pub timer: Option<Timer>,
@@ -20,6 +27,7 @@ pub struct EventPollState {
     pub fetched: Arc<Mutex<Option<Vec<ActiveEvent>>>>,
     pub fetched_notifs: Arc<Mutex<Vec<String>>>,
     pub known_shops: Vec<CachedShop>,
+    pub known_forges: Vec<CachedForge>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -41,6 +49,7 @@ pub fn poll_active_events(
     mut dialogue: ResMut<DialogueState>,
     mut notifications: ResMut<NotificationQueue>,
     mut shop: ResMut<super::ShopState>,
+    mut forge: ResMut<super::ForgeState>,
     player: Res<crate::terrain::tilemap::MyPlayerState>,
     session: Res<crate::GameSession>,
     world: Option<Res<crate::terrain::world::WorldGrid>>,
@@ -64,12 +73,26 @@ pub fn poll_active_events(
 
     if let Some(events) = fetched_events {
         {
-            // Rebuild cached shop list from poll data
+            // Rebuild cached shop + forge lists from poll data
             poll.known_shops.clear();
+            poll.known_forges.clear();
             for event in &events {
                 let event_type = event.kind.get("type")
                     .and_then(|t| t.as_str())
                     .unwrap_or("unknown");
+                if event_type == "forge" {
+                    let poi_id = extract_poi_id(&event.trigger);
+                    let npc = event.kind.get("npc_name")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("Forgemaster")
+                        .to_string();
+                    poll.known_forges.push(CachedForge {
+                        event_id: event.id.clone(),
+                        poi_id,
+                        npc_name: npc,
+                    });
+                    continue;
+                }
                 if event_type == "shop" {
                     let poi_id = extract_poi_id(&event.trigger);
                     let merchant = event.kind.get("merchant_name")
@@ -99,8 +122,9 @@ pub fn poll_active_events(
                     .and_then(|t| t.as_str())
                     .unwrap_or("unknown");
 
-                // Shops handled above via cache
-                if event_type == "shop" { continue; }
+                // Shops + forges handled above via cache — they're driven
+                // by availability at a POI, not by one-shot notifications.
+                if event_type == "shop" || event_type == "forge" { continue; }
 
                 if poll.known_active_ids.contains(&event.id) {
                     continue;
@@ -211,6 +235,24 @@ pub fn poll_active_events(
                     shop.event_id = cached.event_id.clone();
                     shop.merchant_name = cached.merchant_name.clone();
                     shop.items = cached.items.clone();
+                    break;
+                }
+            }
+        }
+    }
+
+    // Check forge availability every frame (same pattern as shop)
+    if !forge.active {
+        forge.available = false;
+        let player_poi = world.as_ref().and_then(|w| {
+            w.map.poi_at(player.tile_x as usize, player.tile_y as usize).map(|p| p.id)
+        });
+        if let Some(pid) = player_poi {
+            for cached in &poll.known_forges {
+                if cached.poi_id == Some(pid) {
+                    forge.available = true;
+                    forge.event_id = cached.event_id.clone();
+                    forge.npc_name = cached.npc_name.clone();
                     break;
                 }
             }

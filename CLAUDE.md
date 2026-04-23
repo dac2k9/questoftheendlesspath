@@ -271,6 +271,11 @@ Diagnostic / recovery:
 - `POST /debug_walk` — `{"player_id":"...","speed":3.0}` (simulate walking)
 - `GET /events/active?player_id=X` — events currently visible to this player
 - `POST /events/{id}/complete` — `{"player_id":"..."}` required; mark event completed
+- `POST /forge_upgrade` — `{"player_id":"...","item_id":"iron_sword"}` — spend
+  gold to add +1 to an equipped item's stat. Cost = 500 × (current_level + 1).
+  Max level 5 per item; per-slot effects: Weapon +1 ATK, Armor +1 DEF,
+  Accessory +2 Max HP, Feet +1 % speed, Toe Rings +1 ATK. Server enforces
+  equip / level-cap / gold checks. Forgemaster Kael is at Coastal Town (POI 1).
 - `GET /shops?player_id=X` — shops the player has discovered
   (`revealed_shops` list). Populated two ways: (1) first time the player
   completes a shop event, and (2) when an NPC dialogue grants

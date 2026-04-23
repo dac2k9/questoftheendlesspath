@@ -54,6 +54,11 @@ pub struct DevPlayerState {
     /// markers the client draws over the map when TAB is held.
     #[serde(default)]
     pub revealed_shops: Vec<String>,
+    /// Forge upgrade level per item id. 0 = not upgraded. Max 5 per item
+    /// (enforced at /forge_upgrade). +1 atk/def/hp or +1 % speed per level
+    /// depending on the item's equipment slot — see questlib::items.
+    #[serde(default)]
+    pub item_upgrades: std::collections::HashMap<String, u8>,
     /// Previous tile before entering current tile (for retreat).
     #[serde(default)]
     pub prev_tile: Option<(i32, i32)>,
@@ -534,6 +539,43 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
     // WebSocket bridge (`gamemaster::walker_bridge`) directly into
     // DevPlayerState; no client-supplied distance.
 
+    // POST /forge_upgrade — spend gold to add a stat level to an equipped
+    // item. Body: {"player_id": "...", "item_id": "iron_sword"}.
+    // Server enforces: item must be equipped, current level < MAX_FORGE_LEVEL,
+    // player has enough gold. Cost scales: 500 × (level + 1).
+    if first_line.starts_with("POST /forge_upgrade") {
+        const MAX_FORGE_LEVEL: u8 = 5;
+        const BASE_COST: i32 = 500;
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            #[derive(Deserialize)]
+            struct Req { player_id: String, item_id: String }
+            let Ok(req) = serde_json::from_str::<Req>(&request[body_start + 4..]) else {
+                return ("400 Bad Request", r#"{"error":"bad body"}"#.to_string());
+            };
+            let mut lock = state.lock().unwrap();
+            let Some(p) = lock.get_mut(&req.player_id) else {
+                return ("404 Not Found", r#"{"error":"player"}"#.to_string());
+            };
+            if !p.equipment.has_equipped(&req.item_id) {
+                return ("400 Bad Request", r#"{"error":"item not equipped"}"#.to_string());
+            }
+            let cur = p.item_upgrades.get(&req.item_id).copied().unwrap_or(0);
+            if cur >= MAX_FORGE_LEVEL {
+                return ("400 Bad Request", r#"{"error":"already at max level"}"#.to_string());
+            }
+            let cost = BASE_COST * (cur as i32 + 1);
+            if p.gold < cost {
+                return ("400 Bad Request", format!(r#"{{"error":"need {} gold"}}"#, cost));
+            }
+            p.gold -= cost;
+            p.item_upgrades.insert(req.item_id.clone(), cur + 1);
+            return ("200 OK", format!(
+                r#"{{"ok":true,"new_level":{},"paid":{}}}"#, cur + 1, cost
+            ));
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
     // POST /buy_item — buy an item from a shop
     if first_line.starts_with("POST /buy_item") {
         if let Some(body_start) = request.find("\r\n\r\n") {
@@ -878,7 +920,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             .filter_map(|id| lock.events.iter().find(|e| &e.id == id))
             .filter(|e| {
                 use questlib::events::kind::EventKind::*;
-                !matches!(e.kind, Shop { .. } | EnvironmentalEffect { .. })
+                !matches!(e.kind, Shop { .. } | Forge { .. } | EnvironmentalEffect { .. })
             })
             .map(|e| {
                 use questlib::events::kind::EventKind::*;
@@ -890,7 +932,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     Boss { .. } => "boss",
                     StoryBeat { .. } => "story",
                     CaveEntrance { .. } => "cave",
-                    Shop { .. } | EnvironmentalEffect { .. } => "misc",
+                    Shop { .. } | Forge { .. } | EnvironmentalEffect { .. } => "misc",
                 };
                 JournalEntry { id: &e.id, name: &e.name, description: &e.description, kind }
             })

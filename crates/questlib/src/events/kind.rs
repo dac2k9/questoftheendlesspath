@@ -34,6 +34,12 @@ pub enum EventKind {
         #[serde(default)]
         items: Vec<ShopItem>,
     },
+    /// A forge NPC that upgrades equipped items for gold. No per-event
+    /// config beyond the NPC's name — pricing, slots, and the cap are all
+    /// server-enforced constants in the `/forge_upgrade` handler.
+    Forge {
+        npc_name: String,
+    },
     Boss {
         boss_name: String,
         max_hp: i32,

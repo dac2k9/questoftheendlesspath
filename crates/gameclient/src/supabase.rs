@@ -63,6 +63,9 @@ pub struct PlayerRow {
     /// things like portal-unlock visuals (shortcut caves).
     #[serde(default)]
     pub completed_events: Vec<String>,
+    /// Forge upgrade level per equipped item id. Used by the Forge UI.
+    #[serde(default)]
+    pub item_upgrades: std::collections::HashMap<String, u8>,
 }
 
 /// The server sends `location` as `{"kind": "overworld"}` or

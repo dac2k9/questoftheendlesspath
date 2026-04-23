@@ -118,7 +118,7 @@ pub fn run_interior_tick(
     // Apply speed multipliers (boots + potions) — interiors are just as much
     // movement as overworld, so buffs should carry.
     let catalog = crate::item_catalog();
-    let boots_mult = questlib::items::equipment_speed_multiplier(&player.equipment, catalog);
+    let boots_mult = questlib::items::equipment_speed_multiplier(&player.equipment, catalog, &player.item_upgrades);
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let buff_mult: f32 = player.active_buffs.iter()
@@ -240,7 +240,7 @@ pub fn run_interior_tick(
                 difficulty: monster_data.difficulty,
             };
             let catalog = crate::item_catalog();
-            let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, catalog);
+            let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, catalog, &player.item_upgrades);
             crate::combat::start_combat(
                 shared_combat,
                 &event_id,

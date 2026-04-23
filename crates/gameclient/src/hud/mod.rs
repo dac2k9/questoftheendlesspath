@@ -26,7 +26,7 @@ impl Plugin for HudPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
                 Update,
-                (update_hud, detect_gold_change, detect_level_up, update_floating_texts, toggle_inventory, update_inventory, show_item_tooltip, update_shop_button, handle_inventory_click)
+                (update_hud, detect_gold_change, detect_level_up, update_floating_texts, toggle_inventory, update_inventory, show_item_tooltip, update_shop_button, update_forge_button, handle_inventory_click)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -58,6 +58,12 @@ struct InventoryButton;
 
 #[derive(Component)]
 struct ShopButton;
+
+#[derive(Component)]
+struct ForgeButton;
+
+#[derive(Component)]
+struct ForgeButtonRoot;
 
 #[derive(Component)]
 struct ShopButtonRoot;
@@ -691,6 +697,66 @@ fn update_shop_button(
                     Text::new("Shop"),
                     TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
                     TextColor(Color::srgb(1.0, 0.85, 0.3)),
+                ));
+            });
+        });
+    } else if !should_show && !existing.is_empty() {
+        for entity in &existing {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
+}
+
+fn update_forge_button(
+    mut commands: Commands,
+    font: Res<GameFont>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut forge: ResMut<crate::dialogue::ForgeState>,
+    existing: Query<Entity, With<ForgeButtonRoot>>,
+    btn_q: Query<&Interaction, With<ForgeButton>>,
+) {
+    if mouse.just_pressed(MouseButton::Left) {
+        for interaction in &btn_q {
+            if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+                forge.active = true;
+            }
+        }
+    }
+
+    let should_show = forge.available && !forge.active;
+
+    if should_show && existing.is_empty() {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                // Above the shop button so both can appear at a POI that
+                // has both (Coastal Town today). Shop is at bottom=12,
+                // height ≈ 30 px → place forge at bottom=48.
+                bottom: Val::Px(48.0),
+                left: Val::Percent(50.0),
+                margin: UiRect::left(Val::Px(-60.0)),
+                width: Val::Px(120.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            ForgeButtonRoot,
+        )).with_children(|parent| {
+            parent.spawn((
+                Button,
+                Node {
+                    padding: UiRect::axes(Val::Px(16.0), Val::Px(8.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.18, 0.08, 0.02, 0.9)),
+                BorderColor(Color::srgb(0.85, 0.55, 0.15)),
+                BorderRadius::all(Val::Px(6.0)),
+                ForgeButton,
+            )).with_children(|btn| {
+                btn.spawn((
+                    Text::new("⚒ Forge"),
+                    TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                    TextColor(Color::srgb(1.0, 0.85, 0.4)),
                 ));
             });
         });

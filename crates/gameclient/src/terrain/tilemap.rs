@@ -88,7 +88,8 @@ impl Plugin for TilemapPlugin {
                 ).run_if(in_state(AppState::InGame)
                     .and(not(crate::combat::combat_active))
                     .and(not(crate::dialogue::dialogue_active))
-                    .and(not(crate::dialogue::shop_active))),
+                    .and(not(crate::dialogue::shop_active))
+                    .and(not(crate::dialogue::forge_active))),
             )
             .add_systems(
                 Update,
@@ -264,6 +265,10 @@ pub struct MyPlayerState {
     /// Events this player has personally completed. Mirrors the server-side
     /// `DevPlayerState.completed_events`. Used for portal-unlock visuals.
     pub completed_events: Vec<String>,
+    /// Per-item forge upgrade level (0..=5). Mirrors server-side
+    /// DevPlayerState.item_upgrades. Used by the Forge UI to show current
+    /// level and next-tier cost per equipped item.
+    pub item_upgrades: std::collections::HashMap<String, u8>,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -611,6 +616,7 @@ fn apply_server_state(
     state.defeated_monsters = me.defeated_monsters.clone();
     state.location = me.location.clone();
     state.completed_events = me.completed_events.clone();
+    state.item_upgrades = me.item_upgrades.clone();
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {

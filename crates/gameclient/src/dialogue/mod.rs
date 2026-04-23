@@ -12,6 +12,7 @@ impl Plugin for DialoguePlugin {
         app.insert_resource(DialogueState::default())
             .insert_resource(NotificationQueue::default())
             .insert_resource(ShopState::default())
+            .insert_resource(ForgeState::default())
             .insert_resource(MessageLog::default())
             .add_systems(
                 Update,
@@ -22,6 +23,8 @@ impl Plugin for DialoguePlugin {
                     handle_dialogue_input,
                     update_shop,
                     handle_shop_input,
+                    update_forge,
+                    handle_forge_input,
                 )
                     .run_if(in_state(AppState::InGame).and(not(crate::combat::combat_active))),
             );
@@ -655,6 +658,229 @@ fn update_notifications(
                 MessageLogText,
             ));
         });
+    }
+}
+
+// ── Forge ───────────────────────────────────────────
+//
+// Follows the Shop pattern closely: `available` flag set by event_poll
+// when the player is at a forge POI, `active` flag toggled by clicking
+// the HUD button. When active, `update_forge` renders a panel with one
+// row per equipped item (weapon/armor/accessory/feet/toe rings), each
+// with a "Sharpen for <cost> g" button. Click → POST /forge_upgrade →
+// server validates + increments `item_upgrades[item_id]`.
+
+#[derive(Resource, Default)]
+pub struct ForgeState {
+    pub active: bool,
+    pub event_id: String,
+    pub npc_name: String,
+    /// True when the player is physically at the forge POI.
+    pub available: bool,
+}
+
+pub fn forge_active(state: Res<ForgeState>) -> bool {
+    state.active
+}
+
+#[derive(Component)]
+struct ForgePanel;
+
+#[derive(Component)]
+/// Click target for a single upgrade row. The String is the item id to
+/// send to POST /forge_upgrade. Only spawned when that slot is equipped,
+/// not yet max-level, and the player can afford the next tier.
+struct ForgeUpgradeButton(String);
+
+#[derive(Component)]
+struct ForgeCloseButton;
+
+fn forge_cost(level: u8) -> i32 { 500 * (level as i32 + 1) }
+
+const MAX_FORGE_LEVEL: u8 = 5;
+
+/// Build / rebuild the forge panel whenever forge state changes, player
+/// gold changes, or upgrades change. Rebuild is cheap (small UI) and
+/// keeps the per-row cost/level/affordability displays in sync.
+fn update_forge(
+    mut commands: Commands,
+    forge: Res<ForgeState>,
+    player: Res<crate::terrain::tilemap::MyPlayerState>,
+    catalog_res: Res<crate::hud::ItemCatalogRes>,
+    font: Res<GameFont>,
+    panel_q: Query<Entity, With<ForgePanel>>,
+    mut last_sig: Local<(bool, i32, std::collections::HashMap<String, u8>)>,
+) {
+    // Signature: (active, gold, upgrades) — rebuild when any changes.
+    let sig = (forge.active, player.gold, player.item_upgrades.clone());
+    if sig == *last_sig && !panel_q.is_empty() { return; }
+    if !forge.active && panel_q.is_empty() { *last_sig = sig; return; }
+    *last_sig = sig;
+
+    for e in &panel_q { commands.entity(e).despawn_recursive(); }
+    if !forge.active { return; }
+
+    let catalog = &catalog_res.0;
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(60.0),
+            left: Val::Percent(50.0),
+            margin: UiRect::left(Val::Px(-180.0)),
+            width: Val::Px(360.0),
+            padding: UiRect::all(Val::Px(12.0)),
+            border: UiRect::all(Val::Px(2.0)),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(6.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.06, 0.03, 0.02, 0.95)),
+        BorderColor(Color::srgb(0.85, 0.55, 0.15)),
+        BorderRadius::all(Val::Px(5.0)),
+        ZIndex(20),
+        ForgePanel,
+    )).with_children(|panel| {
+        // Header
+        panel.spawn(Node {
+            flex_direction: FlexDirection::Row,
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            margin: UiRect::bottom(Val::Px(4.0)),
+            ..default()
+        }).with_children(|h| {
+            h.spawn((
+                Text::new(format!("⚒ {}", if forge.npc_name.is_empty() { "Forgemaster" } else { forge.npc_name.as_str() })),
+                TextFont { font: font.0.clone(), font_size: 12.0, ..default() },
+                TextColor(Color::srgb(1.0, 0.85, 0.55)),
+            ));
+            h.spawn((
+                Button,
+                Node {
+                    width: Val::Px(20.0), height: Val::Px(20.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.2, 0.1, 0.1, 0.9)),
+                BorderRadius::all(Val::Px(3.0)),
+                ForgeCloseButton,
+            )).with_children(|b| {
+                b.spawn((
+                    Text::new("X"),
+                    TextFont { font: font.0.clone(), font_size: 10.0, ..default() },
+                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                ));
+            });
+        });
+
+        // Rows per equipped slot
+        let slots = [
+            (questlib::items::EquipmentSlot::Weapon,    "Weapon"),
+            (questlib::items::EquipmentSlot::Armor,     "Armor"),
+            (questlib::items::EquipmentSlot::Accessory, "Accessory"),
+            (questlib::items::EquipmentSlot::Feet,      "Feet"),
+            (questlib::items::EquipmentSlot::ToeRings,  "Toe Rings"),
+        ];
+        let mut any_row = false;
+        for (slot, label) in slots {
+            let Some(item_id) = player.equipment.get_slot(slot) else { continue };
+            let disp = catalog.get(item_id).map(|d| d.display_name.as_str()).unwrap_or(item_id);
+            let lvl = player.item_upgrades.get(item_id).copied().unwrap_or(0);
+            any_row = true;
+            let maxed = lvl >= MAX_FORGE_LEVEL;
+            let cost = if maxed { 0 } else { forge_cost(lvl) };
+            let can_afford = !maxed && player.gold >= cost;
+            let button_label = if maxed {
+                format!("{}: {} — Lv {} MAX", label, disp, lvl)
+            } else {
+                let bonus = match slot {
+                    questlib::items::EquipmentSlot::Weapon    => "+1 ATK",
+                    questlib::items::EquipmentSlot::Armor     => "+1 DEF",
+                    questlib::items::EquipmentSlot::Accessory => "+2 HP",
+                    questlib::items::EquipmentSlot::Feet      => "+1% spd",
+                    questlib::items::EquipmentSlot::ToeRings  => "+1 ATK",
+                };
+                format!("{}: {} (Lv {}→{}) — {} — {} g", label, disp, lvl, lvl + 1, bonus, cost)
+            };
+            let bg = if maxed {
+                Color::srgba(0.10, 0.10, 0.08, 0.85)
+            } else if can_afford {
+                Color::srgba(0.18, 0.10, 0.04, 0.95)
+            } else {
+                Color::srgba(0.08, 0.05, 0.03, 0.85)
+            };
+            let text_color = if maxed {
+                Color::srgb(0.55, 0.50, 0.35)
+            } else if can_afford {
+                Color::srgb(1.0, 0.90, 0.65)
+            } else {
+                Color::srgb(0.55, 0.45, 0.35)
+            };
+            let mut row = panel.spawn((
+                Node {
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(bg),
+                BorderColor(Color::srgb(0.4, 0.25, 0.1)),
+                BorderRadius::all(Val::Px(3.0)),
+            ));
+            if can_afford {
+                row.insert(Button);
+                row.insert(ForgeUpgradeButton(item_id.to_string()));
+            }
+            row.with_children(|r| {
+                r.spawn((
+                    Text::new(button_label),
+                    TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
+                    TextColor(text_color),
+                ));
+            });
+        }
+        if !any_row {
+            panel.spawn((
+                Text::new("No equipment to upgrade."),
+                TextFont { font: font.0.clone(), font_size: 9.0, ..default() },
+                TextColor(Color::srgb(0.55, 0.50, 0.35)),
+            ));
+        }
+        // Footer hint
+        panel.spawn((
+            Text::new(format!("Gold: {}", player.gold)),
+            TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
+            TextColor(Color::srgb(0.8, 0.7, 0.4)),
+            Node { margin: UiRect::top(Val::Px(6.0)), ..default() },
+        ));
+    });
+}
+
+fn handle_forge_input(
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut forge: ResMut<ForgeState>,
+    session: Res<crate::GameSession>,
+    upgrade_btns: Query<(&Interaction, &ForgeUpgradeButton)>,
+    close_btns: Query<&Interaction, With<ForgeCloseButton>>,
+) {
+    if !mouse.just_pressed(MouseButton::Left) { return; }
+    for interaction in &close_btns {
+        if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+            forge.active = false;
+            return;
+        }
+    }
+    for (interaction, btn) in &upgrade_btns {
+        if matches!(interaction, Interaction::Hovered | Interaction::Pressed) {
+            let item_id = btn.0.clone();
+            let pid = session.player_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = reqwest::Client::new()
+                    .post(&crate::api_url("/forge_upgrade"))
+                    .json(&serde_json::json!({"player_id": pid, "item_id": item_id}))
+                    .send().await;
+            });
+            return;
+        }
     }
 }
 
