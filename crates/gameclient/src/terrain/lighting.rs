@@ -80,13 +80,18 @@ fn toggle_and_manage_overlay(
     let Some(world) = world else { return; };
     let img = generate_lighting_image(&world);
     let handle = images.add(img);
-    // World spans [0, WORLD_W * TILE_PX] in x and [-WORLD_H * TILE_PX, 0] in y.
-    // Sprite is centered at its Transform; place the center accordingly.
-    let w = WORLD_W as f32 * TILE_PX;
-    let h = WORLD_H as f32 * TILE_PX;
+    // Align with the MAP sprite's transform — tile_to_world puts tile
+    // (0, 0) at world (0, 0) as the tile's CENTER, not its top-left,
+    // so the whole map extent is offset by half a tile. Matching the
+    // same formula tilemap.rs uses keeps the overlay pixel-perfect
+    // aligned with the ground (previously drifted by TILE_PX/2 in
+    // each axis — visible as the shoreline bevel missing the real
+    // water edge).
+    let cx = (WORLD_W as f32 * TILE_PX) / 2.0 - TILE_PX / 2.0;
+    let cy = -(WORLD_H as f32 * TILE_PX) / 2.0 + TILE_PX / 2.0;
     commands.spawn((
         Sprite { image: handle, ..default() },
-        Transform::from_xyz(w * 0.5, -h * 0.5, 0.3),
+        Transform::from_xyz(cx, cy, 0.3),
         LightingOverlay,
     ));
 }
