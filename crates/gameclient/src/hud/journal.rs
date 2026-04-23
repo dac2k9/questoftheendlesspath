@@ -72,23 +72,29 @@ fn toggle_journal(
     }
 }
 
-/// Kick off a fetch each time the panel transitions closed → open. Cheap:
-/// small JSON, grows slowly with playtime. Results land in JournalData.
+/// Refetch the journal while the panel is open — immediately on open,
+/// then every 10 s. Previously this only fired on the closed→open
+/// transition; if session.player_id was empty on that single frame
+/// (still joining, etc.), the fetch was silently skipped and the panel
+/// stayed stuck on "adventure is just beginning" forever.
 fn fetch_on_open(
+    time: Res<Time>,
     open: Res<JournalOpen>,
     session: Res<GameSession>,
     data: Res<JournalData>,
-    mut was_open: Local<bool>,
+    mut timer: Local<f32>,
 ) {
-    let just_opened = open.0 && !*was_open;
-    *was_open = open.0;
-    if !just_opened { return; }
-    if session.player_id.is_empty() { return; }
+    if !open.0 {
+        *timer = 0.0; // next open fires immediately
+        return;
+    }
+    *timer -= time.delta_secs();
+    if *timer > 0.0 { return; }
+    if session.player_id.is_empty() { return; } // retry next tick
+    *timer = 10.0;
 
-    let url = format!("/journal?player_id={}", session.player_id);
+    let url = crate::api_url(&format!("/journal?player_id={}", session.player_id));
     let slot = data.entries.clone();
-    // Mark in-flight by clearing. UI shows "Loading…" until entries resolve.
-    if let Ok(mut g) = slot.lock() { *g = None; }
 
     wasm_bindgen_futures::spawn_local(async move {
         let client = reqwest::Client::new();
