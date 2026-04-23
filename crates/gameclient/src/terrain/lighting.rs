@@ -31,6 +31,14 @@ const QUANT_STEPS: f32 = 5.0;
 /// black under the deepest slope.
 const MAX_ALPHA: f32 = 0.40;
 
+/// Shoreline bevel: land pixels within this distance of a water tile
+/// get a cosine-falloff darkening. In tiles — 0.35 ≈ 5 pixels at
+/// TILE_PX=16, which keeps the effect right at the edge rather than
+/// bleeding into the land interior. Sun-independent on purpose:
+/// beaches feel beveled from every angle.
+const SHORELINE_BEVEL_WIDTH: f32 = 0.35;
+const SHORELINE_BEVEL_STRENGTH: f32 = 0.55;
+
 pub struct LightingPlugin;
 
 impl Plugin for LightingPlugin {
@@ -98,6 +106,11 @@ fn generate_lighting_image(world: &WorldGrid) -> Image {
         blurred = box_blur_3x3(&blurred, w, h);
     }
 
+    // ── 2b. Distance-to-water per tile (BFS from every water tile
+    //       outward). Land tiles get their chessboard distance; water
+    //       tiles are 0.
+    let dist_to_water = water_distance_field(world);
+
     // ── 3. Upsample to world pixel size (TILE_PX per tile) with bilinear
     //      interpolation. Also does implicit smoothing between tile cells.
     let pw = w * TILE_PX as usize;
@@ -133,7 +146,24 @@ fn generate_lighting_image(world: &WorldGrid) -> Image {
             // 1.0 - brightness, then clamp + quantize.
             let mut shade = (1.0 - brightness).clamp(0.0, 1.0);
             shade = (shade * QUANT_STEPS).floor() / QUANT_STEPS;
-            let alpha = (shade * MAX_ALPHA * 255.0) as u8;
+            let slope_alpha = shade * MAX_ALPHA;
+
+            // Shoreline bevel: cosine-falloff darkening on land pixels
+            // near water. Skip water itself (d=0) — only apply to land.
+            let d = sample_bilinear(&dist_to_water, w, h, tx, ty);
+            let bevel = if d > 0.0 && d < SHORELINE_BEVEL_WIDTH {
+                let t = d / SHORELINE_BEVEL_WIDTH; // 0..=1
+                0.5 * (1.0 + (t * std::f32::consts::PI).cos()) // 1 → 0
+            } else {
+                0.0
+            };
+            let bevel_alpha = bevel * SHORELINE_BEVEL_STRENGTH;
+
+            // Combine: take the stronger of the two darkenings rather
+            // than adding (would stack too heavily near water under
+            // sun-away slopes).
+            let alpha_f = slope_alpha.max(bevel_alpha);
+            let alpha = (alpha_f * 255.0) as u8;
 
             // RGB = black; alpha modulated. A warmer tint could be picked
             // if we want sunlit side to feel golden, but keep it simple
@@ -169,6 +199,45 @@ fn biome_height(world: &WorldGrid, x: usize, y: usize) -> f32 {
         Mountain  => 1.00,
         Snow      => 0.85,
     }
+}
+
+/// Chessboard distance from every tile to the nearest water tile.
+/// Water tiles themselves are 0. Runs a single BFS per overlay build;
+/// cheap at 100×80 tiles. 8-connected so diagonals cost 1 (not √2) —
+/// close enough to Euclidean for the shoreline bevel's ≤3-tile range.
+fn water_distance_field(world: &WorldGrid) -> Vec<f32> {
+    use questlib::mapgen::Biome::*;
+    use std::collections::VecDeque;
+    let w = WORLD_W;
+    let h = WORLD_H;
+    let mut dist = vec![f32::INFINITY; w * h];
+    let mut q = VecDeque::new();
+    for y in 0..h {
+        for x in 0..w {
+            if matches!(world.map.biome_at(x, y), Water | DeepWater) {
+                dist[y * w + x] = 0.0;
+                q.push_back((x as i32, y as i32));
+            }
+        }
+    }
+    while let Some((cx, cy)) = q.pop_front() {
+        let base = dist[cy as usize * w + cx as usize];
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 { continue; }
+                let nx = cx + dx;
+                let ny = cy + dy;
+                if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 { continue; }
+                let nd = base + 1.0;
+                let idx = ny as usize * w + nx as usize;
+                if nd < dist[idx] {
+                    dist[idx] = nd;
+                    q.push_back((nx, ny));
+                }
+            }
+        }
+    }
+    dist
 }
 
 fn box_blur_3x3(input: &[f32], w: usize, h: usize) -> Vec<f32> {
