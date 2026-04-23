@@ -231,6 +231,22 @@ Diagnostic / recovery:
   naturally — no global "it's raining" toggle, each storm is local.
   Drops despawn entirely on interior entry; rainy clouds pause emission
   since they're `Visibility::Hidden` under the same rule as all clouds.
+- **World lighting overlay** (F6 dev toggle). `crates/gameclient/src/terrain/lighting.rs`
+  bakes a 1600×1280 RGBA darkness overlay over the whole world when
+  enabled. Heightmap from biomes (water=0, grass=0.4, mountain=1.0) →
+  three 3×3 box blurs → Lambertian slope-lighting against a fixed
+  sun vector (-0.65, -0.65, 0.8) matching the cloud-shadow direction.
+  Output is quantized to 5 brightness bands so it reads stylized, not
+  smoothly blurred, against the pixel art. Plus a per-pixel shoreline
+  bevel: land pixels within SHORELINE_BEVEL_WIDTH_PX of a water-tile
+  rectangle get a cosine-falloff darkening (sun-independent — beaches
+  feel beveled from every angle). Toggle off despawns the sprite.
+- **Parked for later (v2 ground look):** a fully procedural shader
+  ground where tiles are just a biome-map lookup and a WGSL
+  `Material2d` renders curved roads / curved shorelines / animated
+  water / fBm-detailed biomes. Current Phase 1 overlay is the cheap
+  prototype to see if slope-based lighting fits the pixel-art style
+  before we commit to the shader effort.
 
 ### Sound effects
 - 8-bit square-wave blips synthesized on-the-fly in `crates/gameclient/src/sfx.rs`.
