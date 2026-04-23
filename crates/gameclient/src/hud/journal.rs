@@ -137,7 +137,12 @@ fn update_journal_panel(
             border: UiRect::all(Val::Px(2.0)),
             flex_direction: FlexDirection::Column,
             row_gap: Val::Px(6.0),
-            overflow: Overflow::clip(),
+            // scroll_y lets entries keep their natural size and become
+            // scrollable when overflowing. Without this, flexbox squishes
+            // every entry row to fit inside max_height — 20 entries in
+            // 500 px ends up as 20 near-zero-height rows where only the
+            // first one is visibly taller than the rest.
+            overflow: Overflow::scroll_y(),
             ..default()
         },
         BackgroundColor(Color::srgba(0.02, 0.02, 0.08, 0.92)),
@@ -204,6 +209,10 @@ fn update_journal_panel(
                         row_gap: Val::Px(2.0),
                         padding: UiRect { top: Val::Px(4.0), bottom: Val::Px(4.0), ..default() },
                         border: UiRect { left: Val::Px(3.0), ..default() },
+                        // Don't let flexbox squish this entry to fit
+                        // inside the scrollable parent. Each row must
+                        // keep its intrinsic height so scrolling works.
+                        flex_shrink: 0.0,
                         ..default()
                     })
                     .insert(BorderColor(tag_color))
