@@ -966,6 +966,11 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                             crate::push_notif(&mut n, &body_player_id, text.clone());
                                         }
                                     }
+                                    questlib::events::EventOutcome::RevealShop { shop_event_id } => {
+                                        if !player.revealed_shops.contains(shop_event_id) {
+                                            player.revealed_shops.push(shop_event_id.clone());
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }

@@ -758,6 +758,12 @@ fn apply_outcome(outcome: &EventOutcome, player: &mut DevPlayerState, fog: &mut 
         EventOutcome::TileCostModifier { multiplier, duration_tiles } => {
             info!("  Cost modifier: {}x for {} tiles", multiplier, duration_tiles);
         }
+        EventOutcome::RevealShop { shop_event_id } => {
+            if !player.revealed_shops.contains(shop_event_id) {
+                player.revealed_shops.push(shop_event_id.clone());
+            }
+            info!("  Reveal shop: {}", shop_event_id);
+        }
     }
 }
 

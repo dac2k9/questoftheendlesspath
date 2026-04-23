@@ -60,7 +60,8 @@
           "Welcome, traveler. I have waited long for someone like you.",
           "This is the Starstone. It was entrusted to our village generations ago.",
           "It must be taken to the Frozen Spire far to the northeast.",
-          "Take this potion for the road. The Riverside Hamlet to the east may help."
+          "Take this potion for the road. The Riverside Hamlet to the east may help.",
+          "Speak with our shopkeeper here before you leave - the journey is long."
         ],
         "choices": []
       },
@@ -84,6 +85,10 @@
         {
           "effect": "notification",
           "text": "Received the Starstone and a Health Potion!"
+        },
+        {
+          "effect": "reveal_shop",
+          "shop_event_id": "town_0_shop"
         }
       ],
       "status": "pending",
@@ -162,7 +167,8 @@
         "lines": [
           "The Starstone! I heard tales of it as a child.",
           "You'll need supplies to cross the wilds. Head northwest to the Ranger's Lodge.",
-          "She knows the safe paths through the forest. And watch for bandits!"
+          "She knows the safe paths through the forest. And watch for bandits!",
+          "If you travel east along the coast, seek out the Royal Outfitter in the town there."
         ],
         "choices": []
       },
@@ -193,6 +199,10 @@
         {
           "effect": "notification",
           "text": "Ranger's Lodge location revealed!"
+        },
+        {
+          "effect": "reveal_shop",
+          "shop_event_id": "town_1"
         }
       ],
       "status": "pending",
@@ -643,7 +653,8 @@
         "lines": [
           "The mountains ahead will freeze an unprotected traveler.",
           "Prove your worth - defeat the Fortress Guardian to the south.",
-          "Return with proof and I will give you our warmest cloak."
+          "Return with proof and I will give you our warmest cloak.",
+          "Our Highland Quartermaster nearby can supply what the cold road demands."
         ],
         "choices": []
       },
@@ -659,6 +670,10 @@
         {
           "effect": "notification",
           "text": "The Elder will give a cloak once you prove your worth."
+        },
+        {
+          "effect": "reveal_shop",
+          "shop_event_id": "village_4"
         }
       ],
       "status": "pending",
@@ -1329,7 +1344,8 @@
         "lines": [
           "Thank the stars! I've been wandering for days.",
           "Please, take these coins. You saved me from starving out here.",
-          "I heard there's treasure in a hidden grotto far to the southeast."
+          "I heard there's treasure in a hidden grotto far to the southeast.",
+          "Speaking of supplies - Merchant Thalia in Midland Village has rare charms for the road."
         ],
         "choices": []
       },
@@ -1351,6 +1367,10 @@
         {
           "effect": "notification",
           "text": "The traveler rewards you! Hidden Grotto revealed."
+        },
+        {
+          "effect": "reveal_shop",
+          "shop_event_id": "village_3"
         }
       ],
       "status": "pending",

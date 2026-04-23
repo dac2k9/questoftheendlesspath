@@ -16,6 +16,10 @@ pub enum EventOutcome {
     Notification { text: String },
     /// Modify tile movement cost temporarily.
     TileCostModifier { multiplier: f32, duration_tiles: u32 },
+    /// Reveal a shop's location on the player's map — NPCs telling you
+    /// about a merchant they've heard of. Target is the shop event's id.
+    /// No-op if the player has already discovered that shop.
+    RevealShop { shop_event_id: String },
 }
 
 #[cfg(test)]
