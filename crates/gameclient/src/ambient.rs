@@ -41,10 +41,16 @@ const RAINY_FRACTION: f32 = 0.30;
 /// Rain drops emitted per rainy cloud per second.
 const DROPS_PER_CLOUD_PER_SEC: f32 = 6.0;
 /// How far below the cloud a drop starts, and how far it falls before
-/// despawning. Both in world-space pixels.
+/// despawning. Both in world-space pixels. Shorter fall = tighter,
+/// drizzlier look — drops don't streak all the way down the screen.
 const DROP_START_Y_BELOW_CLOUD: f32 = 12.0;
-const DROP_FALL_DISTANCE: f32 = 160.0;
+const DROP_FALL_DISTANCE: f32 = 80.0;
 const DROP_SPEED: f32 = 240.0; // px/s (straight down)
+/// Per-drop alpha range. Varying each drop breaks up the otherwise
+/// uniform strip of color and makes the rain read as scattered
+/// droplets instead of a wall.
+const DROP_ALPHA_MIN: f32 = 0.35;
+const DROP_ALPHA_MAX: f32 = 0.80;
 
 /// World rectangle in world-space pixels. tile_to_world maps tile y to
 /// `-y * TILE_PX`, so the world's Y range is [-WORLD_PX_H, 0] and X range
@@ -347,9 +353,10 @@ fn emit_rain(
             let half_w = (CLOUD_TEX_W as f32 * tf.scale.x) * 0.4;
             let spawn_x = tf.translation.x + rand_range(-half_w, half_w);
             let spawn_y = tf.translation.y - DROP_START_Y_BELOW_CLOUD;
+            let alpha = rand_range(DROP_ALPHA_MIN, DROP_ALPHA_MAX);
             commands.spawn((
                 Sprite {
-                    color: Color::srgba(0.70, 0.80, 0.95, 0.70),
+                    color: Color::srgba(0.70, 0.80, 0.95, alpha),
                     custom_size: Some(Vec2::new(1.0, 5.0)),
                     ..default()
                 },
