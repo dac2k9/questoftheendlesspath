@@ -49,6 +49,7 @@ pub fn start() {
         .add_plugins(terrain::tilemap::TilemapPlugin)
         .add_plugins(terrain::interior::InteriorPlugin)
         .add_plugins(terrain::lighting::LightingPlugin)
+        .add_plugins(terrain::water_shader::WaterShaderPlugin)
         .add_plugins(supabase::SupabasePlugin)
         .add_plugins(hud::HudPlugin)
         .add_plugins(dialogue::DialoguePlugin)

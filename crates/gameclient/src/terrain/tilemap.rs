@@ -287,10 +287,10 @@ impl Default for VisualState {
 struct CameraPan { active: bool, last_pos: Option<Vec2> }
 
 #[derive(Resource)]
-pub struct DebugOptions { pub show_menu: bool, pub fog_disabled: bool, pub show_pois: bool, pub lighting_enabled: bool }
+pub struct DebugOptions { pub show_menu: bool, pub fog_disabled: bool, pub show_pois: bool, pub lighting_enabled: bool, pub water_shader_enabled: bool }
 
 impl Default for DebugOptions {
-    fn default() -> Self { Self { show_menu: false, fog_disabled: false, show_pois: false, lighting_enabled: false } }
+    fn default() -> Self { Self { show_menu: false, fog_disabled: false, show_pois: false, lighting_enabled: false, water_shader_enabled: false } }
 }
 
 #[derive(Resource)]
@@ -1342,11 +1342,12 @@ fn handle_debug_menu(
     for e in &existing { commands.entity(e).despawn_recursive(); }
     let fps = (1.0 / time.delta_secs()).round() as u32;
     let text = format!(
-        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF6: Lighting [{}]",
+        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF6: Lighting [{}]\nF7: Water shader [{}]",
         fps,
         if debug.fog_disabled { "OFF" } else { "ON" },
         if debug.show_pois { "ON" } else { "OFF" },
         if debug.lighting_enabled { "ON" } else { "OFF" },
+        if debug.water_shader_enabled { "ON" } else { "OFF" },
     );
     commands.spawn((Text::new(text), TextFont { font: font.0.clone(), font_size: 10.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 0.0)), Node { position_type: PositionType::Absolute, top: Val::Px(10.0), left: Val::Px(10.0), ..default() }, DebugMenuUi));
 }

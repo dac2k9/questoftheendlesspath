@@ -2,6 +2,7 @@ pub mod interior;
 pub mod lighting;
 pub mod path;
 pub mod tilemap;
+pub mod water_shader;
 pub mod world;
 
 use serde::{Deserialize, Serialize};
