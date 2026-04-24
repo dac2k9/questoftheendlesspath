@@ -210,7 +210,7 @@ fn update_music(
     // Track how long we've been in this context; force a re-roll every
     // 3 min so long walks in one biome actually cycle through their
     // available tracks.
-    const CONTEXT_REROLL_SECONDS: f32 = 180.0;
+    const CONTEXT_REROLL_SECONDS: f32 = 90.0;
     if desired_context == music.current_context {
         music.context_elapsed += dt;
     } else {
@@ -478,19 +478,17 @@ fn pick_track<'a>(
         }
     }
 
-    // First-time pick (or a context re-roll): prefer tracks whose
-    // recommended_kmh is within ±1.5 km/h of the player's speed — among
-    // those, pick RANDOMLY so we don't always land on the same one.
-    // Fall back to any track in the context if nothing matches the band.
+    // First-time pick (or a context re-roll): we treat speed as a
+    // SOFT preference. Start with candidates within a wide band
+    // (±2.5 km/h), and if the band would leave us with fewer than 3
+    // options we widen to everything in the context. That way a biome
+    // with 5 tracks always has at least 3 real choices in the pool, so
+    // rerolls produce genuine variety even at uncommon walking speeds.
     let in_band: Vec<&TrackDef> = candidates.iter()
         .copied()
-        .filter(|t| (t.recommended_kmh - speed).abs() <= 1.5)
+        .filter(|t| (t.recommended_kmh - speed).abs() <= 2.5)
         .collect();
-    let pool: Vec<&TrackDef> = if in_band.is_empty() {
-        candidates.clone()
-    } else {
-        in_band
-    };
+    let pool: Vec<&TrackDef> = if in_band.len() >= 3 { in_band } else { candidates.clone() };
 
     // Avoid repeating the just-played track if the pool has any other
     // option. If the track catalog has only one entry, we'll still pick
