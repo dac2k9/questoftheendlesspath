@@ -717,13 +717,18 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                 let now = std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .map(|d| d.as_secs()).unwrap_or(0);
-                                let buff = questlib::items::ActiveBuff {
+                                // Replace any existing speed buff rather than stacking.
+                                // Drinking a second haste draught refreshes the timer +
+                                // swaps to the new multiplier, but the tick loop's
+                                // .product() over active speed buffs must never see
+                                // more than one at a time.
+                                player.active_buffs.retain(|b| b.kind != "speed");
+                                player.active_buffs.push(questlib::items::ActiveBuff {
                                     kind: "speed".to_string(),
                                     multiplier: *multiplier,
                                     expires_unix: now + *duration_secs as u64,
                                     source_item: req.item_id.clone(),
-                                };
-                                player.active_buffs.push(buff);
+                                });
                                 let pct = ((multiplier - 1.0) * 100.0).round() as i32;
                                 let mins = duration_secs / 60;
                                 messages.push(format!("+{}% speed for {} min", pct, mins));
