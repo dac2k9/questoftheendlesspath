@@ -1,4 +1,4 @@
-// Water ripple shader — Tier-2 live animation for the F7 overlay.
+// Water ripple shader — Tier-2 live animation for the F7 overlay. v2
 //
 // Samples a small water-mask texture (1 px per tile, R = 1 for water)
 // and discards non-water pixels. For water pixels, builds a normal from
