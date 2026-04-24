@@ -18,27 +18,31 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use crate::states::AppState;
 use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_W, WORLD_H};
 
-/// Sun coming from the upper-left (matches cloud shadow offset).
-/// (-1, -1, 0.8) roughly normalized; we dot against (grad.x, grad.y, 0)
-/// so only the XY component matters for directional.
+/// Sun direction (from surface → light source), NOT normalized here —
+/// normalized at use. Upper-left, slightly above. Matches cloud shadow.
 const SUN_X: f32 = -0.65;
 const SUN_Y: f32 = -0.65;
-const LIGHT_Z: f32 = 0.8;
-/// How many alpha steps to quantize into — bigger number = smoother,
-/// smaller = more stylized. 5 reads nicely against the pixel art.
+const SUN_Z: f32 = 0.80;
+
+/// Phong-style lighting constants.
+/// ambient floor so the darkest fully-in-shade pixel doesn't go pitch black.
+const AMBIENT: f32 = 0.30;
+/// How many alpha steps to quantize into — bigger = smoother, smaller =
+/// more stylized. 5 reads nicely against the pixel art.
 const QUANT_STEPS: f32 = 5.0;
-/// Peak darkness the overlay can apply. 0 = no visible effect; 1 = fully
-/// black under the deepest slope.
+/// Peak darkness the overlay can apply at max shade.
 const MAX_ALPHA: f32 = 0.40;
 
-/// Shoreline bevel: land pixels within this many PIXELS of a water
-/// tile's boundary get a cosine-falloff darkening. Measured in world
-/// pixels, NOT tiles. Effect is on land only — water pixels don't get
-/// bevelled. Simulates the normal rotating from "up" (0,1,0) at the
-/// bevel's far side to "horizontal toward water" at the edge, which
-/// reads as a curved bevel.
+/// Shoreline bevel — the last N land pixels before a water tile's edge
+/// get their normal interpolated from flat (0, 0, 1) at the bevel's
+/// inland side to `(nx, ny, small_z)` at the water edge, creating a
+/// curved slope. When the Phong shader evaluates this normal, the
+/// surface reads as rolling down into the water.
 const SHORELINE_BEVEL_WIDTH_PX: f32 = 5.0;
-const SHORELINE_BEVEL_STRENGTH: f32 = 0.55;
+/// How far the normal tilts at the very water edge. 0.9 ≈ 64 ° off
+/// vertical — a steep, almost-sideways facing so the shading reads
+/// clearly. Lower values flatten the bevel.
+const SHORELINE_TILT: f32 = 0.9;
 
 pub struct LightingPlugin;
 
@@ -117,65 +121,77 @@ fn generate_lighting_image(world: &WorldGrid) -> Image {
     //       Replaced with per-pixel `pixel_distance_to_water_boundary`
     //       that only returns >0 for land pixels.)
 
-    // ── 3. Upsample to world pixel size (TILE_PX per tile) with bilinear
-    //      interpolation. Also does implicit smoothing between tile cells.
+    // Normalized sun (surface → light). Computed once and reused.
+    let sun_len = (SUN_X * SUN_X + SUN_Y * SUN_Y + SUN_Z * SUN_Z).sqrt();
+    let sun = [SUN_X / sun_len, SUN_Y / sun_len, SUN_Z / sun_len];
+    // Baseline lighting for flat ground (normal = (0, 0, 1)) — the
+    // amount we treat as "neutral, no darkening". Anything brighter than
+    // this we clamp back to this (we never BRIGHTEN the pixel-art atlas,
+    // only darken relative to it).
+    let flat_lit = AMBIENT + (0.0 * sun[0] + 0.0 * sun[1] + 1.0 * sun[2]).max(0.0) * (1.0 - AMBIENT);
+
+    // ── 3. Per-pixel pass: compute a normal (heightmap-derived for
+    //      terrain slopes, plus a shoreline-bevel override for the last
+    //      5 px of land before water), evaluate Phong diffuse, and
+    //      output a darkness overlay.
     let pw = w * TILE_PX as usize;
     let ph = h * TILE_PX as usize;
     let mut data = Vec::with_capacity(pw * ph * 4);
     for py in 0..ph {
-        // Tile-space y
         let ty = py as f32 / TILE_PX;
         for px in 0..pw {
             let tx = px as f32 / TILE_PX;
 
-            // Bilinear sample of the blurred heightmap.
-            let h_center = sample_bilinear(&blurred, w, h, tx, ty);
-            // Gradient via central differences — sample neighbors a half-tile
-            // away, then normalize direction.
+            // ── Base normal from heightmap gradient ──
+            // Central differences on the blurred heightmap give uphill
+            // direction; normal = (-∂h/∂x, -∂h/∂y, z_scale), normalized.
             let hx1 = sample_bilinear(&blurred, w, h, tx - 0.5, ty);
             let hx2 = sample_bilinear(&blurred, w, h, tx + 0.5, ty);
             let hy1 = sample_bilinear(&blurred, w, h, tx, ty - 0.5);
             let hy2 = sample_bilinear(&blurred, w, h, tx, ty + 0.5);
-            let dx = hx2 - hx1; // points uphill in +x
+            let dx = hx2 - hx1;
             let dy = hy2 - hy1;
-            let _ = h_center; // unused; reserved for future "ambient" term
+            // z_scale makes the heightmap-driven tilt subtle — biome
+            // height deltas are small, a scale of 4 gives visible
+            // mountain shading without slamming the normal sideways.
+            let mut n = normalize3(-dx * 4.0, -dy * 4.0, 1.0);
 
-            // Lambertian dot. Normal ≈ (-dx, -dy, LIGHT_Z / slope_scale).
-            // We compare the slope vector against the sun XY to get how
-            // much the surface is turned away from / toward the sun.
-            // Positive = facing sun (bright), negative = away (dark).
-            let lit = -dx * SUN_X - dy * SUN_Y + LIGHT_Z;
-            // Shift so bright = 1, dark = 0.
-            let brightness = lit.clamp(0.0, 2.0) / 2.0;
+            // ── Shoreline bevel override ──
+            // If this pixel is land AND close to water, override the
+            // normal with a strong tilt toward the nearest water
+            // boundary, interpolated by distance. Produces the "rolling
+            // down into water" curve we want.
+            let near = nearest_water_boundary(world, px as f32, py as f32);
+            if let Some(hit) = near {
+                if hit.dist_px > 0.0 && hit.dist_px < SHORELINE_BEVEL_WIDTH_PX {
+                    // t: 0 at bevel's inland end, 1 at water edge.
+                    let t = 1.0 - hit.dist_px / SHORELINE_BEVEL_WIDTH_PX;
+                    // Tilt: at t=0 flat (0,0,1), at t=1 heavily tilted
+                    // toward water by SHORELINE_TILT.
+                    let tilt = SHORELINE_TILT * t;
+                    let horiz_len = tilt;
+                    let vert = (1.0 - tilt * tilt).max(0.0).sqrt();
+                    // In Bevy's world space, Y flips — use image-space
+                    // direction directly (water_dir was computed in
+                    // image pixel coords; y+ = down on screen).
+                    n = normalize3(
+                        hit.dir_x * horiz_len,
+                        hit.dir_y * horiz_len,
+                        vert,
+                    );
+                }
+            }
 
-            // Darkness overlay: alpha increases where brightness is low.
-            // 1.0 - brightness, then clamp + quantize.
-            let mut shade = (1.0 - brightness).clamp(0.0, 1.0);
+            // ── Phong diffuse ──
+            let n_dot_l = (n[0] * sun[0] + n[1] * sun[1] + n[2] * sun[2]).max(0.0);
+            let lit = AMBIENT + n_dot_l * (1.0 - AMBIENT);
+            // Only darken — never brighten past flat ground. Keeps the
+            // pixel-art atlas readable instead of washing it out.
+            let mut shade = (flat_lit - lit).max(0.0);
             shade = (shade * QUANT_STEPS).floor() / QUANT_STEPS;
-            let slope_alpha = shade * MAX_ALPHA;
+            let alpha_f = shade * MAX_ALPHA;
+            let alpha = (alpha_f * 255.0).clamp(0.0, 255.0) as u8;
 
-            // Shoreline bevel: cosine-falloff darkening on land pixels
-            // within SHORELINE_BEVEL_WIDTH_PX of a water tile's edge.
-            // Euclidean pixel distance — returns 0 for water itself,
-            // positive for land. So the effect only shows on land.
-            let d_px = pixel_distance_to_water_boundary(world, px as f32, py as f32);
-            let bevel = if d_px > 0.0 && d_px < SHORELINE_BEVEL_WIDTH_PX {
-                let t = d_px / SHORELINE_BEVEL_WIDTH_PX; // 0..=1
-                0.5 * (1.0 + (t * std::f32::consts::PI).cos()) // 1 at edge → 0 inland
-            } else {
-                0.0
-            };
-            let bevel_alpha = bevel * SHORELINE_BEVEL_STRENGTH;
-
-            // Combine: take the stronger of the two darkenings rather
-            // than adding (would stack too heavily near water under
-            // sun-away slopes).
-            let alpha_f = slope_alpha.max(bevel_alpha);
-            let alpha = (alpha_f * 255.0) as u8;
-
-            // RGB = black; alpha modulated. A warmer tint could be picked
-            // if we want sunlit side to feel golden, but keep it simple
-            // as a darkness pass for now.
             data.push(0);
             data.push(0);
             data.push(8);
@@ -209,26 +225,31 @@ fn biome_height(world: &WorldGrid, x: usize, y: usize) -> f32 {
     }
 }
 
-/// Euclidean pixel distance from a land pixel `(px, py)` to the nearest
-/// water-tile boundary. Returns 0 for pixels whose own tile is water
-/// (so bevel never applies on water). Returns `f32::INFINITY` for land
-/// pixels whose tile has no water neighbor in 8-connectivity — those
-/// are too far from shore to matter.
-fn pixel_distance_to_water_boundary(world: &WorldGrid, px: f32, py: f32) -> f32 {
+/// Result of looking for the closest water-tile boundary from a given
+/// land pixel. Returns both distance and a unit vector pointing from
+/// the pixel toward that boundary — the shoreline bevel needs the
+/// direction to tilt the normal.
+struct WaterHit {
+    dist_px: f32,
+    dir_x: f32,
+    dir_y: f32,
+}
+
+/// Nearest water-tile boundary from a pixel position. Returns `None` if
+/// the own tile is water (no bevel), or if no water tile lies within
+/// 8-neighbor range (too far from shore — no bevel needed anyway).
+fn nearest_water_boundary(world: &WorldGrid, px: f32, py: f32) -> Option<WaterHit> {
     use questlib::mapgen::Biome::*;
     let tile_x = (px / TILE_PX).floor() as i32;
     let tile_y = (py / TILE_PX).floor() as i32;
     if tile_x < 0 || tile_y < 0 || tile_x >= WORLD_W as i32 || tile_y >= WORLD_H as i32 {
-        return f32::INFINITY;
+        return None;
     }
-    let own_biome = world.map.biome_at(tile_x as usize, tile_y as usize);
-    if matches!(own_biome, Water | DeepWater) { return 0.0; }
+    if matches!(world.map.biome_at(tile_x as usize, tile_y as usize), Water | DeepWater) {
+        return None;
+    }
 
-    // For each of our 8 neighbor tiles that's water, compute the
-    // distance from this pixel to the nearest point on that neighbor
-    // tile's rectangle. The minimum across all water neighbors is the
-    // pixel's distance to the nearest water boundary.
-    let mut min_d = f32::INFINITY;
+    let mut best: Option<WaterHit> = None;
     for ny in -1i32..=1 {
         for nx in -1i32..=1 {
             if nx == 0 && ny == 0 { continue; }
@@ -238,21 +259,29 @@ fn pixel_distance_to_water_boundary(world: &WorldGrid, px: f32, py: f32) -> f32 
             if !matches!(world.map.biome_at(bx as usize, by as usize), Water | DeepWater) {
                 continue;
             }
-            // Neighbor tile occupies rect [bx*TILE_PX, (bx+1)*TILE_PX] × same for y.
+            // Closest point on that neighbor tile's rectangle.
             let n_left   = bx as f32 * TILE_PX;
             let n_right  = n_left + TILE_PX;
             let n_top    = by as f32 * TILE_PX;
             let n_bottom = n_top  + TILE_PX;
-            // Closest point on the rectangle to (px, py):
             let cx = px.clamp(n_left, n_right);
             let cy = py.clamp(n_top,  n_bottom);
-            let dx = px - cx;
-            let dy = py - cy;
+            let dx = cx - px; // from pixel → boundary
+            let dy = cy - py;
             let d = (dx * dx + dy * dy).sqrt();
-            if d < min_d { min_d = d; }
+            let better = best.as_ref().map_or(true, |b| d < b.dist_px);
+            if better {
+                let (ux, uy) = if d > 1e-6 { (dx / d, dy / d) } else { (0.0, 0.0) };
+                best = Some(WaterHit { dist_px: d, dir_x: ux, dir_y: uy });
+            }
         }
     }
-    min_d
+    best
+}
+
+fn normalize3(x: f32, y: f32, z: f32) -> [f32; 3] {
+    let len = (x * x + y * y + z * z).sqrt().max(1e-6);
+    [x / len, y / len, z / len]
 }
 
 fn box_blur_3x3(input: &[f32], w: usize, h: usize) -> Vec<f32> {
