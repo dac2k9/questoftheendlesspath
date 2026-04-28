@@ -54,6 +54,7 @@ pub fn start() {
         .add_plugins(terrain::terrain_lighting::TerrainLightingPlugin)
         .add_plugins(terrain::night_lights::NightLightsPlugin)
         .add_plugins(terrain::procedural_ground::ProceduralGroundPlugin)
+        .add_plugins(terrain::fog_shader::FogShaderPlugin)
         .add_plugins(daynight::DayNightPlugin)
         .add_plugins(supabase::SupabasePlugin)
         .add_plugins(hud::HudPlugin)

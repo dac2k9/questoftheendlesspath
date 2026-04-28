@@ -1,3 +1,4 @@
+pub mod fog_shader;
 pub mod interior;
 pub mod lighting;
 pub mod night_lights;

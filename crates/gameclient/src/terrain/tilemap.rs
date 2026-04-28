@@ -460,18 +460,34 @@ fn blit_tile_alpha(dst: &mut [u8], dst_w: usize, dx: usize, dy: usize, src: &[u8
     }}
 }
 
-fn create_fog_texture(fog: &FogOfWar, debug: &DebugOptions) -> Image {
-    let w = WORLD_W * 16; let h = WORLD_H * 16;
-    let mut pixels = vec![0u8; w * h * 4];
-    for ty in 0..WORLD_H { for tx in 0..WORLD_W {
+/// Build the per-tile fog mask: 100×80 R8, one byte per tile
+/// (0 = fogged, 255 = revealed). Sampled with linear filter on the
+/// GPU so the boundary between fogged and revealed becomes a soft
+/// half-tile fade on each side instead of a hard pixel edge.
+fn create_fog_mask(fog: &FogOfWar, debug: &DebugOptions) -> Image {
+    let w = WORLD_W;
+    let h = WORLD_H;
+    let mut data = vec![0u8; w * h];
+    for ty in 0..h { for tx in 0..w {
         let revealed = debug.fog_disabled || fog.is_revealed(tx, ty);
-        let (r, g, b, a) = if revealed { (0, 0, 0, 0) } else { (15, 15, 25, 255) };
-        for py in 0..16 { for px in 0..16 {
-            let idx = ((ty * 16 + py) * w + (tx * 16 + px)) * 4;
-            pixels[idx] = r; pixels[idx+1] = g; pixels[idx+2] = b; pixels[idx+3] = a;
-        }}
+        data[ty * w + tx] = if revealed { 255 } else { 0 };
     }}
-    Image::new(Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 }, TextureDimension::D2, pixels, TextureFormat::Rgba8UnormSrgb, default())
+    let mut img = Image::new(
+        Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        data,
+        TextureFormat::R8Unorm,
+        bevy::render::render_asset::RenderAssetUsages::all(),
+    );
+    use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
+    img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::ClampToEdge,
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        ..Default::default()
+    });
+    img
 }
 
 // ── Spawn World ───────────────────────────────────────
@@ -482,6 +498,8 @@ fn spawn_world(
     asset_server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
     mut atlases: ResMut<Assets<TextureAtlasLayout>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials_fog: ResMut<Assets<super::fog_shader::FogMaterial>>,
     session: Res<GameSession>,
 ) {
     let world = WorldGrid::from_seed(12345);
@@ -509,9 +527,33 @@ fn spawn_world(
 
     let fog = FogOfWar::new();
     let debug = DebugOptions::default();
-    let fog_img = create_fog_texture(&fog, &debug);
-    let fog_handle = images.add(fog_img);
-    commands.spawn((Sprite { image: fog_handle, ..default() }, Transform::from_xyz(map_cx, map_cy, 2.0), Visibility::Hidden, FogSprite));
+    let fog_mask_handle = images.add(create_fog_mask(&fog, &debug));
+    // Spawning fog as Mesh2d + FogMaterial replaces the 1600×1280
+    // baked-pixel sprite with a tiny 100×80 mask sampled by the GPU
+    // with linear filter — soft half-tile fade at every
+    // revealed/unrevealed boundary.
+    let w_world = WORLD_W as f32 * TILE_PX;
+    let h_world = WORLD_H as f32 * TILE_PX;
+    let fog_mesh = meshes.add(Rectangle::new(w_world, h_world));
+    let fog_material = materials_fog.add(super::fog_shader::FogMaterial {
+        params: super::fog_shader::FogParams {
+            color: Vec4::new(15.0 / 255.0, 15.0 / 255.0, 25.0 / 255.0, 1.0),
+        },
+        mask: fog_mask_handle,
+    });
+    commands.spawn((
+        Mesh2d(fog_mesh),
+        MeshMaterial2d(fog_material),
+        Transform::from_xyz(map_cx, map_cy, 2.0),
+        // Visible from spawn so the all-fogged initial mask covers the
+        // procedural ground / water shader / etc. (which are Visible by
+        // default and would otherwise leak the world during the brief
+        // pre-init window). MapSprite is still Hidden → Visible at init,
+        // but it renders below the fog anyway. Interior entry/exit still
+        // toggles this via interior.rs.
+        Visibility::Visible,
+        FogSprite,
+    ));
 
     // Spawn chest sprites (above map, below fog)
     {
@@ -1184,22 +1226,22 @@ fn toggle_poi_labels(keys: Res<ButtonInput<KeyCode>>, mut labels: Query<&mut Vis
 fn update_fog_texture(
     mut fog: ResMut<FogOfWar>,
     debug: Res<DebugOptions>,
-    fog_q: Query<&Sprite, With<FogSprite>>,
+    fog_q: Query<&MeshMaterial2d<super::fog_shader::FogMaterial>, With<FogSprite>>,
+    mut materials: ResMut<Assets<super::fog_shader::FogMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     if !fog.dirty { return; }
     fog.dirty = false;
-    let Ok(sprite) = fog_q.get_single() else { return };
-    let Some(image) = images.get_mut(sprite.image.id()) else { return };
-    let w = WORLD_W * 16;
-    for ty in 0..WORLD_H { for tx in 0..WORLD_W {
-        let revealed = debug.fog_disabled || fog.is_revealed(tx, ty);
-        let (r, g, b, a) = if revealed { (0, 0, 0, 0) } else { (15, 15, 25, 255) };
-        for py in 0..16 { for px in 0..16 {
-            let idx = ((ty * 16 + py) * w + (tx * 16 + px)) * 4;
-            image.data[idx] = r; image.data[idx+1] = g; image.data[idx+2] = b; image.data[idx+3] = a;
-        }}
-    }}
+    let Ok(mat_handle) = fog_q.get_single() else { return };
+    // Replace the mask image entirely. In-place mutation of R8 image
+    // data via Assets::get_mut wasn't reliably re-uploading to the
+    // GPU (the material bind group cached the previous texture);
+    // swapping the handle forces a rebind. Old image gets dropped
+    // by Handle ref counting.
+    let new_mask = images.add(create_fog_mask(&fog, &debug));
+    if let Some(mat) = materials.get_mut(&mat_handle.0) {
+        mat.mask = new_mask;
+    }
 }
 
 fn update_camera(
