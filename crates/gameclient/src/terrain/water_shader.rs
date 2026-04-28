@@ -170,10 +170,12 @@ fn toggle_and_manage(
     commands.spawn((
         Mesh2d(mesh_handle),
         MeshMaterial2d(material),
-        // z=0.15 puts it above ground (0) and the lighting overlay
-        // (0.3 — actually below lighting so lighting can darken it;
-        // let me put it at 0.35 so it appears on top of darkness).
-        Transform::from_xyz(cx, cy, 0.35),
+        // z=0.99 sits above the procedural ground mesh (which can
+        // push vertex z up toward 0.95 with the live tile_z_factor
+        // knob) and just below the lighting overlay at 1.0. Was 0.35
+        // originally; bumped so snow / water shimmer don't get
+        // occluded by raised mountain-quad geometry.
+        Transform::from_xyz(cx, cy, 0.99),
         WaterShaderSprite,
     ));
 }

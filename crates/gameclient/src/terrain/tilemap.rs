@@ -317,10 +317,15 @@ pub struct DebugOptions {
     /// height for what PageUp/PageDown does now.)
     pub terrain_height_amp: f32,
     /// Effective "height" of the fog wall in world pixels — drives the
-    /// length of fog shadows in the fog of war shader. PageUp/PageDown
-    /// tune live. 16 = 1 tile (subtle, default), 96 = 6 tiles (tall
-    /// foreboding wall).
+    /// length of fog shadows in the fog of war shader. Static (16 = 1
+    /// tile); was previously tuned via PgUp/PgDn but those keys now
+    /// drive `tile_z_factor` instead.
     pub fog_shadow_height_px: f32,
+    /// Multiplier on per-vertex tile Z in the procedural ground mesh
+    /// (PgUp/PgDn). 0.0 = flat. Each vertex's Z = max-neighbor biome
+    /// height (0..1) × this factor. Pure 2D ortho only sees this as
+    /// depth-order changes; meaningful when the camera tilts.
+    pub tile_z_factor: f32,
     /// When true, swap the baked tile atlas for a Material2d shader
     /// that bilinearly blends per-biome flat colors at every tile
     /// boundary — no hand-crafted transition tiles. F4 toggles.
@@ -352,6 +357,7 @@ impl Default for DebugOptions {
             // read more strongly out of the box.
             terrain_height_amp: 80.0,
             fog_shadow_height_px: 16.0,
+            tile_z_factor: 0.5,
             procedural_terrain_enabled: true,
             procedural_test_mode: false,
         }
@@ -1526,7 +1532,7 @@ fn handle_debug_menu(
     for e in &existing { commands.entity(e).despawn_recursive(); }
     let fps = (1.0 / time.delta_secs()).round() as u32;
     let text = format!(
-        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF4: Procedural ground [{}]\nF6: Lighting [{}]\nF7: Water shader [{}]\nF8: Debug sun [{}] ({:.1}, {:.1}, {:.1})\nF9: Show normals (water + shoreline bevel) [{}]\nF10: Show heightmap [{}]\nPgUp/PgDn: Fog shadow height [{:.0} px = {:.1} tiles]",
+        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF4: Procedural ground [{}]\nF6: Lighting [{}]\nF7: Water shader [{}]\nF8: Debug sun [{}] ({:.1}, {:.1}, {:.1})\nF9: Show normals (water + shoreline bevel) [{}]\nF10: Show heightmap [{}]\nPgUp/PgDn: Tile Z factor [{:.2}]",
         fps,
         if debug.fog_disabled { "OFF" } else { "ON" },
         if debug.show_pois { "ON" } else { "OFF" },
@@ -1537,8 +1543,7 @@ fn handle_debug_menu(
         debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z,
         if debug.debug_show_normals { "ON" } else { "OFF" },
         if debug.debug_show_heightmap { "ON" } else { "OFF" },
-        debug.fog_shadow_height_px,
-        debug.fog_shadow_height_px / TILE_PX,
+        debug.tile_z_factor,
     );
     commands.spawn((Text::new(text), TextFont { font: font.0.clone(), font_size: 10.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 0.0)), Node { position_type: PositionType::Absolute, top: Val::Px(10.0), left: Val::Px(10.0), ..default() }, DebugMenuUi));
 }

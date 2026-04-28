@@ -25,6 +25,22 @@ struct GroundParams {
     // and renders biome IDs directly via biome_color() so each
     // pattern in the F5 test layout is visually unambiguous.
     test_mode: f32,
+    // xyz = sun world px (z = sun height), w unused.
+    sun_pos: vec4<f32>,
+    // xyz = warm/cool sky tint applied to sun-facing slopes.
+    sun_tint: vec4<f32>,
+    // 1.0 → run the in-shader Phong pass. F6 toggles via the client.
+    lighting_enabled: f32,
+    // Multiplier on the heightmap gradient when deriving the normal.
+    // Linked to tile_z_factor (PgUp/PgDn) so the lighting strength
+    // scales with the same knob that lifts polygon Z.
+    height_amp: f32,
+    ambient: f32,
+    max_alpha: f32,
+    show_normals: f32,
+    show_heightmap: f32,
+    _pad0: f32,
+    _pad1: f32,
 };
 
 @group(2) @binding(0) var<uniform> params: GroundParams;
@@ -34,6 +50,85 @@ struct GroundParams {
 @group(2) @binding(4) var ground_sampler: sampler;
 @group(2) @binding(5) var overlays_tex: texture_2d<f32>;
 @group(2) @binding(6) var overlays_sampler: sampler;
+@group(2) @binding(7) var height_tex: texture_2d<f32>;
+@group(2) @binding(8) var height_sampler: sampler;
+@group(2) @binding(9) var water_dist_tex: texture_2d<f32>;
+@group(2) @binding(10) var water_dist_sampler: sampler;
+
+const SHORELINE_BEVEL_WIDTH_PX: f32 = 8.0;
+const SHORELINE_MAX_ANGLE: f32 = 1.20;
+
+fn compute_normal(uv: vec2<f32>) -> vec3<f32> {
+    let step = vec2<f32>(1.0 / 100.0, 1.0 / 80.0);
+    let hl = textureSample(height_tex, height_sampler, uv - vec2<f32>(step.x, 0.0)).r;
+    let hr = textureSample(height_tex, height_sampler, uv + vec2<f32>(step.x, 0.0)).r;
+    let hd = textureSample(height_tex, height_sampler, uv - vec2<f32>(0.0, step.y)).r;
+    let hu = textureSample(height_tex, height_sampler, uv + vec2<f32>(0.0, step.y)).r;
+    let dx = hr - hl;
+    let dy = hu - hd;
+    return normalize(vec3<f32>(-dx * params.height_amp, -dy * params.height_amp, 1.0));
+}
+
+fn sample_water_dist_px(uv: vec2<f32>) -> f32 {
+    return textureSample(water_dist_tex, water_dist_sampler, uv).r * 255.0;
+}
+
+fn apply_shoreline_bevel(uv: vec2<f32>, base: vec3<f32>) -> vec3<f32> {
+    let d_here = sample_water_dist_px(uv);
+    if (d_here <= 0.0 || d_here >= SHORELINE_BEVEL_WIDTH_PX) {
+        return base;
+    }
+    let world_px = vec2<f32>(params.world_w * params.tile_px, params.world_h * params.tile_px);
+    let step = vec2<f32>(1.0 / world_px.x, 1.0 / world_px.y);
+    let dl = sample_water_dist_px(uv - vec2<f32>(step.x, 0.0));
+    let dr = sample_water_dist_px(uv + vec2<f32>(step.x, 0.0));
+    let du = sample_water_dist_px(uv - vec2<f32>(0.0, step.y));
+    let dd = sample_water_dist_px(uv + vec2<f32>(0.0, step.y));
+    let grad_uv = vec2<f32>(dr - dl, dd - du);
+    let len = length(grad_uv);
+    if (len < 1e-5) { return base; }
+    let to_water_uv = -grad_uv / len;
+    let to_water_world = vec2<f32>(to_water_uv.x, -to_water_uv.y);
+    let t_lin = 1.0 - d_here / SHORELINE_BEVEL_WIDTH_PX;
+    let t = t_lin * t_lin;
+    let theta = SHORELINE_MAX_ANGLE * t;
+    let v2 = vec3<f32>(to_water_world.x, to_water_world.y, 0.0);
+    let perp = v2 - dot(base, v2) * base;
+    let perp_len = length(perp);
+    if (perp_len < 1e-5) { return base; }
+    let perp_n = perp / perp_len;
+    return normalize(base * cos(theta) + perp_n * sin(theta));
+}
+
+// Apply Phong shading to the base biome color. Same math the old
+// terrain_lighting overlay used: heightmap-derived normal, shoreline
+// bevel, n·l with sky-tint highlight on bright slopes and a dark
+// alpha on shaded slopes. Output is the modulated rgb.
+fn apply_lighting(base_rgb: vec3<f32>, uv: vec2<f32>, world_pos: vec2<f32>) -> vec3<f32> {
+    if (params.lighting_enabled < 0.5 || params.height_amp < 0.0001) {
+        return base_rgb;
+    }
+    var n = compute_normal(uv);
+    n = apply_shoreline_bevel(uv, n);
+    let to_sun = vec3<f32>(
+        params.sun_pos.x - world_pos.x,
+        params.sun_pos.y - world_pos.y,
+        params.sun_pos.z,
+    );
+    let sun = normalize(to_sun);
+    let n_dot_l = max(0.0, dot(n, sun));
+    let lit = params.ambient + n_dot_l * (1.0 - params.ambient);
+    let flat_dot = max(0.0, sun.z);
+    let flat_lit = params.ambient + flat_dot * (1.0 - params.ambient);
+    let shade = max(0.0, flat_lit - lit);
+    let bright = max(0.0, lit - flat_lit);
+    if (shade >= bright) {
+        let alpha = shade * params.max_alpha;
+        return mix(base_rgb, vec3<f32>(0.0, 0.0, 0.02), alpha);
+    }
+    let alpha = bright * params.max_alpha * 0.6;
+    return mix(base_rgb, params.sun_tint.rgb, alpha);
+}
 
 fn sample_biome_id(tx: f32, ty: f32) -> i32 {
     let cx = clamp(tx, 0.0, params.world_w - 1.0);
@@ -185,6 +280,18 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         sample_uv = mesh.uv + vec2<f32>(nx / params.world_w, ny / params.world_h);
     }
 
+    // F10 debug: heightmap as grayscale. Wins over everything else.
+    if (params.show_heightmap > 0.5) {
+        let h = textureSample(height_tex, height_sampler, mesh.uv).r;
+        return vec4<f32>(h, h, h, 1.0);
+    }
+    // F9 debug: per-pixel normal as RGB.
+    if (params.show_normals > 0.5) {
+        var n = compute_normal(mesh.uv);
+        n = apply_shoreline_bevel(mesh.uv, n);
+        return vec4<f32>(n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5, 1.0);
+    }
+
     if (params.test_mode > 0.5) {
         // F5 test-grid mode: render the biome at the (potentially
         // shifted) sample position as a flat color. Sample the biome
@@ -199,5 +306,6 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let ground = textureSample(ground_tex, ground_sampler, sample_uv);
     let ov = textureSample(overlays_tex, overlays_sampler, mesh.uv);
     let rgb = ground.rgb * (1.0 - ov.a) + ov.rgb * ov.a;
-    return vec4<f32>(rgb, 1.0);
+    let lit = apply_lighting(rgb, mesh.uv, mesh.world_position.xy);
+    return vec4<f32>(lit, 1.0);
 }

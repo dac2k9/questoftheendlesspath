@@ -121,6 +121,13 @@ pub struct MusicState {
     pub master_volume: f32,
     /// Show volume indicator timer (fades out).
     volume_display_timer: f32,
+    /// Last sampled `audio.currentTime` of the active channel. Used to
+    /// detect a track wrapping back to the start (currentTime suddenly
+    /// drops) so we can force a reroll the moment a loop completes —
+    /// otherwise long tracks could play indefinitely between the
+    /// time-based 45 s rerolls and feel like "the same one over and
+    /// over". Reset to 0 when channels swap.
+    last_audio_time: f64,
 }
 
 impl Default for MusicState {
@@ -140,6 +147,7 @@ impl Default for MusicState {
             user_activated: false,
             master_volume: 0.35,
             volume_display_timer: 0.0,
+            last_audio_time: 0.0,
         }
     }
 }
@@ -203,22 +211,44 @@ fn update_music(
     let dt = time.delta_secs();
     music.switch_cooldown = (music.switch_cooldown - dt).max(0.0);
 
+    // Detect a natural loop end: while NOT crossfading, the active
+    // channel's `currentTime` ticks forward; when the audio loops it
+    // jumps back to ~0. That drop is the cleanest signal that the
+    // track has played through once. Bump `context_elapsed` past the
+    // reroll threshold so the picker swaps to a different track this
+    // frame — much more reliable variety than purely time-based.
+    if !music.fading {
+        let active_audio = if music.active_is_a { &music.channel_a } else { &music.channel_b };
+        if let Some(audio) = active_audio {
+            let now = audio.current_time();
+            // Require >5 s elapsed before treating a drop as a loop —
+            // protects against startup jitter and the moment after a
+            // switch where current_time is genuinely small.
+            if music.last_audio_time > 5.0 && now < music.last_audio_time - 1.0 {
+                music.context_elapsed = 999.0;
+            }
+            music.last_audio_time = now;
+        }
+    }
+
     // Determine desired context
     let desired_context = determine_context(&state, &player, &world, &combat);
     let speed = player.as_ref().map(|p| p.speed_kmh).unwrap_or(0.0);
 
     // Track how long we've been in this context; force a re-roll every
-    // 3 min so long walks in one biome actually cycle through their
-    // available tracks.
-    const CONTEXT_REROLL_SECONDS: f32 = 90.0;
+    // 45 s so long walks in one biome actually cycle through their
+    // available tracks. Sub-track length on purpose — most loops are
+    // 60–90 s, so a reroll fires *before* you hear the track wrap
+    // around and feel like it's "playing over and over".
+    const CONTEXT_REROLL_SECONDS: f32 = 45.0;
     if desired_context == music.current_context {
         music.context_elapsed += dt;
     } else {
         music.context_elapsed = 0.0;
     }
     // Don't reset context_elapsed here — if the switch below is blocked
-    // by switch_cooldown, we'd waste the reroll and wait another 180 s.
-    // Reset it only inside the branch that actually changes tracks.
+    // by switch_cooldown, we'd waste the reroll and wait another full
+    // window. Reset only inside the branch that actually changes tracks.
     let force_reroll = music.context_elapsed >= CONTEXT_REROLL_SECONDS;
 
     // Find best track for this context + speed. Always pass current
@@ -258,8 +288,13 @@ fn update_music(
                 music.switch_cooldown = SWITCH_COOLDOWN;
                 // Reset the variety timer only on an actual switch —
                 // otherwise a blocked reroll (cooldown or same-track
-                // re-pick) throws away the 3-minute window.
+                // re-pick) throws away the window.
                 music.context_elapsed = 0.0;
+                // Reset loop-detection — the new active channel starts
+                // near 0; without this the next tick would compare
+                // against the OLD channel's position and falsely
+                // trigger another reroll.
+                music.last_audio_time = 0.0;
             }
         } else {
             // Fade to silence
@@ -295,6 +330,9 @@ fn update_music(
             // Crossfade complete — swap channels
             music.fading = false;
             music.active_is_a = !music.active_is_a;
+            // Reset loop-detection baseline to whatever the now-active
+            // channel is sitting at (≈ FADE_DURATION worth of seconds).
+            music.last_audio_time = 0.0;
 
             // Stop the old channel
             if music.active_is_a {

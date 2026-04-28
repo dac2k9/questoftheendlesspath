@@ -154,7 +154,12 @@ fn toggle_and_manage(
     commands.spawn((
         Mesh2d(mesh_handle),
         MeshMaterial2d(material),
-        Transform::from_xyz(cx, cy, 0.3),
+        // z=1.0 sits above the ground mesh (which can push vertex z
+        // up to 0.95 with the live tile_z_factor knob) but below
+        // sprite layers (player/POIs at 1.5+). Was 0.3 originally;
+        // bumped so the slope-shading overlay isn't occluded by
+        // raised mountain quads.
+        Transform::from_xyz(cx, cy, 1.0),
         TerrainLightingSprite,
     ));
 }

@@ -26,20 +26,12 @@ use bevy::sprite::{AlphaMode2d, Material2d, Material2dPlugin};
 use crate::states::AppState;
 use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_H, WORLD_W};
 
-/// Vertex Y lift, in screen pixels, for a height-1.0 tile (Mountain).
-/// Lower-height biomes are lifted proportionally; water sits at 0.
-/// Currently 0 — the tile-grid mesh ships flat. The infrastructure
-/// (per-corner height, sprite-side `tile_lift` lookup) is in place for
-/// when we do want to revisit; bumping this to 2–6 brings the lift
-/// back without any other code changes.
-pub const LIFT_PX: f32 = 0.0;
-
-/// Visual lift in world pixels for a tile-anchored sprite (player,
-/// POI, chest, monster). Equals the ground-mesh's center-of-tile
-/// surface height so sprites sit on the lifted ground instead of
-/// the unlifted reference plane.
-pub fn tile_lift(world: &WorldGrid, x: usize, y: usize) -> f32 {
-    biome_height_factor(world, x, y) * LIFT_PX
+/// Returns 0 — sprites no longer offset their world Y. Kept as a
+/// stable callable so the existing call sites in tilemap.rs don't
+/// need a code change when we toggle Y-lift back on later (just
+/// change this body to return `biome_height_factor * LIFT_PX`).
+pub fn tile_lift(_world: &WorldGrid, _x: usize, _y: usize) -> f32 {
+    0.0
 }
 
 pub struct ProceduralGroundPlugin;
@@ -50,19 +42,38 @@ impl Plugin for ProceduralGroundPlugin {
             .init_resource::<ProceduralGroundState>()
             .add_systems(
                 Update,
-                (toggle_key, toggle_and_manage)
+                (toggle_key, tune_tile_z, toggle_and_manage, update_lighting)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
     }
 }
 
-/// Tracks the test-mode flag at the time of last spawn so we can
-/// detect a change (F5 press) and force despawn → respawn with new
-/// biome data.
+/// Tracks the test-mode flag and the live PgUp/PgDn-tunable Z factor
+/// at the time of last spawn so we can detect changes (F5 press,
+/// PgUp/PgDn keypress) and despawn → respawn with new mesh data.
 #[derive(Resource, Default)]
 struct ProceduralGroundState {
     spawned_test_mode: bool,
+    spawned_z_factor: f32,
+}
+
+/// PageUp / PageDown adjust the tile-Z factor live by 0.05 per press,
+/// clamped to [0, 5]. The factor multiplies each vertex's biome
+/// height-factor (0..1) to set its Z position in world units. In a
+/// pure 2D ortho view this only affects depth ordering vs other
+/// layers; it becomes visually meaningful once we go to a tilted /
+/// 3D camera.
+fn tune_tile_z(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut debug: ResMut<super::tilemap::DebugOptions>,
+) {
+    if keys.just_pressed(KeyCode::PageUp) {
+        debug.tile_z_factor = (debug.tile_z_factor + 0.05).min(5.0);
+    }
+    if keys.just_pressed(KeyCode::PageDown) {
+        debug.tile_z_factor = (debug.tile_z_factor - 0.05).max(0.0);
+    }
 }
 
 /// The world tilemap baked WITHOUT overlay sprites (no trees, rocks,
@@ -92,6 +103,16 @@ pub struct GroundMaterial {
     #[texture(5)]
     #[sampler(6)]
     pub overlays_tex: Handle<Image>,
+    /// 100×80 R8 blurred heightmap. Sampled per-fragment by the Phong
+    /// pass to derive per-pixel normals.
+    #[texture(7)]
+    #[sampler(8)]
+    pub heightmap: Handle<Image>,
+    /// 1600×1280 R8 distance-to-water field, used for the shoreline
+    /// bevel.
+    #[texture(9)]
+    #[sampler(10)]
+    pub water_dist: Handle<Image>,
 }
 
 #[derive(bevy::render::render_resource::ShaderType, Clone, Copy, Debug, Default)]
@@ -103,6 +124,28 @@ pub struct GroundParams {
     /// gets a fixed color; baked map sampling is bypassed). 0.0 →
     /// normal rendering using the actual tilemap content.
     pub test_mode: f32,
+    /// xy = sun world px, z = sun height in world px, w unused.
+    pub sun_pos: Vec4,
+    /// xyz = sun-side highlight tint (warm at noon, amber at dusk,
+    /// cool blue at midnight). w unused.
+    pub sun_tint: Vec4,
+    /// 1.0 → run the Phong pass; 0.0 → output bare biome colors.
+    /// Driven by `debug.lighting_enabled` (F6).
+    pub lighting_enabled: f32,
+    /// Multiplier on the heightmap gradient → normal. Linked to
+    /// `tile_z_factor` so PgUp/PgDn drives both polygon Z and shading
+    /// strength from one knob.
+    pub height_amp: f32,
+    /// Phong ambient floor — darkest in-shade pixel never goes below.
+    pub ambient: f32,
+    /// Peak alpha applied on the dark side; highlights use ~0.6× this.
+    pub max_alpha: f32,
+    /// 1.0 → render the per-pixel normal as RGB (F9 debug).
+    pub show_normals: f32,
+    /// 1.0 → render the raw heightmap as grayscale (F10 debug).
+    pub show_heightmap: f32,
+    pub _pad0: f32,
+    pub _pad1: f32,
 }
 
 impl Material2d for GroundMaterial {
@@ -144,10 +187,12 @@ fn toggle_and_manage(
     let want = debug.procedural_terrain_enabled;
     let has = !existing.is_empty();
     let test_mode_changed = has && state.spawned_test_mode != debug.procedural_test_mode;
+    let z_factor_changed = has
+        && (state.spawned_z_factor - debug.tile_z_factor).abs() > 1e-4;
 
-    // If F5 was pressed while procedural is on, despawn so we re-spawn
-    // with the new biome texture (test grid vs world).
-    if test_mode_changed {
+    // F5 (test mode) or PgUp/PgDn (z factor) changes mean the mesh
+    // needs to be rebuilt — despawn so the next pass spawns fresh.
+    if test_mode_changed || z_factor_changed {
         for e in &existing {
             commands.entity(e).despawn_recursive();
         }
@@ -171,29 +216,48 @@ fn toggle_and_manage(
     } else {
         generate_biome_texture(&world)
     });
+    // Heightmap + water-distance for the in-shader Phong pass — same
+    // bakes that the (now retired) terrain_lighting.rs overlay used.
+    let heightmap = images.add(generate_heightmap(&world));
+    let water_dist = images.add(generate_water_distance(&world));
     let material = materials.add(GroundMaterial {
         params: GroundParams {
             world_w: WORLD_W as f32,
             world_h: WORLD_H as f32,
             tile_px: TILE_PX,
             test_mode: if debug.procedural_test_mode { 1.0 } else { 0.0 },
+            // Lighting fields filled in each frame by `update_lighting`;
+            // sane initial values so the first frame renders correctly.
+            sun_pos: Vec4::new(-10_000.0, -10_000.0, 8_000.0, 0.0),
+            sun_tint: Vec4::new(1.0, 0.95, 0.80, 0.0),
+            lighting_enabled: if debug.lighting_enabled { 1.0 } else { 0.0 },
+            height_amp: 0.0,
+            ambient: 0.30,
+            max_alpha: 0.45,
+            show_normals: 0.0,
+            show_heightmap: 0.0,
+            _pad0: 0.0,
+            _pad1: 0.0,
         },
         biome_tex,
         ground_tex: ground.0.clone(),
         overlays_tex: overlays.0.clone(),
+        heightmap,
+        water_dist,
     });
     state.spawned_test_mode = debug.procedural_test_mode;
+    state.spawned_z_factor = debug.tile_z_factor;
 
     // Build a 100×80 quad grid (16000 tris, 8181 vertices) instead of
-    // a single rectangle. Vertex Y is lifted by per-corner biome height
-    // so mountains pop visually upward — paired with the lighting
-    // overlay (which already implies height from the same biome table)
-    // this gives a subtle 3D feel without changing the camera.
+    // a single rectangle. Each vertex carries a Z derived from the
+    // max-of-4-neighbors biome height × the live tile_z_factor knob
+    // (PgUp/PgDn). In top-down ortho the Z only changes depth-order;
+    // it becomes visually meaningful when the camera tilts.
     //
-    // Test mode (F5) keeps a flat mesh so the autotile layout reads
-    // unambiguously without geometry getting in the way.
-    let lift = if debug.procedural_test_mode { 0.0 } else { LIFT_PX };
-    let mesh_handle = meshes.add(build_tile_mesh(&world, lift));
+    // Test mode (F5) zeroes the Z so the autotile layout reads
+    // unambiguously without depth ordering getting in the way.
+    let z_factor = if debug.procedural_test_mode { 0.0 } else { debug.tile_z_factor };
+    let mesh_handle = meshes.add(build_tile_mesh(&world, z_factor));
 
     commands.spawn((
         Mesh2d(mesh_handle),
@@ -223,14 +287,16 @@ fn biome_height_factor(world: &WorldGrid, x: usize, y: usize) -> f32 {
 }
 
 /// Build the world ground as a quad grid: (W+1)×(H+1) shared vertices,
-/// W×H quads, two triangles per quad. Each vertex's screen-y is
-/// lifted by `lift_px × max(neighbor_heights)` so a mountain corner
-/// pops up even when the adjacent quad is grass — gives clean
-/// silhouette edges instead of half-lifted slopes.
+/// W×H quads, two triangles per quad. Each vertex's Z = `z_factor ×
+/// max(neighbor_heights)` so taller biomes (mountain, snow, dense
+/// forest) sit higher on the implicit Z axis. In a top-down ortho
+/// camera this only reorders depth; once the camera tilts (or if a
+/// future shader reads vertex Z and offsets screen-y), the geometry
+/// reads as 3D relief.
 ///
 /// UVs run 0..1 across the world rectangle (matching the previous
 /// single-quad mesh) so the autotile fragment shader is unchanged.
-fn build_tile_mesh(world: &WorldGrid, lift_px: f32) -> Mesh {
+fn build_tile_mesh(world: &WorldGrid, z_factor: f32) -> Mesh {
     let w = WORLD_W;
     let h = WORLD_H;
     let nx = w + 1; // 101 vertices wide
@@ -249,25 +315,31 @@ fn build_tile_mesh(world: &WorldGrid, lift_px: f32) -> Mesh {
     let mut normals = Vec::with_capacity(nx * ny);
     for vy in 0..ny {
         for vx in 0..nx {
-            // Each interior vertex is shared by 4 tiles; pick the max
-            // height so a tall tile pulls its corner fully up.
-            let mut hmax = 0.0_f32;
+            // Each interior vertex is shared by up to 4 tiles. Sample
+            // the heightmap by averaging those neighbors so biome
+            // boundaries fade smoothly across the corner instead of
+            // letting a single tall neighbor pull the whole corner up.
+            // Edge-of-world vertices average over fewer samples, which
+            // is fine — those tiles are off-map anyway.
+            let mut h_sum = 0.0_f32;
+            let mut h_count = 0;
             for &dx in &[-1_i32, 0] {
                 for &dy in &[-1_i32, 0] {
                     let tx = vx as i32 + dx;
                     let ty = vy as i32 + dy;
                     if tx >= 0 && ty >= 0 && (tx as usize) < w && (ty as usize) < h {
-                        hmax = hmax.max(heights[(ty as usize) * w + (tx as usize)]);
+                        h_sum += heights[(ty as usize) * w + (tx as usize)];
+                        h_count += 1;
                     }
                 }
             }
+            let h_avg = if h_count > 0 { h_sum / (h_count as f32) } else { 0.0 };
             // Tile (tx, ty) has its CENTER at world (tx*TILE_PX, -ty*TILE_PX);
             // corner (vx, vy) sits at the half-tile offset that joins the
             // four surrounding tile centers.
             let world_x = (vx as f32) * TILE_PX - TILE_PX * 0.5;
             let world_y = -(vy as f32) * TILE_PX + TILE_PX * 0.5;
-            let lifted_y = world_y + hmax * lift_px;
-            positions.push([world_x, lifted_y, 0.0]);
+            positions.push([world_x, world_y, h_avg * z_factor]);
             uvs.push([(vx as f32) / (w as f32), (vy as f32) / (h as f32)]);
             normals.push([0.0, 0.0, 1.0]);
         }
@@ -485,6 +557,217 @@ fn generate_test_biome_texture() -> Image {
         address_mode_v: ImageAddressMode::ClampToEdge,
         mag_filter: ImageFilterMode::Nearest,
         min_filter: ImageFilterMode::Nearest,
+        ..Default::default()
+    });
+    img
+}
+
+// ── Lighting update + heightmap bakes ────────────────────────────────
+//
+// Phong is now baked into procedural_ground.wgsl directly so the
+// ground mesh shades itself from its own polygon-derived heightmap.
+// terrain_lighting.rs's separate overlay is no longer added to the
+// app — F6 still flips `debug.lighting_enabled`, which the in-shader
+// Phong pass reads via the `lighting_enabled` uniform.
+//
+// `tile_z_factor` (PgUp/PgDn) drives BOTH polygon Z displacement and
+// the lighting's gradient amplitude — a single knob for "how mountainy
+// does this look", and the slope shading scales 1:1 with the geometry.
+
+/// Push the live sun position, sky tint, and tunable knobs into the
+/// ground material every frame. F8 debug sun overrides the day/night
+/// cycle, same as the water shader.
+fn update_lighting(
+    debug: Res<super::tilemap::DebugOptions>,
+    cycle: Res<crate::daynight::DayNightCycle>,
+    q: Query<&MeshMaterial2d<GroundMaterial>>,
+    mut materials: ResMut<Assets<GroundMaterial>>,
+) {
+    let sun_pos = if debug.debug_sun_enabled {
+        Vec4::new(debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z, 0.0)
+    } else {
+        let w = WORLD_W as f32 * TILE_PX;
+        let h = WORLD_H as f32 * TILE_PX;
+        let center = Vec2::new(w / 2.0, -h / 2.0);
+        let p = cycle.light_pos(center);
+        Vec4::new(p.x, p.y, p.z, 0.0)
+    };
+    let tint = cycle.sky_tint();
+    let sun_tint = Vec4::new(tint.x, tint.y, tint.z, 0.0);
+    // Lighting amp is independent from `tile_z_factor` — the heightmap
+    // is sampled regardless of polygon Z displacement, so the world
+    // gets the same Phong shading whether or not the geometry is
+    // actually raised. (Linking them earlier meant `tile_z_factor = 0`
+    // killed all shading, which read as a regression.) PgUp/PgDn
+    // controls *only* polygon Z now; if you want to also crank the
+    // lighting amp, edit `terrain_height_amp` (default 80).
+    let height_amp = debug.terrain_height_amp;
+    let lighting_enabled = if debug.lighting_enabled { 1.0 } else { 0.0 };
+    let show_normals = if debug.debug_show_normals { 1.0 } else { 0.0 };
+    let show_heightmap = if debug.debug_show_heightmap { 1.0 } else { 0.0 };
+    for handle in &q {
+        if let Some(mat) = materials.get_mut(&handle.0) {
+            mat.params.sun_pos = sun_pos;
+            mat.params.sun_tint = sun_tint;
+            mat.params.height_amp = height_amp;
+            mat.params.lighting_enabled = lighting_enabled;
+            mat.params.show_normals = show_normals;
+            mat.params.show_heightmap = show_heightmap;
+        }
+    }
+}
+
+/// Per-biome height in [0, 1]. Mirrors the table the old
+/// `terrain_lighting::biome_height` function used so previous shading
+/// looks identical.
+fn lighting_biome_height(world: &WorldGrid, x: usize, y: usize) -> f32 {
+    use questlib::mapgen::Biome::*;
+    let base = match world.map.biome_at(x, y) {
+        Water | DeepWater => 0.00,
+        Swamp => 0.15,
+        Desert => 0.25,
+        Grassland => 0.40,
+        Forest => 0.50,
+        DenseForest => 0.55,
+        Mountain => 1.00,
+        Snow => 0.85,
+    };
+    if world.map.has_road_at(x, y) {
+        (base - 0.08_f32).max(0.0)
+    } else {
+        base
+    }
+}
+
+fn box_blur_3x3(input: &[f32], w: usize, h: usize) -> Vec<f32> {
+    let mut out = vec![0.0_f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = 0.0_f32;
+            let mut count = 0;
+            for dy in -1i32..=1 {
+                for dx in -1i32..=1 {
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                        continue;
+                    }
+                    sum += input[ny as usize * w + nx as usize];
+                    count += 1;
+                }
+            }
+            out[y * w + x] = sum / count as f32;
+        }
+    }
+    out
+}
+
+/// Bake a 100×80 R8 heightmap (3× blurred) for the Phong pass.
+fn generate_heightmap(world: &WorldGrid) -> Image {
+    let w = WORLD_W;
+    let h = WORLD_H;
+    let mut height = vec![0.0_f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            height[y * w + x] = lighting_biome_height(world, x, y);
+        }
+    }
+    let mut blurred = height.clone();
+    for _ in 0..3 {
+        blurred = box_blur_3x3(&blurred, w, h);
+    }
+    let mut data = Vec::with_capacity(w * h);
+    for v in &blurred {
+        data.push((v.clamp(0.0, 1.0) * 255.0) as u8);
+    }
+    let mut img = Image::new(
+        Extent3d {
+            width: w as u32,
+            height: h as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::R8Unorm,
+        bevy::render::render_asset::RenderAssetUsages::all(),
+    );
+    use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
+    img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::ClampToEdge,
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        ..Default::default()
+    });
+    img
+}
+
+/// Bake a per-pixel distance-to-water R8 texture (1600×1280).
+fn generate_water_distance(world: &WorldGrid) -> Image {
+    use questlib::mapgen::Biome::*;
+    let pw = WORLD_W * TILE_PX as usize;
+    let ph = WORLD_H * TILE_PX as usize;
+    let mut data = Vec::with_capacity(pw * ph);
+    for py in 0..ph {
+        for px in 0..pw {
+            let fx = px as f32 + 0.5;
+            let fy = py as f32 + 0.5;
+            let tile_x = (fx / TILE_PX).floor() as i32;
+            let tile_y = (fy / TILE_PX).floor() as i32;
+            let in_world = tile_x >= 0 && tile_y >= 0
+                && tile_x < WORLD_W as i32 && tile_y < WORLD_H as i32;
+            let own_is_water = in_world && matches!(
+                world.map.biome_at(tile_x as usize, tile_y as usize),
+                Water | DeepWater
+            );
+            if own_is_water {
+                data.push(0);
+                continue;
+            }
+            let mut min_d = f32::INFINITY;
+            for ny in -1i32..=1 {
+                for nx in -1i32..=1 {
+                    if nx == 0 && ny == 0 { continue; }
+                    let bx = tile_x + nx;
+                    let by = tile_y + ny;
+                    if bx < 0 || by < 0 || bx >= WORLD_W as i32 || by >= WORLD_H as i32 {
+                        continue;
+                    }
+                    if !matches!(
+                        world.map.biome_at(bx as usize, by as usize),
+                        Water | DeepWater
+                    ) {
+                        continue;
+                    }
+                    let n_left   = bx as f32 * TILE_PX;
+                    let n_right  = n_left + TILE_PX;
+                    let n_top    = by as f32 * TILE_PX;
+                    let n_bottom = n_top  + TILE_PX;
+                    let cx = fx.clamp(n_left, n_right);
+                    let cy = fy.clamp(n_top,  n_bottom);
+                    let dx = fx - cx;
+                    let dy = fy - cy;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    if d < min_d { min_d = d; }
+                }
+            }
+            let byte = if min_d.is_finite() { min_d.ceil().min(255.0) as u8 } else { 255 };
+            data.push(byte);
+        }
+    }
+    let mut img = Image::new(
+        Extent3d { width: pw as u32, height: ph as u32, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        data,
+        TextureFormat::R8Unorm,
+        bevy::render::render_asset::RenderAssetUsages::all(),
+    );
+    use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
+    img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::ClampToEdge,
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
         ..Default::default()
     });
     img

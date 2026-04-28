@@ -54,7 +54,12 @@ pub fn start() {
         .add_plugins(terrain::interior::InteriorPlugin)
         .add_plugins(terrain::lighting::LightingPlugin)
         .add_plugins(terrain::water_shader::WaterShaderPlugin)
-        .add_plugins(terrain::terrain_lighting::TerrainLightingPlugin)
+        // terrain_lighting overlay was the previous standalone Phong
+        // pass on top of the ground. The ground material now handles
+        // its own lighting in procedural_ground.wgsl, so the overlay
+        // would double-shade if also enabled. Plugin is intentionally
+        // not registered; the file remains for reference / quick
+        // toggle if we need a side-by-side comparison.
         .add_plugins(terrain::night_lights::NightLightsPlugin)
         .add_plugins(terrain::procedural_ground::ProceduralGroundPlugin)
         .add_plugins(terrain::fog_shader::FogShaderPlugin)

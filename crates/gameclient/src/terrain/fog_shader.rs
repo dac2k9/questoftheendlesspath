@@ -32,9 +32,7 @@ impl Plugin for FogShaderPlugin {
         app.add_plugins(Material2dPlugin::<FogMaterial>::default())
             .add_systems(
                 Update,
-                (tune_shadow_height, update_fog_material)
-                    .chain()
-                    .run_if(in_state(AppState::InGame)),
+                update_fog_material.run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -70,21 +68,6 @@ impl Material2d for FogMaterial {
     }
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Blend
-    }
-}
-
-/// PageUp / PageDown tune fog shadow height live. 8 px (half a tile)
-/// per press; clamped to [0, 256] so things stay sane. The value is
-/// shown in the F3 menu.
-fn tune_shadow_height(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut debug: ResMut<super::tilemap::DebugOptions>,
-) {
-    if keys.just_pressed(KeyCode::PageUp) {
-        debug.fog_shadow_height_px = (debug.fog_shadow_height_px + 8.0).min(256.0);
-    }
-    if keys.just_pressed(KeyCode::PageDown) {
-        debug.fog_shadow_height_px = (debug.fog_shadow_height_px - 8.0).max(0.0);
     }
 }
 
