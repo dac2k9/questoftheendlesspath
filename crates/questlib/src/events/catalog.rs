@@ -112,6 +112,11 @@ mod tests {
                         portrait: None,
                         dialogue_intro: vec!["NONE SHALL PASS!".into()],
                         dialogue_defeat: vec!["Ugh...".into()],
+                        scales_with_player: false,
+                        requires_coop: false,
+                        hp_per_level: None,
+                        atk_per_level: None,
+                        def_per_level: None,
                     },
                     trigger: TriggerCondition::All {
                         conditions: vec![

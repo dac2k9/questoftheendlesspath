@@ -26,6 +26,12 @@ pub enum TriggerCondition {
     All { conditions: Vec<TriggerCondition> },
     /// At least one condition must be true.
     Any { conditions: Vec<TriggerCondition> },
+    /// Inverts the inner condition. Useful for "missing prereq"
+    /// notifications, e.g. `not(has_item warm_cloak)` to warn the
+    /// player when they reach a gated area without the gate item.
+    /// Field is named `inner` (not `condition`) to avoid colliding
+    /// with the serde tag (`#[serde(tag = "condition")]`).
+    Not { inner: Box<TriggerCondition> },
     /// Always true (for manually triggered events).
     Always,
 }
@@ -59,6 +65,7 @@ impl TriggerCondition {
             }
             Self::All { conditions } => conditions.iter().all(|c| c.evaluate(ctx)),
             Self::Any { conditions } => conditions.iter().any(|c| c.evaluate(ctx)),
+            Self::Not { inner } => !inner.evaluate(ctx),
             Self::Always => true,
         }
     }
@@ -173,6 +180,29 @@ mod tests {
     #[test]
     fn always() {
         assert!(TriggerCondition::Always.evaluate(&ctx()));
+    }
+
+    #[test]
+    fn not_combinator() {
+        // Inventory has "sword" → has_item true → not is false
+        let no_shield = TriggerCondition::Not {
+            inner: Box::new(TriggerCondition::HasItem { item: "shield".into() }),
+        };
+        assert!(no_shield.evaluate(&ctx()));
+        let no_sword = TriggerCondition::Not {
+            inner: Box::new(TriggerCondition::HasItem { item: "sword".into() }),
+        };
+        assert!(!no_sword.evaluate(&ctx()));
+    }
+
+    #[test]
+    fn not_serialize_roundtrip() {
+        let cond = TriggerCondition::Not {
+            inner: Box::new(TriggerCondition::HasItem { item: "warm_cloak".into() }),
+        };
+        let json = serde_json::to_string(&cond).unwrap();
+        let roundtrip: TriggerCondition = serde_json::from_str(&json).unwrap();
+        assert_eq!(cond, roundtrip);
     }
 
     #[test]

@@ -119,12 +119,19 @@ pub fn enemy_stats_from_event(kind: &EventKind, player_level: u32) -> EnemyStats
         // without the flag use their authored HP + a flat difficulty-
         // bracket ATK/DEF — they're meant to stay as an early-game
         // challenge that an over-leveled player can stomp.
-        EventKind::Boss { max_hp, scales_with_player, .. } => {
+        EventKind::Boss { max_hp, scales_with_player, hp_per_level, atk_per_level, def_per_level, .. } => {
             let lvl_bonus = if *scales_with_player { (lvl - 1).max(0) } else { 0 };
+            // Per-boss overrides for the scaling rates. Defaults match
+            // the original 20/2/0 cadence — climactic bosses (Frost Lord)
+            // raise these so player damage growth doesn't outrun them
+            // at high levels.
+            let hp_per = hp_per_level.unwrap_or(20);
+            let atk_per = atk_per_level.unwrap_or(2);
+            let def_per = def_per_level.unwrap_or(0);
             EnemyStats {
-                max_hp: *max_hp + 20 * lvl_bonus,
-                attack: 8 + 2 * lvl_bonus,
-                defense: 4,
+                max_hp: *max_hp + hp_per * lvl_bonus,
+                attack: 8 + atk_per * lvl_bonus,
+                defense: 4 + def_per * lvl_bonus,
                 difficulty: 3,
             }
         }

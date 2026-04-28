@@ -50,9 +50,11 @@ pub enum EventKind {
         #[serde(default)]
         dialogue_defeat: Vec<String>,
         /// Scales the boss's HP and attack with the player's level so
-        /// late-game story bosses still feel challenging. Base formula:
-        /// `hp += 20 × (lvl−1)`, `atk += 2 × (lvl−1)`. Defaults to false —
-        /// existing bosses keep fixed stats unless explicitly marked.
+        /// late-game story bosses still feel challenging. Default
+        /// rate: `hp += 20 × (lvl−1)`, `atk += 2 × (lvl−1)`,
+        /// `def += 0`. Per-boss overrides via the `*_per_level`
+        /// fields below. Defaults to false — existing bosses keep
+        /// fixed stats unless explicitly marked.
         #[serde(default)]
         scales_with_player: bool,
         /// When true, the fight waits for every online player to be on
@@ -61,6 +63,21 @@ pub enum EventKind {
         /// mid-tier cave boss is friction, not drama. Defaults false.
         #[serde(default)]
         requires_coop: bool,
+        /// Override the per-level HP bonus applied when
+        /// `scales_with_player` is true. Default 20. Used by the Frost
+        /// Lord (30) so the final fight stays challenging at high
+        /// levels — without overrides, a level-20 player overruns
+        /// fixed-cadence scaling and trivializes climactic bosses.
+        #[serde(default)]
+        hp_per_level: Option<i32>,
+        /// Override the per-level attack bonus when scaling. Default 2.
+        #[serde(default)]
+        atk_per_level: Option<i32>,
+        /// Override the per-level defense bonus when scaling. Default 0
+        /// (defense stays at the static base of 4). Bumping this is
+        /// what actually keeps player damage in check at high levels.
+        #[serde(default)]
+        def_per_level: Option<i32>,
     },
     StoryBeat {
         lines: Vec<String>,
@@ -152,6 +169,11 @@ mod tests {
             portrait: None,
             dialogue_intro: vec!["NONE SHALL PASS!".into()],
             dialogue_defeat: vec!["Ugh...".into()],
+            scales_with_player: false,
+            requires_coop: false,
+            hp_per_level: None,
+            atk_per_level: None,
+            def_per_level: None,
         };
         let json = serde_json::to_string(&kind).unwrap();
         assert!(json.contains("\"type\":\"boss\""));

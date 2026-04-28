@@ -307,13 +307,13 @@
     {
       "id": "frost_key",
       "display_name": "Frost Key",
-      "description": "A crystalline key from The Dark Descent.",
+      "description": "A crystalline key from The Dark Descent. Unlocks the inner sanctum of the Frozen Spire.",
       "category": "key_item"
     },
     {
       "id": "tower_key",
       "display_name": "Tower Key",
-      "description": "An ancient key from the Forgotten Crypt. Opens the Frozen Spire.",
+      "description": "An ancient key from the Forgotten Crypt. Opens the outer gate of the Frozen Spire.",
       "category": "key_item"
     },
     {

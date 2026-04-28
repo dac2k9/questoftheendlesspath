@@ -1130,6 +1130,43 @@
       "requires_browser": true
     },
     {
+      "id": "frost_spire_warning",
+      "name": "The Cold of the Spire",
+      "description": "The mountain wind warns you back.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The mountain wind cuts through your clothes like a knife.",
+          "You will never reach the summit dressed like this.",
+          "You need warmer gear. The elders southwest of here, near the Crumbling Fortress, would honor a hero who proved themselves there."
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 20
+          },
+          {
+            "condition": "not",
+            "inner": {
+              "condition": "has_item",
+              "item": "warm_cloak"
+            }
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "notification",
+          "text": "The cold drives you back from the Frozen Spire. You need a warm cloak first."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
       "id": "tower_20",
       "name": "The Frozen Spire",
       "description": "An immense tower of ice and ancient stone.",
@@ -1147,7 +1184,10 @@
           "The Starstone grows warm in your hand \u2014 the way to the Spire is clear."
         ],
         "scales_with_player": true,
-        "requires_coop": true
+        "requires_coop": true,
+        "hp_per_level": 25,
+        "atk_per_level": 3,
+        "def_per_level": 1
       },
       "trigger": {
         "condition": "all",
@@ -1163,6 +1203,10 @@
           {
             "condition": "has_item",
             "item": "tower_key"
+          },
+          {
+            "condition": "has_item",
+            "item": "frost_key"
           },
           {
             "condition": "has_item",
