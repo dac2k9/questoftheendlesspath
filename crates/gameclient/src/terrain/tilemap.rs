@@ -313,8 +313,14 @@ pub struct DebugOptions {
     pub debug_show_heightmap: bool,
     /// Multiplier on the heightmap gradient used to derive per-pixel
     /// normals in the terrain lighting shader. Bigger values = more
-    /// dramatic slope shading. Tuned live via PageUp/PageDown.
+    /// dramatic slope shading. (No live binding — see fog shadow
+    /// height for what PageUp/PageDown does now.)
     pub terrain_height_amp: f32,
+    /// Effective "height" of the fog wall in world pixels — drives the
+    /// length of fog shadows in the fog of war shader. PageUp/PageDown
+    /// tune live. 16 = 1 tile (subtle, default), 96 = 6 tiles (tall
+    /// foreboding wall).
+    pub fog_shadow_height_px: f32,
     /// When true, swap the baked tile atlas for a Material2d shader
     /// that bilinearly blends per-biome flat colors at every tile
     /// boundary — no hand-crafted transition tiles. F4 toggles.
@@ -343,8 +349,9 @@ impl Default for DebugOptions {
             debug_show_normals: false,
             debug_show_heightmap: false,
             // Default bumped from the old hardcoded 9 so mountains
-            // read more strongly out of the box. Tune with PageUp/Dn.
+            // read more strongly out of the box.
             terrain_height_amp: 80.0,
+            fog_shadow_height_px: 16.0,
             procedural_terrain_enabled: true,
             procedural_test_mode: false,
         }
@@ -543,10 +550,10 @@ fn spawn_world(
     let fog_material = materials_fog.add(super::fog_shader::FogMaterial {
         params: super::fog_shader::FogParams {
             color: Vec4::new(15.0 / 255.0, 15.0 / 255.0, 25.0 / 255.0, 1.0),
-            world_scale: FOG_SCALE,
-            _pad0: 0.0,
-            _pad1: 0.0,
-            _pad2: 0.0,
+            // sun_pos updated each frame by update_fog_material; default
+            // is high noon so even the very first frame has a sane value.
+            sun_pos: Vec4::new(0.0, 0.0, 1.0, 0.0),
+            world: Vec4::new(FOG_SCALE, w_world, h_world, 0.0),
         },
         mask: fog_mask_handle,
     });
@@ -1503,7 +1510,7 @@ fn handle_debug_menu(
     for e in &existing { commands.entity(e).despawn_recursive(); }
     let fps = (1.0 / time.delta_secs()).round() as u32;
     let text = format!(
-        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF4: Procedural ground [{}]\nF6: Lighting [{}]\nF7: Water shader [{}]\nF8: Debug sun [{}] ({:.1}, {:.1}, {:.1})\nF9: Show normals (water + shoreline bevel) [{}]\nF10: Show heightmap [{}]\nPgUp/PgDn: Terrain height amp [{:.1}]",
+        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF4: Procedural ground [{}]\nF6: Lighting [{}]\nF7: Water shader [{}]\nF8: Debug sun [{}] ({:.1}, {:.1}, {:.1})\nF9: Show normals (water + shoreline bevel) [{}]\nF10: Show heightmap [{}]\nPgUp/PgDn: Fog shadow height [{:.0} px = {:.1} tiles]",
         fps,
         if debug.fog_disabled { "OFF" } else { "ON" },
         if debug.show_pois { "ON" } else { "OFF" },
@@ -1514,7 +1521,8 @@ fn handle_debug_menu(
         debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z,
         if debug.debug_show_normals { "ON" } else { "OFF" },
         if debug.debug_show_heightmap { "ON" } else { "OFF" },
-        debug.terrain_height_amp,
+        debug.fog_shadow_height_px,
+        debug.fog_shadow_height_px / TILE_PX,
     );
     commands.spawn((Text::new(text), TextFont { font: font.0.clone(), font_size: 10.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 0.0)), Node { position_type: PositionType::Absolute, top: Val::Px(10.0), left: Val::Px(10.0), ..default() }, DebugMenuUi));
 }

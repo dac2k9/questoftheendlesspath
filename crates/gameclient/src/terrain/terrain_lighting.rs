@@ -34,26 +34,13 @@ impl Plugin for TerrainLightingPlugin {
         app.add_plugins(Material2dPlugin::<TerrainLightingMaterial>::default())
             .add_systems(
                 Update,
-                (tune_height_amp, toggle_and_manage, update_material)
+                (toggle_and_manage, update_material)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
     }
 }
 
-/// PageUp / PageDown tune `terrain_height_amp` live. Higher = more
-/// dramatic slope shading. Shown in the F3 menu.
-fn tune_height_amp(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut debug: ResMut<super::tilemap::DebugOptions>,
-) {
-    if keys.just_pressed(KeyCode::PageUp) {
-        debug.terrain_height_amp = (debug.terrain_height_amp + 1.0).min(300.0);
-    }
-    if keys.just_pressed(KeyCode::PageDown) {
-        debug.terrain_height_amp = (debug.terrain_height_amp - 1.0).max(0.0);
-    }
-}
 
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 pub struct TerrainLightingMaterial {
