@@ -534,10 +534,19 @@ fn spawn_world(
     // revealed/unrevealed boundary.
     let w_world = WORLD_W as f32 * TILE_PX;
     let h_world = WORLD_H as f32 * TILE_PX;
-    let fog_mesh = meshes.add(Rectangle::new(w_world, h_world));
+    // Make the fog mesh much bigger than the world so when the camera
+    // zooms out beyond the world rectangle the fog still covers the
+    // area (otherwise the camera's ClearColor would show through).
+    // The shader force-fogs anything outside world bounds.
+    const FOG_SCALE: f32 = 6.0;
+    let fog_mesh = meshes.add(Rectangle::new(w_world * FOG_SCALE, h_world * FOG_SCALE));
     let fog_material = materials_fog.add(super::fog_shader::FogMaterial {
         params: super::fog_shader::FogParams {
             color: Vec4::new(15.0 / 255.0, 15.0 / 255.0, 25.0 / 255.0, 1.0),
+            world_scale: FOG_SCALE,
+            _pad0: 0.0,
+            _pad1: 0.0,
+            _pad2: 0.0,
         },
         mask: fog_mask_handle,
     });

@@ -40,10 +40,13 @@ pub fn start() {
                     ..default()
                 }),
         )
+        // Match the fog of war color (15, 15, 25) so the area outside
+        // the world rectangle blends seamlessly with fogged tiles when
+        // the camera is zoomed out beyond the map bounds.
         .insert_resource(ClearColor(Color::srgb(
-            0x1a as f32 / 255.0,
-            0x1a as f32 / 255.0,
-            0x2e as f32 / 255.0,
+            15.0 / 255.0,
+            15.0 / 255.0,
+            25.0 / 255.0,
         )))
         .init_state::<AppState>()
         .add_plugins(title::TitlePlugin)

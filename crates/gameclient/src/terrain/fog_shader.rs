@@ -36,6 +36,14 @@ pub struct FogMaterial {
 pub struct FogParams {
     /// rgb = fog color, w = max alpha (1.0 = fully opaque fogged tiles).
     pub color: Vec4,
+    /// Ratio of fog mesh size to world size. The fog mesh is bigger
+    /// than the world so that when the camera zooms out, fog still
+    /// covers the area outside the world rectangle (instead of
+    /// showing the camera's ClearColor).
+    pub world_scale: f32,
+    pub _pad0: f32,
+    pub _pad1: f32,
+    pub _pad2: f32,
 }
 
 impl Material2d for FogMaterial {
