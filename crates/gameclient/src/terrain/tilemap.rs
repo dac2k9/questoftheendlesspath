@@ -592,9 +592,10 @@ fn spawn_world(
 
         for (i, &(cx, cy)) in world.map.chests.iter().enumerate() {
             let pos = WorldGrid::tile_to_world(cx, cy);
+            let lift = super::procedural_ground::tile_lift(&world, cx, cy);
             commands.spawn((
                 Sprite { image: chest_handle.clone(), ..default() },
-                Transform::from_xyz(pos.x, pos.y, 1.5),
+                Transform::from_xyz(pos.x, pos.y + lift, 1.5),
                 Visibility::Hidden,
                 ChestSprite(i),
             ));
@@ -649,13 +650,14 @@ fn spawn_world(
         for (i, monster) in world.map.monsters.iter().enumerate() {
             if let Some((tex, layout, cols)) = sprite_map.get(&monster.monster_type) {
                 let pos = WorldGrid::tile_to_world(monster.x, monster.y);
+                let lift = super::procedural_ground::tile_lift(&world, monster.x, monster.y);
                 commands.spawn((
                     Sprite {
                         image: tex.clone(),
                         texture_atlas: Some(TextureAtlas { layout: layout.clone(), index: 0 }),
                         ..default()
                     },
-                    Transform::from_xyz(pos.x, pos.y, 1.5),
+                    Transform::from_xyz(pos.x, pos.y + lift, 1.5),
                     Visibility::Hidden,
                     MonsterSprite(i),
                     MonsterAnimation {
@@ -695,7 +697,8 @@ fn spawn_world(
     // POI labels
     for poi in &world.map.pois {
         let pos = WorldGrid::tile_to_world(poi.x, poi.y);
-        commands.spawn((Text2d::new(format!("{:?}", poi.poi_type)), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(pos.x, pos.y - 12.0, 8.0), Visibility::Hidden, PoiLabel));
+        let lift = super::procedural_ground::tile_lift(&world, poi.x, poi.y);
+        commands.spawn((Text2d::new(format!("{:?}", poi.poi_type)), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(pos.x, pos.y + lift - 12.0, 8.0), Visibility::Hidden, PoiLabel));
     }
 
     // Custom POI sprites — illustrated landmark art drawn over the tile
@@ -713,6 +716,7 @@ fn spawn_world(
     for poi in &world.map.pois {
         if let Some((path, tile_size)) = poi_sprite_path(poi.poi_type) {
             let pos = WorldGrid::tile_to_world(poi.x, poi.y);
+            let lift = super::procedural_ground::tile_lift(&world, poi.x, poi.y);
             let px = TILE_PX * tile_size as f32;
             // NOTE: no `?v=CLIENT_VERSION` cache-busting here. Bevy's
             // AssetServer treats the string as an asset path, not a URL,
@@ -725,7 +729,7 @@ fn spawn_world(
                     custom_size: Some(Vec2::new(px, px)),
                     ..default()
                 },
-                Transform::from_xyz(pos.x, pos.y, 1.7),
+                Transform::from_xyz(pos.x, pos.y + lift, 1.7),
                 PoiCustomSprite,
             ));
         }
@@ -940,10 +944,22 @@ fn render_character(
         visual.pos = target_pos;
     }
 
+    // Same tile-lift the ground mesh uses, sampled at the player's
+    // current visual position. Looking up by `world_to_tile` (no
+    // bilinear interp) means a tile boundary creates a 1–4 px jump,
+    // but tiles transition fast enough that it reads as a step
+    // rather than jitter.
+    let player_lift = if let Some(world) = &world {
+        let (tx, ty) = WorldGrid::world_to_tile(visual.pos);
+        super::procedural_ground::tile_lift(world, tx, ty)
+    } else {
+        0.0
+    };
+
     for (mut tf, mut anim, mut sprite) in &mut player_q {
         // Round to whole pixels to prevent sprite atlas bleed
         tf.translation.x = visual.pos.x.round();
-        tf.translation.y = visual.pos.y.round();
+        tf.translation.y = (visual.pos.y + player_lift).round();
 
         // Derive facing from the visual position on the route
         anim.facing = visual_facing;

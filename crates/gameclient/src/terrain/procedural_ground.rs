@@ -16,6 +16,8 @@
 
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
+use bevy::render::mesh::{Indices, PrimitiveTopology};
+use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{
     AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat,
 };
@@ -23,6 +25,22 @@ use bevy::sprite::{AlphaMode2d, Material2d, Material2dPlugin};
 
 use crate::states::AppState;
 use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_H, WORLD_W};
+
+/// Vertex Y lift, in screen pixels, for a height-1.0 tile (Mountain).
+/// Lower-height biomes are lifted proportionally; water sits at 0.
+/// Currently 0 — the tile-grid mesh ships flat. The infrastructure
+/// (per-corner height, sprite-side `tile_lift` lookup) is in place for
+/// when we do want to revisit; bumping this to 2–6 brings the lift
+/// back without any other code changes.
+pub const LIFT_PX: f32 = 0.0;
+
+/// Visual lift in world pixels for a tile-anchored sprite (player,
+/// POI, chest, monster). Equals the ground-mesh's center-of-tile
+/// surface height so sprites sit on the lifted ground instead of
+/// the unlifted reference plane.
+pub fn tile_lift(world: &WorldGrid, x: usize, y: usize) -> f32 {
+    biome_height_factor(world, x, y) * LIFT_PX
+}
 
 pub struct ProceduralGroundPlugin;
 
@@ -166,20 +184,115 @@ fn toggle_and_manage(
     });
     state.spawned_test_mode = debug.procedural_test_mode;
 
-    let w = WORLD_W as f32 * TILE_PX;
-    let h = WORLD_H as f32 * TILE_PX;
-    // Match the tile atlas's centering convention so world coords line
-    // up exactly — sampler offsets in the shader assume this.
-    let cx = w / 2.0 - TILE_PX / 2.0;
-    let cy = -h / 2.0 + TILE_PX / 2.0;
-    let mesh_handle = meshes.add(Rectangle::new(w, h));
+    // Build a 100×80 quad grid (16000 tris, 8181 vertices) instead of
+    // a single rectangle. Vertex Y is lifted by per-corner biome height
+    // so mountains pop visually upward — paired with the lighting
+    // overlay (which already implies height from the same biome table)
+    // this gives a subtle 3D feel without changing the camera.
+    //
+    // Test mode (F5) keeps a flat mesh so the autotile layout reads
+    // unambiguously without geometry getting in the way.
+    let lift = if debug.procedural_test_mode { 0.0 } else { LIFT_PX };
+    let mesh_handle = meshes.add(build_tile_mesh(&world, lift));
 
     commands.spawn((
         Mesh2d(mesh_handle),
         MeshMaterial2d(material),
-        Transform::from_xyz(cx, cy, 0.05),
+        // Vertices are in absolute world coords, so transform sits at
+        // origin. z=0.05 keeps it above the tile atlas, below lighting.
+        Transform::from_xyz(0.0, 0.0, 0.05),
         ProceduralGroundSprite,
     ));
+}
+
+/// Per-biome height factor, 0..1. Same table as
+/// `terrain_lighting::biome_height` so vertex lift and Phong lighting
+/// agree on which tiles are "tall". Mountain peaks at 1.0.
+fn biome_height_factor(world: &WorldGrid, x: usize, y: usize) -> f32 {
+    use questlib::mapgen::Biome::*;
+    match world.map.biome_at(x, y) {
+        Water | DeepWater => 0.00,
+        Swamp => 0.15,
+        Desert => 0.25,
+        Grassland => 0.40,
+        Forest => 0.50,
+        DenseForest => 0.55,
+        Mountain => 1.00,
+        Snow => 0.85,
+    }
+}
+
+/// Build the world ground as a quad grid: (W+1)×(H+1) shared vertices,
+/// W×H quads, two triangles per quad. Each vertex's screen-y is
+/// lifted by `lift_px × max(neighbor_heights)` so a mountain corner
+/// pops up even when the adjacent quad is grass — gives clean
+/// silhouette edges instead of half-lifted slopes.
+///
+/// UVs run 0..1 across the world rectangle (matching the previous
+/// single-quad mesh) so the autotile fragment shader is unchanged.
+fn build_tile_mesh(world: &WorldGrid, lift_px: f32) -> Mesh {
+    let w = WORLD_W;
+    let h = WORLD_H;
+    let nx = w + 1; // 101 vertices wide
+    let ny = h + 1; // 81 vertices tall
+
+    // Per-tile heights, indexed [ty * w + tx].
+    let mut heights = vec![0.0_f32; w * h];
+    for ty in 0..h {
+        for tx in 0..w {
+            heights[ty * w + tx] = biome_height_factor(world, tx, ty);
+        }
+    }
+
+    let mut positions = Vec::with_capacity(nx * ny);
+    let mut uvs = Vec::with_capacity(nx * ny);
+    let mut normals = Vec::with_capacity(nx * ny);
+    for vy in 0..ny {
+        for vx in 0..nx {
+            // Each interior vertex is shared by 4 tiles; pick the max
+            // height so a tall tile pulls its corner fully up.
+            let mut hmax = 0.0_f32;
+            for &dx in &[-1_i32, 0] {
+                for &dy in &[-1_i32, 0] {
+                    let tx = vx as i32 + dx;
+                    let ty = vy as i32 + dy;
+                    if tx >= 0 && ty >= 0 && (tx as usize) < w && (ty as usize) < h {
+                        hmax = hmax.max(heights[(ty as usize) * w + (tx as usize)]);
+                    }
+                }
+            }
+            // Tile (tx, ty) has its CENTER at world (tx*TILE_PX, -ty*TILE_PX);
+            // corner (vx, vy) sits at the half-tile offset that joins the
+            // four surrounding tile centers.
+            let world_x = (vx as f32) * TILE_PX - TILE_PX * 0.5;
+            let world_y = -(vy as f32) * TILE_PX + TILE_PX * 0.5;
+            let lifted_y = world_y + hmax * lift_px;
+            positions.push([world_x, lifted_y, 0.0]);
+            uvs.push([(vx as f32) / (w as f32), (vy as f32) / (h as f32)]);
+            normals.push([0.0, 0.0, 1.0]);
+        }
+    }
+
+    // Two triangles per quad. Winding is CCW in screen space (Bevy
+    // default front face) so the mesh isn't culled.
+    let mut indices = Vec::with_capacity(w * h * 6);
+    for ty in 0..h {
+        for tx in 0..w {
+            let i_tl = (ty * nx + tx) as u32;
+            let i_tr = (ty * nx + tx + 1) as u32;
+            let i_bl = ((ty + 1) * nx + tx) as u32;
+            let i_br = ((ty + 1) * nx + tx + 1) as u32;
+            indices.extend_from_slice(&[i_tl, i_bl, i_tr]);
+            indices.extend_from_slice(&[i_tr, i_bl, i_br]);
+        }
+    }
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::all());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_indices(Indices::U32(indices));
+    mesh
 }
 
 /// Bake a 100×80 R8Unorm texture where each texel holds the biome ID
