@@ -223,6 +223,14 @@ Diagnostic / recovery:
   but below UI. Hidden automatically while inside an interior
   (`MyPlayerState.location.is_some()`). Randomness uses
   `js_sys::Math::random()` — no `rand` dep on the WASM side.
+- **Cloud shadows.** Each cloud has a black-tinted `CloudShadow` child
+  rendered at z=0.5 (above ground, below sprites). Per frame,
+  `update_cloud_shadows` reprojects it using the current sun/moon
+  position from `DayNightCycle`: `offset = -sun_dir.xy * CLOUD_HEIGHT /
+  sun_dir.z`, clamped to 80 px so horizon-grazing suns don't fling the
+  shadow across the map. Alpha is `base_alpha × (1 − night_alpha)` so
+  shadows fade completely by midnight — moonlight is too weak to cast
+  a crisp one. F8 debug sun overrides too.
 - **Rain.** ~30 % of clouds get a `RainyCloud` marker on spawn — rendered
   darker (muted grey-blue tint) and emit rain drops (`DROPS_PER_CLOUD_PER_SEC`)
   from the cloud's current position. Drops are 1×5 px blue-white sprites
@@ -300,6 +308,11 @@ Diagnostic / recovery:
 - `GET /version` — returns `{"version": N}` parsed from index.html's `?v=N`
   cache-bust number. Clients poll this to detect stale WASM after a deploy
   and surface a Refresh banner. Cached on first hit per process.
+- `GET /daynight` — `{"time_s": X, "cycle_seconds": Y}` so every client
+  sees the same time-of-day. Stateless: `time_s = unix_now %
+  cycle_seconds`, so restarts / deploys don't jump the cycle. Client
+  fetches on enter-game and every 60 s thereafter; between polls it
+  keeps advancing `time_s` locally from `Time::delta_secs()`.
 - `GET /journal?player_id=X` — completed events for this player, rendered by
   the Journal panel (J). Skips shops and environmental effects. Each entry is
   `{id, name, description, kind}` in completion order.

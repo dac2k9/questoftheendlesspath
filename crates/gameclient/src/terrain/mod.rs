@@ -1,6 +1,9 @@
 pub mod interior;
 pub mod lighting;
+pub mod night_lights;
 pub mod path;
+pub mod procedural_ground;
+pub mod terrain_lighting;
 pub mod tilemap;
 pub mod water_shader;
 pub mod world;

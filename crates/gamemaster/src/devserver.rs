@@ -841,6 +841,23 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", format!(r#"{{"version":{}}}"#, v));
     }
 
+    // GET /daynight — server-authoritative day/night cycle position so
+    // every connected client sees the same sun. Stateless: derived
+    // purely from UNIX time, so restarts / deploys don't jump the
+    // cycle. Clients poll periodically and resync local time_s.
+    if first_line.starts_with("GET /daynight") {
+        const CYCLE_SECONDS: f32 = 300.0;
+        let now_f64 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let time_s = now_f64.rem_euclid(CYCLE_SECONDS as f64) as f32;
+        return (
+            "200 OK",
+            format!(r#"{{"time_s":{:.3},"cycle_seconds":{}}}"#, time_s, CYCLE_SECONDS),
+        );
+    }
+
     // GET /shops?player_id=X — shops the player has already discovered
     // (i.e. in their revealed_shops list). Phase A: a shop lands here
     // after the player visits it once. Phase B (future): NPCs can also

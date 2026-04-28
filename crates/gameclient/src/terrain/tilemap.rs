@@ -287,10 +287,68 @@ impl Default for VisualState {
 struct CameraPan { active: bool, last_pos: Option<Vec2> }
 
 #[derive(Resource)]
-pub struct DebugOptions { pub show_menu: bool, pub fog_disabled: bool, pub show_pois: bool, pub lighting_enabled: bool, pub water_shader_enabled: bool }
+pub struct DebugOptions {
+    pub show_menu: bool,
+    pub fog_disabled: bool,
+    pub show_pois: bool,
+    pub lighting_enabled: bool,
+    pub water_shader_enabled: bool,
+    /// When true, the water shader's sun direction follows the cursor
+    /// (XY) and mouse wheel (Z). For visualizing how normals interact
+    /// with sun position. F8 toggles.
+    pub debug_sun_enabled: bool,
+    /// Debug sun direction (x, y, z). Updated each frame when
+    /// debug_sun_enabled; otherwise the default "sun from upper-left".
+    pub debug_sun_x: f32,
+    pub debug_sun_y: f32,
+    pub debug_sun_z: f32,
+    /// When true, the water shader renders normals as RGB instead of
+    /// running Phong. Classic normal-map visualization: flat surfaces
+    /// appear as purplish blue (0.5, 0.5, 1.0), tilted surfaces take
+    /// on different hues showing the normal direction.
+    pub debug_show_normals: bool,
+    /// When true, the terrain lighting overlay renders the raw
+    /// heightmap as grayscale (water = black, mountain = white) to
+    /// verify the biome→height table and blur. F10 toggles.
+    pub debug_show_heightmap: bool,
+    /// Multiplier on the heightmap gradient used to derive per-pixel
+    /// normals in the terrain lighting shader. Bigger values = more
+    /// dramatic slope shading. Tuned live via PageUp/PageDown.
+    pub terrain_height_amp: f32,
+    /// When true, swap the baked tile atlas for a Material2d shader
+    /// that bilinearly blends per-biome flat colors at every tile
+    /// boundary — no hand-crafted transition tiles. F4 toggles.
+    /// Phase 1 prototype; see procedural_ground.rs.
+    pub procedural_terrain_enabled: bool,
+    /// When true (along with procedural_terrain_enabled), replace the
+    /// world's biome map with a synthetic test grid showing the same
+    /// pattern in every relevant biome combination, and switch the
+    /// shader to flat-color rendering so the autotile rounding rules
+    /// are visible per-pattern. F5 toggles.
+    pub procedural_test_mode: bool,
+}
 
 impl Default for DebugOptions {
-    fn default() -> Self { Self { show_menu: false, fog_disabled: false, show_pois: false, lighting_enabled: false, water_shader_enabled: false } }
+    fn default() -> Self {
+        Self {
+            show_menu: false,
+            fog_disabled: false,
+            show_pois: false,
+            lighting_enabled: true,
+            water_shader_enabled: true,
+            debug_sun_enabled: false,
+            debug_sun_x: 0.0,
+            debug_sun_y: 0.0,
+            debug_sun_z: 200.0,
+            debug_show_normals: false,
+            debug_show_heightmap: false,
+            // Default bumped from the old hardcoded 9 so mountains
+            // read more strongly out of the box. Tune with PageUp/Dn.
+            terrain_height_amp: 80.0,
+            procedural_terrain_enabled: true,
+            procedural_test_mode: false,
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -333,6 +391,47 @@ fn bake_map_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize)
         for x in 0..WORLD_W {
             let ground = world.get_ground(x, y);
             blit_tile(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, ground.tile_index_varied(x, y), tileset_cols, tile_slot);
+            if let Some(overlay) = world.cells[y][x].overlay {
+                blit_tile_alpha(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, overlay.tile_index_varied(x, y), tileset_cols, tile_slot);
+            }
+        }
+    }
+    Image::new(Extent3d { width: map_w as u32, height: map_h as u32, depth_or_array_layers: 1 }, TextureDimension::D2, pixels, TextureFormat::Rgba8UnormSrgb, default())
+}
+
+/// Bake the ground tiles ONLY (no overlays / trees / chests / etc.).
+/// The procedural ground shader samples this so its UV-jitter at tile
+/// boundaries doesn't drag in tree silhouettes from neighbor tiles —
+/// trees should sit *on top* of the biome, not be part of its border.
+fn bake_ground_only_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize) -> Image {
+    let map_w = WORLD_W * 16;
+    let map_h = WORLD_H * 16;
+    let mut pixels = vec![0u8; map_w * map_h * 4];
+    let ts_w = tileset_img.width() as usize;
+    let ts_data = &tileset_img.data;
+    let tile_slot = 20;
+    for y in 0..WORLD_H {
+        for x in 0..WORLD_W {
+            let ground = world.get_ground(x, y);
+            blit_tile(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, ground.tile_index_varied(x, y), tileset_cols, tile_slot);
+        }
+    }
+    Image::new(Extent3d { width: map_w as u32, height: map_h as u32, depth_or_array_layers: 1 }, TextureDimension::D2, pixels, TextureFormat::Rgba8UnormSrgb, default())
+}
+
+/// Bake just the overlay sprites on transparent background. The
+/// procedural ground composites this layer over its jittered ground
+/// at the un-shifted UV — so trees stay rooted to their actual tile
+/// while the ground beneath them mixes organically with neighbors.
+fn bake_overlays_only_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize) -> Image {
+    let map_w = WORLD_W * 16;
+    let map_h = WORLD_H * 16;
+    let mut pixels = vec![0u8; map_w * map_h * 4]; // alpha 0 by default
+    let ts_w = tileset_img.width() as usize;
+    let ts_data = &tileset_img.data;
+    let tile_slot = 20;
+    for y in 0..WORLD_H {
+        for x in 0..WORLD_W {
             if let Some(overlay) = world.cells[y][x].overlay {
                 blit_tile_alpha(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, overlay.tile_index_varied(x, y), tileset_cols, tile_slot);
             }
@@ -399,6 +498,14 @@ fn spawn_world(
     let map_cy = -(WORLD_H as f32 * TILE_PX) / 2.0 + TILE_PX / 2.0;
 
     commands.spawn((Sprite { image: map_handle, ..default() }, Transform::from_xyz(map_cx, map_cy, 0.0), Visibility::Hidden, MapSprite));
+    // Expose ground-only and overlays-only textures so procedural_ground
+    // can sample biomes for jittered borders without dragging in tree
+    // silhouettes, then composite the actual overlays back on top at
+    // their un-shifted positions.
+    let ground_only_handle = images.add(bake_ground_only_texture(&world, &tileset_img, 16));
+    let overlays_only_handle = images.add(bake_overlays_only_texture(&world, &tileset_img, 16));
+    commands.insert_resource(super::procedural_ground::BakedGroundTexture(ground_only_handle));
+    commands.insert_resource(super::procedural_ground::BakedOverlaysTexture(overlays_only_handle));
 
     let fog = FogOfWar::new();
     let debug = DebugOptions::default();
@@ -1099,12 +1206,15 @@ fn update_camera(
     player_q: Query<&Transform, With<PlayerSprite>>,
     mut camera_q: Query<(&mut Transform, &mut OrthographicProjection), (With<Camera2d>, Without<PlayerSprite>)>,
     pan: Res<CameraPan>,
+    debug: Res<DebugOptions>,
     mut initialized: Local<bool>,
 ) {
     let Some(ptf) = player_q.iter().next() else { return };
     let Ok((mut cam, mut proj)) = camera_q.get_single_mut() else { return };
     if !*initialized { proj.scale = 0.4; *initialized = true; }
-    if !pan.active {
+    // F5 procedural test mode: don't auto-recenter on the player so
+    // the user can pan freely to inspect / screenshot test patterns.
+    if !pan.active && !debug.procedural_test_mode {
         cam.translation.x += (ptf.translation.x - cam.translation.x) * 0.05;
         cam.translation.y += (ptf.translation.y - cam.translation.y) * 0.05;
     }
@@ -1342,12 +1452,18 @@ fn handle_debug_menu(
     for e in &existing { commands.entity(e).despawn_recursive(); }
     let fps = (1.0 / time.delta_secs()).round() as u32;
     let text = format!(
-        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF6: Lighting [{}]\nF7: Water shader [{}]",
+        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF4: Procedural ground [{}]\nF6: Lighting [{}]\nF7: Water shader [{}]\nF8: Debug sun [{}] ({:.1}, {:.1}, {:.1})\nF9: Show normals (water + shoreline bevel) [{}]\nF10: Show heightmap [{}]\nPgUp/PgDn: Terrain height amp [{:.1}]",
         fps,
         if debug.fog_disabled { "OFF" } else { "ON" },
         if debug.show_pois { "ON" } else { "OFF" },
+        if debug.procedural_terrain_enabled { "ON" } else { "OFF" },
         if debug.lighting_enabled { "ON" } else { "OFF" },
         if debug.water_shader_enabled { "ON" } else { "OFF" },
+        if debug.debug_sun_enabled { "ON" } else { "OFF" },
+        debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z,
+        if debug.debug_show_normals { "ON" } else { "OFF" },
+        if debug.debug_show_heightmap { "ON" } else { "OFF" },
+        debug.terrain_height_amp,
     );
     commands.spawn((Text::new(text), TextFont { font: font.0.clone(), font_size: 10.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 0.0)), Node { position_type: PositionType::Absolute, top: Val::Px(10.0), left: Val::Px(10.0), ..default() }, DebugMenuUi));
 }

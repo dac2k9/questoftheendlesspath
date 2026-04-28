@@ -15,7 +15,11 @@
 //! everything else in world-space, so clouds feel like sky.
 
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::reflect::TypePath;
+use bevy::render::render_resource::{
+    AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat,
+};
+use bevy::sprite::{AlphaMode2d, Material2d, Material2dPlugin};
 
 use crate::states::AppState;
 use crate::terrain::tilemap::{FogOfWar, MyPlayerState};
@@ -64,25 +68,67 @@ pub struct AmbientPlugin;
 impl Plugin for AmbientPlugin {
     fn build(&self, app: &mut App) {
         app
+            .add_plugins(Material2dPlugin::<CloudMaterial>::default())
             .add_systems(OnEnter(AppState::InGame), spawn_clouds)
             .add_systems(
                 Update,
-                (drift_clouds, emit_rain, fall_rain, hide_in_interiors)
+                (drift_clouds, update_cloud_shadows, update_cloud_tint, emit_rain, fall_rain, hide_in_interiors)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+/// Material for the lit cloud shader (`assets/shaders/cloud.wgsl`).
+/// Each cloud gets its own instance of this asset so per-cloud tint /
+/// alpha can vary live without leaking between clouds.
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub struct CloudMaterial {
+    #[uniform(0)]
+    pub params: CloudParams,
+    #[texture(1)]
+    #[sampler(2)]
+    pub texture: Handle<Image>,
+}
+
+#[derive(bevy::render::render_resource::ShaderType, Clone, Copy, Debug)]
+pub struct CloudParams {
+    /// rgb = sky tint, a = base alpha multiplier (per-cloud density).
+    pub tint: Vec4,
+    /// xyz = sun world position (matches DayNightCycle::light_pos),
+    /// w = unused.
+    pub sun_pos: Vec4,
+}
+
+impl Material2d for CloudMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/cloud.wgsl".into()
+    }
+    fn alpha_mode(&self) -> AlphaMode2d {
+        AlphaMode2d::Blend
     }
 }
 
 #[derive(Component)]
 struct Cloud {
     velocity: Vec2, // px per second
+    /// Alpha chosen at spawn, preserved so `update_cloud_tint` can
+    /// rewrite the Sprite color every frame (shifting hue with
+    /// time of day) without losing per-cloud density variation.
+    base_alpha: f32,
 }
 
 #[derive(Component)]
 struct CloudRoot; // tag on every cloud for easy show/hide
 
 #[derive(Component)]
-struct CloudShadow; // ground shadow, child of a CloudRoot
+struct CloudShadow {
+    /// Alpha chosen at spawn (based on the cloud's density). The
+    /// per-frame updater multiplies this by the day-ness factor so
+    /// shadows fade to nothing at night — moonlight is too weak to
+    /// cast a crisp shadow. Without storing this we'd lose the per-
+    /// cloud variation on the first frame.
+    base_alpha: f32,
+}
 
 /// Marker + emit-rate carry for rainy clouds. Accumulates fractional
 /// "drops owed" so non-integer per-frame emission rates work out.
@@ -201,12 +247,17 @@ fn fbm(x: f32, y: f32, seed: u32) -> f32 {
 fn spawn_clouds(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<CloudMaterial>>,
 ) {
     // Bake a few distinct fBm textures so clouds aren't identical
     // silhouettes. Different noise seeds = different shapes.
     let textures: Vec<Handle<Image>> = (0..CLOUD_VARIANTS)
         .map(|i| images.add(generate_cloud_image(0x1234 + i * 7919)))
         .collect();
+    // Single shared quad mesh sized to the cloud texture; each cloud's
+    // Transform.scale stretches it to its on-world size.
+    let mesh_handle = meshes.add(Rectangle::new(CLOUD_TEX_W as f32, CLOUD_TEX_H as f32));
 
     for i in 0..CLOUD_COUNT {
         let x = rand_range(0.0, world_px_w());
@@ -219,27 +270,28 @@ fn spawn_clouds(
         // pass adds only a small amount of haze. Rainy clouds slightly
         // opaquer + desaturated so they read as "the storm clouds".
         let alpha = if is_rainy { rand_range(0.35, 0.55) } else { rand_range(0.15, 0.30) };
-        let tint = if is_rainy {
-            Color::srgba(0.55, 0.58, 0.65, alpha)   // muted grey-blue
-        } else {
-            Color::srgba(1.0, 1.0, 1.0, alpha)
-        };
         let vx = rand_range(8.0, 14.0);
         let vy = rand_range(-1.0, 1.0); // tiny vertical drift for life
         let tex = textures[i % textures.len()].clone();
-        let mut cloud_entity = commands.spawn((
-            Sprite {
-                image: tex.clone(),
-                color: tint,
-                ..default()
+        // Per-cloud material — tint + sun_pos written every frame by
+        // update_cloud_tint. Initial values are placeholders.
+        let material = materials.add(CloudMaterial {
+            params: CloudParams {
+                tint: Vec4::new(1.0, 1.0, 1.0, alpha),
+                sun_pos: Vec4::new(0.0, 0.0, 8000.0, 0.0),
             },
+            texture: tex.clone(),
+        });
+        let mut cloud_entity = commands.spawn((
+            Mesh2d(mesh_handle.clone()),
+            MeshMaterial2d(material),
             // Scale only X/Y. Bevy's transform propagation multiplies a
             // child's local Z by the parent's scale.z; if we scaled Z
             // here too, the child shadow's local z=-19.5 would get
             // multiplied to -40+ and end up below the ground sprite
             // at z=0 — invisible. Scale.z is cosmetic for 2D sprites.
             Transform::from_xyz(x, y, 20.0).with_scale(Vec3::new(scale, scale, 1.0)),
-            Cloud { velocity: Vec2::new(vx, vy) },
+            Cloud { velocity: Vec2::new(vx, vy), base_alpha: alpha },
             CloudRoot,
         ));
         if is_rainy { cloud_entity.insert(RainyCloud::default()); }
@@ -253,23 +305,32 @@ fn spawn_clouds(
             // path markers (3.0), and the player (5.0). So the shadow
             // darkens the ground without dimming anything that's ON the
             // ground.
+            // Bumped multiplier + floor when cloud shadows started
+            // tracking the real sun — the prior static offset hid the
+            // shadow under the cloud, so lower alpha read OK; now the
+            // shadow falls beside the cloud and needs to actually darken
+            // the ground to register.
+            let base_alpha = (alpha * 1.6).max(0.40);
             p.spawn((
                 Sprite {
                     image: tex,
                     // Pure black reads as shadow (not haze / fog) without
-                    // going so deep it looks like smoke. `alpha * 1.3` with
-                    // a 0.25 floor — visible but subtle.
-                    //
-                    // For future weather: multiply `alpha * 1.3` by a
-                    // WeatherDarkness resource so overcast/rain makes
-                    // shadows denser without touching this literal.
-                    color: Color::srgba(0.0, 0.0, 0.0, (alpha * 1.3).max(0.25)),
+                    // going so deep it looks like smoke. `base_alpha` set
+                    // from cloud density + boosted a bit with a floor —
+                    // visible but subtle. The per-frame updater
+                    // (update_cloud_shadows) writes this into the color
+                    // every tick multiplied by the day-ness factor, so
+                    // shadows naturally fade out by night.
+                    color: Color::srgba(0.0, 0.0, 0.0, base_alpha),
                     ..default()
                 },
                 // Same "don't scale Z" rule — keep child z math exact.
-                Transform::from_xyz(12.0, -10.0, -19.5)
+                // Translation XY is re-written each frame by
+                // update_cloud_shadows to track the current sun
+                // direction; initial value doesn't matter much.
+                Transform::from_xyz(0.0, 0.0, -19.5)
                     .with_scale(Vec3::new(1.25, 1.25, 1.0)),
-                CloudShadow,
+                CloudShadow { base_alpha },
             ));
         });
     }
@@ -302,6 +363,116 @@ fn drift_clouds(
         // escape over long idle sessions.
         if tf.translation.y > 0.0 { tf.translation.y = 0.0; }
         if tf.translation.y < -wh { tf.translation.y = -wh; }
+    }
+}
+
+/// Per-frame: tint each cloud sprite with the sky color from the
+/// day/night cycle so clouds turn pink-orange at dusk/dawn and cool
+/// grey at night. Rainy clouds stay darker — multiplied by a fixed
+/// factor so they keep their "storm cloud" read without having to
+/// hand-tune two separate tint curves.
+fn update_cloud_tint(
+    cycle: Res<crate::daynight::DayNightCycle>,
+    debug: Res<crate::terrain::tilemap::DebugOptions>,
+    rainy: Query<(), With<RainyCloud>>,
+    clouds: Query<(Entity, &Cloud, &MeshMaterial2d<CloudMaterial>), With<CloudRoot>>,
+    mut materials: ResMut<Assets<CloudMaterial>>,
+) {
+    let tint = cycle.sky_tint();
+    // Sun position: F8 debug override or cycle. Mirrors the resolution
+    // order used by every other shader so they all see the same sun.
+    let sun_pos = if debug.debug_sun_enabled {
+        Vec4::new(debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z, 0.0)
+    } else {
+        let center = Vec2::new(world_px_w() / 2.0, -world_px_h() / 2.0);
+        let p = cycle.light_pos(center);
+        Vec4::new(p.x, p.y, p.z, 0.0)
+    };
+    for (entity, cloud, mat_handle) in &clouds {
+        // Rainy clouds are saturated-darker versions of the same hue,
+        // not a totally different color — that way they still shift
+        // pinker at dusk, just stay moodier overall.
+        let m = if rainy.contains(entity) { 0.60_f32 } else { 1.0 };
+        if let Some(mat) = materials.get_mut(&mat_handle.0) {
+            mat.params.tint = Vec4::new(tint.x * m, tint.y * m, tint.z * m, cloud.base_alpha);
+            mat.params.sun_pos = sun_pos;
+        }
+    }
+}
+
+/// Per-frame: project each cloud's shadow onto the ground using the
+/// current sun position. Longer shadows at dawn/dusk, tiny shadows at
+/// noon, nothing at night. The projection math treats the cloud as
+/// floating at `CLOUD_HEIGHT` world pixels above the ground; the
+/// light ray from sun through cloud continues to z=0 and the shadow
+/// sits there. Using a fake abstract height (not a real Z on the
+/// cloud entity) because top-down 2D has no true third dimension —
+/// this just controls how exaggerated the offset looks.
+fn update_cloud_shadows(
+    cycle: Res<crate::daynight::DayNightCycle>,
+    debug: Res<crate::terrain::tilemap::DebugOptions>,
+    clouds: Query<(&Transform, &Children), With<Cloud>>,
+    mut shadows: Query<(&mut Transform, &mut Sprite, &CloudShadow), Without<Cloud>>,
+) {
+    /// Cloud "height" for the projection. Taller = shadows get longer
+    /// faster as the sun moves toward horizon. Set high enough that
+    /// the computed offset is usually past the cloud sprite's own
+    /// footprint (cloud scale × 192 px / 2 ≈ 200 px across), so the
+    /// shadow visibly falls to the SIDE of the cloud instead of
+    /// disappearing under it.
+    const CLOUD_HEIGHT: f32 = 220.0;
+    /// Cap on shadow offset so near-horizon suns don't flick shadows
+    /// halfway across the map. With CLOUD_HEIGHT=220 the unclamped
+    /// offset would exceed this almost all day, so in practice this
+    /// sets the shadow distance at a fixed ~140 px in the direction
+    /// opposite the sun — trading realism for consistent visibility.
+    const MAX_OFFSET: f32 = 140.0;
+
+    let light = if debug.debug_sun_enabled {
+        Vec3::new(debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z)
+    } else {
+        let center = Vec2::new(world_px_w() / 2.0, -world_px_h() / 2.0);
+        cycle.light_pos(center)
+    };
+    // Opacity fades with day-ness: bright day → full shadow, midnight
+    // → zero. `night_alpha` is 0 at day / 1 at midnight so we invert.
+    let day_factor = (1.0 - cycle.night_alpha()).clamp(0.0, 1.0);
+
+    for (cloud_tf, children) in &clouds {
+        let cloud_pos = cloud_tf.translation;
+        let scale = cloud_tf.scale.x.max(0.1);
+        let to_sun = Vec3::new(
+            light.x - cloud_pos.x,
+            light.y - cloud_pos.y,
+            light.z.max(1.0),
+        );
+        let dir = to_sun.normalize();
+        // t = CLOUD_HEIGHT / dir.z — how far along -dir we travel to
+        // reach the ground. Clamped z floor keeps horizon-grazing
+        // suns from producing absurdly long shadows (divided by 0).
+        let t = CLOUD_HEIGHT / dir.z.max(0.3);
+        let mut world_ox = -dir.x * t;
+        let mut world_oy = -dir.y * t;
+        let len = (world_ox * world_ox + world_oy * world_oy).sqrt();
+        if len > MAX_OFFSET {
+            world_ox = world_ox / len * MAX_OFFSET;
+            world_oy = world_oy / len * MAX_OFFSET;
+        }
+        // Shadow is a child with the cloud scaled. Divide world offset
+        // by parent scale so the local translation produces the right
+        // world-space position after the parent's transform applies.
+        let local_ox = world_ox / scale;
+        let local_oy = world_oy / scale;
+
+        for child in children.iter() {
+            if let Ok((mut tf, mut sprite, shadow)) = shadows.get_mut(*child) {
+                tf.translation.x = local_ox;
+                tf.translation.y = local_oy;
+                // Preserve z (already -19.5 from spawn; overwrite to be safe).
+                tf.translation.z = -19.5;
+                sprite.color = Color::srgba(0.0, 0.0, 0.0, shadow.base_alpha * day_factor);
+            }
+        }
     }
 }
 

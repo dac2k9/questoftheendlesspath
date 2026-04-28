@@ -63,41 +63,22 @@ fn toggle_and_manage_overlay(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     mut debug: ResMut<super::tilemap::DebugOptions>,
-    world: Option<Res<WorldGrid>>,
-    mut images: ResMut<Assets<Image>>,
+    _world: Option<Res<WorldGrid>>,
+    _images: ResMut<Assets<Image>>,
     existing: Query<Entity, With<LightingOverlay>>,
 ) {
+    // F6 toggle still managed here so the keybind works, but the
+    // actual overlay is now spawned by `terrain_lighting.rs` as a
+    // GPU-lit Material2d that responds to the day/night cycle.
+    // This function just handles the key press + cleans up any
+    // leftover CPU overlay entities (shouldn't exist after the
+    // switch, but harmless if they do).
     if keys.just_pressed(KeyCode::F6) {
         debug.lighting_enabled = !debug.lighting_enabled;
     }
-
-    let want = debug.lighting_enabled;
-    let has = !existing.is_empty();
-    if want == has { return; }
-
-    if !want {
-        for e in &existing { commands.entity(e).despawn_recursive(); }
-        return;
+    for e in &existing {
+        commands.entity(e).despawn_recursive();
     }
-
-    // Spawn: generate the texture and place one Sprite covering the world.
-    let Some(world) = world else { return; };
-    let img = generate_lighting_image(&world);
-    let handle = images.add(img);
-    // Align with the MAP sprite's transform — tile_to_world puts tile
-    // (0, 0) at world (0, 0) as the tile's CENTER, not its top-left,
-    // so the whole map extent is offset by half a tile. Matching the
-    // same formula tilemap.rs uses keeps the overlay pixel-perfect
-    // aligned with the ground (previously drifted by TILE_PX/2 in
-    // each axis — visible as the shoreline bevel missing the real
-    // water edge).
-    let cx = (WORLD_W as f32 * TILE_PX) / 2.0 - TILE_PX / 2.0;
-    let cy = -(WORLD_H as f32 * TILE_PX) / 2.0 + TILE_PX / 2.0;
-    commands.spawn((
-        Sprite { image: handle, ..default() },
-        Transform::from_xyz(cx, cy, 0.3),
-        LightingOverlay,
-    ));
 }
 
 fn generate_lighting_image(world: &WorldGrid) -> Image {

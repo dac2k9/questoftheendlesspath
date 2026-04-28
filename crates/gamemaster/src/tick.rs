@@ -415,14 +415,23 @@ pub fn run_tick_dev(
                             .unwrap_or(false)
                     };
                     if !has_item {
-                        if let Ok(mut n) = shared_notifs.lock() {
-                            crate::push_notif(&mut n, player_id,
-                                format!("You need a {} to enter the darkness.",
-                                    crate::item_catalog().get(item_id)
-                                        .map(|d| d.display_name.clone())
-                                        .unwrap_or_else(|| item_id.to_string())));
+                        // Only push the "you need a torch" notification on the
+                        // tick the player ACTUALLY walked onto the entrance
+                        // tile. CaveEntrance triggers are re-triggerable (so
+                        // you can re-enter with another torch), which means
+                        // the trigger fires every tick while the player
+                        // stands on the tile — without this gate the banner
+                        // would repeat endlessly.
+                        if new_tile.is_some() {
+                            if let Ok(mut n) = shared_notifs.lock() {
+                                crate::push_notif(&mut n, player_id,
+                                    format!("You need a {} to enter the darkness.",
+                                        crate::item_catalog().get(item_id)
+                                            .map(|d| d.display_name.clone())
+                                            .unwrap_or_else(|| item_id.to_string())));
+                            }
+                            info!("[{}] cave entry blocked: missing {}", player.name, item_id);
                         }
-                        info!("[{}] cave entry blocked: missing {}", player.name, item_id);
                         continue;
                     }
                     // Consume one of the required item.
