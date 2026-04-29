@@ -177,11 +177,27 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
             continue;
         };
 
-        let distance_delta = match last_distance {
+        let raw_delta = match last_distance {
             Some(prev) => (seg.distance_m - prev).max(0.0) as f64,
             None => 0.0,
         };
         last_distance = Some(seg.distance_m);
+        // Sanity cap: max realistic real-world per-message delta is
+        // ~33 m (12 km/h × 10 s message gap). 50 m gives margin
+        // without ever rejecting legit data; anything beyond was a
+        // glitch in the upstream walker feed (occasionally spikes in
+        // tens of km, which inflated player.total_distance_m and
+        // jumped levels). Log when we drop a spike so we can tell.
+        const MAX_SANE_DELTA_M: f64 = 50.0;
+        let distance_delta = if raw_delta > MAX_SANE_DELTA_M {
+            tracing::warn!(
+                "[Walker bridge {}] dropping spike delta {:.1}m → {:.1}m (msg #{})",
+                player_id, raw_delta, MAX_SANE_DELTA_M, msg_count
+            );
+            MAX_SANE_DELTA_M
+        } else {
+            raw_delta
+        };
 
         // Rate limit: every 2 seconds
         if last_update.elapsed().as_secs_f32() < 2.0 && distance_delta < 1.0 {

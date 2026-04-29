@@ -231,8 +231,14 @@ Diagnostic / recovery:
 - Fogged tiles show "???" on hover, can't click to plan route
 
 ### Leveling
-- Walking distance = XP. Formula: `3 * N^3 + 70 * N` meters for level N
-- Lvl 2: 164m, Lvl 10: 3.7km, Lvl 30: 83km
+- Walking distance = XP. Curve is **geometric**, each level-up gap 10 %
+  larger than the last. Cumulative meters to reach level N:
+  `10000 · (1.1^(N−1) − 1)`. Source of truth: `questlib::leveling`.
+- Lvl 2: 1.0 km · Lvl 5: 4.6 km · Lvl 10: 13.6 km · Lvl 20: 51 km ·
+  Lvl 28: 121 km · Lvl 30: 164 km
+- (An older `3·N³ + 70·N` cubic formula was the original design — the
+  doc here used to quote those numbers but the code switched at some
+  point; the current geometric curve is what's running.)
 
 ### Ambient effects
 - **Clouds** drift across the overworld in `crates/gameclient/src/ambient.rs`.
