@@ -44,6 +44,16 @@ jobs:
       # we kick its deploy hook ourselves the moment the image is up.
       # Configure RENDER_DEPLOY_HOOK in repo Settings → Secrets:
       # Render Dashboard → service → Settings → "Deploy Hook" → copy URL.
+      #
+      # `secrets` context isn't usable in step-level `if:` directly, so
+      # we assign to an env var and check that in shell.
       - name: Trigger Render deploy
-        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
-        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+        env:
+          HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -n "$HOOK_URL" ]; then
+            curl -fsS -X POST "$HOOK_URL"
+            echo "Render deploy triggered"
+          else
+            echo "RENDER_DEPLOY_HOOK not set — manual deploy required"
+          fi
