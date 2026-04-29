@@ -711,17 +711,22 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                 }
                             }
                             questlib::items::ItemEffect::RevealFog { radius } => {
+                                // Update the player's fog bitfield in place — same
+                                // pattern used by EventOutcome::RevealFog elsewhere
+                                // in this file. Previously this branch dropped the
+                                // lock, returned early, and never actually revealed
+                                // anything (Explorer's Map looked silent to the
+                                // user).
                                 let px = player.map_tile_x as usize;
                                 let py = player.map_tile_y as usize;
-                                // Fog reveal handled via notification — tick loop will pick it up
-                                messages.push(format!("Revealed area (radius {})", radius));
-                                // Store for fog update
-                                drop(lock);
-                                // Can't easily access fog here — push a notification instead
-                                if let Ok(mut n) = notifs.lock() {
-                                    crate::push_notif(&mut n, &req.player_id, format!("Used {}! Area revealed.", def.map(|d| d.display_name.as_str()).unwrap_or("item")));
-                                }
-                                return ("200 OK", serde_json::to_string(&serde_json::json!({"ok": true, "reveal_fog": {"x": px, "y": py, "radius": radius}})).unwrap());
+                                let mut fog = if !player.revealed_tiles.is_empty() {
+                                    questlib::fog::FogBitfield::from_base64(&player.revealed_tiles).unwrap_or_default()
+                                } else {
+                                    questlib::fog::FogBitfield::new()
+                                };
+                                fog.reveal_radius(px, py, *radius as usize);
+                                player.revealed_tiles = fog.to_base64();
+                                messages.push(format!("revealed area (radius {})", radius));
                             }
                             // Equipment-only passive effect — ignored on consume.
                             questlib::items::ItemEffect::SpeedMultiplier { .. } => {}

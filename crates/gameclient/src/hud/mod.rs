@@ -367,7 +367,15 @@ fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font:
             .and_then(|id| catalog.get(id))
             .map(|d| d.display_name.as_str())
             .unwrap_or("(none)");
+        let lvl = equipped_id
+            .map(|id| state.item_upgrades.get(id).copied().unwrap_or(0))
+            .unwrap_or(0);
         let color = if equipped_id.is_some() { Color::srgb(0.7, 0.85, 1.0) } else { Color::srgb(0.4, 0.4, 0.4) };
+        let label_text = if lvl > 0 {
+            format!("{}: {} +{}", label, name, lvl)
+        } else {
+            format!("{}: {}", label, name)
+        };
 
         parent.spawn((
             Button,
@@ -376,7 +384,7 @@ fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font:
             InventoryItemRow(equipped_id.unwrap_or("").to_string()),
         )).with_children(|row| {
             row.spawn((
-                Text::new(format!("{}: {}", label, name)),
+                Text::new(label_text),
                 TextFont { font: font.0.clone(), font_size: 8.0, ..default() },
                 TextColor(color),
             ));
@@ -402,11 +410,15 @@ fn build_inventory_items(parent: &mut ChildBuilder, state: &MyPlayerState, font:
     for slot in &state.inventory {
         let def = catalog.get(&slot.item_id);
         let name = def.map(|d| d.display_name.as_str()).unwrap_or(&slot.item_id);
-        let text = if slot.quantity > 1 {
+        let lvl = state.item_upgrades.get(&slot.item_id).copied().unwrap_or(0);
+        let mut text = if slot.quantity > 1 {
             format!("{} x{}", name, slot.quantity)
         } else {
             name.to_string()
         };
+        if lvl > 0 {
+            text.push_str(&format!(" +{}", lvl));
+        }
         let color = def.map(|d| match d.category {
             questlib::items::ItemCategory::Consumable => Color::srgb(0.6, 0.9, 0.6),
             questlib::items::ItemCategory::Equipment => Color::srgb(0.6, 0.7, 1.0),
