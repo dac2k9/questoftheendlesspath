@@ -7,6 +7,7 @@ mod daynight;
 mod dialogue;
 mod hud;
 mod music;
+mod player_shadow;
 mod sfx;
 mod version;
 mod states;
@@ -71,6 +72,12 @@ pub fn start() {
         .add_plugins(music::MusicPlugin)
         .add_plugins(sfx::SfxPlugin)
         .add_plugins(ambient::AmbientPlugin)
+        // Player shadow disabled — the sprite-skew approach reads odd
+        // when the shadow is long (jagged scaling, visible padding gap
+        // hard to compensate cleanly across animation frames). Code
+        // kept for now so we can revisit; re-enable by adding the
+        // plugin back here.
+        // .add_plugins(player_shadow::PlayerShadowPlugin)
         .add_plugins(version::VersionPlugin)
         .insert_resource(UiHovered(false))
         .add_systems(Update, (detect_ui_hover, update_cursor))

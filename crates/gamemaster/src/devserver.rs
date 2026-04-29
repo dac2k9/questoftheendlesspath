@@ -502,30 +502,42 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
                     let current = (player.map_tile_x as usize, player.map_tile_y as usize);
-                    let new_meters = match player.location.interior_id() {
-                        Some(id) => {
-                            // Interior cost: every floor tile is flat floor_cost_m.
-                            let per_tile = interiors.get(id).map(|i| i.floor_cost_m).unwrap_or(40) as f64;
-                            match parsed.iter().position(|&t| t == current) {
-                                Some(idx) => idx as f64 * per_tile,
-                                None => 0.0,
-                            }
-                        }
-                        None => {
-                            // Overworld cost: accumulate each tile's biome cost,
-                            // taking roads into account (same function the route
-                            // advance logic uses).
-                            match parsed.iter().position(|&t| t == current) {
-                                Some(idx) => parsed[..idx].iter()
-                                    .map(|&(x, y)| questlib::route::tile_cost(
-                                        world.biome_at(x, y),
-                                        world.has_road_at(x, y),
-                                    ) as f64)
-                                    .sum(),
-                                None => 0.0,
-                            }
+                    let interior_per_tile: Option<f64> = player.location.interior_id()
+                        .map(|id| interiors.get(id).map(|i| i.floor_cost_m).unwrap_or(40) as f64);
+                    // Sum tile costs from start of `route` up to (but not
+                    // including) `idx`. Closure so we can call it for
+                    // both the OLD route (to recover partial progress)
+                    // and the NEW route (to compute the new base).
+                    let cost_to_idx = |route: &[(usize, usize)], idx: usize| -> f64 {
+                        match interior_per_tile {
+                            Some(per) => idx as f64 * per,
+                            None => route[..idx].iter()
+                                .map(|&(x, y)| questlib::route::tile_cost(
+                                    world.biome_at(x, y),
+                                    world.has_road_at(x, y),
+                                ) as f64)
+                                .sum(),
                         }
                     };
+                    // Recover sub-tile progress from the OLD route: meters
+                    // walked since the last full tile boundary. Without
+                    // this, re-routing while mid-tile snaps the player
+                    // back to the last confirmed tile center — what
+                    // looked like "pushed back to the last tile" in
+                    // testing.
+                    let old_parsed = questlib::route::parse_route_json(&player.planned_route)
+                        .unwrap_or_default();
+                    let partial = old_parsed.iter().position(|&t| t == current)
+                        .map(|i| (player.route_meters_walked - cost_to_idx(&old_parsed, i)).max(0.0))
+                        .unwrap_or(0.0);
+                    // New route_meters = costs up to current tile in the
+                    // new route + retained partial progress. If the
+                    // current tile isn't in the new route at all (rare —
+                    // client always starts the new route from the
+                    // current tile), fall back to 0.
+                    let new_meters = parsed.iter().position(|&t| t == current)
+                        .map(|idx| cost_to_idx(&parsed, idx) + partial)
+                        .unwrap_or(0.0);
                     player.planned_route = req.route;
                     player.route_meters_walked = new_meters;
                     return ("200 OK", r#"{"ok":true}"#.to_string());
