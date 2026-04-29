@@ -512,6 +512,9 @@ curl -s -X POST $BASE/admin/revoke_completion \
 
 - Persistent state on Render (free tier wipes dev_state.json on deploy)
 - LLM adventure skill (`/adventure` generates events from POI JSON)
+- **Mobile entities** (autonomous moving NPCs / monsters / animals) —
+  full design spec in `adventures/MOBILE_ENTITIES.md`. Targeted for the
+  next adventure; nothing built yet.
 - Real auth (currently /notifications only does a sanity check; anyone with a
   known player_id can poll that player's queue)
 - Delete or revive the excluded `walker` crate (currently dead-on-disk)

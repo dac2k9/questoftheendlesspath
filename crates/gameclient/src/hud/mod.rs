@@ -554,6 +554,7 @@ fn show_item_tooltip(
     mut commands: Commands,
     font: Res<GameFont>,
     catalog: Res<ItemCatalogRes>,
+    state: Res<MyPlayerState>,
     item_q: Query<(&Interaction, &InventoryItemRow)>,
     tooltip_q: Query<Entity, With<ItemTooltip>>,
     windows: Query<&Window>,
@@ -609,6 +610,24 @@ fn show_item_tooltip(
                 effect_lines.push(format!("+{}% speed for {} min", pct, duration_secs / 60));
             }
         }
+    }
+
+    // Forge-upgrade bonus on its own line. Per-slot effect mirrors the
+    // gameplay logic in `questlib::items::equipment_bonuses` /
+    // `equipment_speed_multiplier` so the tooltip number matches what
+    // the player actually has in combat / movement.
+    let lvl = state.item_upgrades.get(&row.0).copied().unwrap_or(0) as i32;
+    if lvl > 0 {
+        use questlib::items::EquipmentSlot::*;
+        let bonus = match def.slot {
+            Some(Weapon)    => format!("+{} ATK", lvl),
+            Some(Armor)     => format!("+{} DEF", lvl),
+            Some(Accessory) => format!("+{} HP",  2 * lvl),
+            Some(Feet)      => format!("+{}% movement speed", lvl),
+            Some(ToeRings)  => format!("+{} ATK", lvl),
+            None => format!("+{}", lvl),
+        };
+        effect_lines.push(format!("Forged +{}: {}", lvl, bonus));
     }
 
     commands.spawn((
