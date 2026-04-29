@@ -20,7 +20,7 @@ fn log(s: &str) {
 
 /// Must match the `?v=NNN` number in crates/gameclient/index.html.
 /// Bumped together by hand on every WASM rebuild.
-pub const CLIENT_VERSION: u32 = 302;
+pub const CLIENT_VERSION: u32 = 303;
 
 /// How often to poll the server for version. 10 s while we debug the
 /// banner not firing — bump back to 60 once it's verified working.
@@ -136,8 +136,9 @@ fn tick_poll(
 
 fn kick_off_fetch(slot: Arc<Mutex<Option<u32>>>) {
     wasm_bindgen_futures::spawn_local(async move {
-        log(&format!("[version] fetching /version (CLIENT_VERSION={})", CLIENT_VERSION));
-        let resp = match reqwest::Client::new().get("/version").send().await {
+        let url = crate::api_url("/version");
+        log(&format!("[version] fetching {} (CLIENT_VERSION={})", url, CLIENT_VERSION));
+        let resp = match reqwest::Client::new().get(&url).send().await {
             Ok(r) => r,
             Err(e) => {
                 log(&format!("[version] fetch failed: {:?}", e));

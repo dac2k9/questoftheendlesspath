@@ -219,7 +219,8 @@ fn poll_server_time(
 
 fn kick_off_fetch(slot: Arc<Mutex<Option<(f32, f32)>>>) {
     wasm_bindgen_futures::spawn_local(async move {
-        let Ok(resp) = reqwest::Client::new().get("/daynight").send().await else { return };
+        let url = crate::api_url("/daynight");
+        let Ok(resp) = reqwest::Client::new().get(&url).send().await else { return };
         let Ok(text) = resp.text().await else { return };
         let time_s = parse_field(&text, "\"time_s\":");
         let cycle_s = parse_field(&text, "\"cycle_seconds\":");
