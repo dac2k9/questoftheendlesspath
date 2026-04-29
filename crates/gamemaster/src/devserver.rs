@@ -824,20 +824,20 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
     // GET /version — returns the cache-bust number baked into index.html
     // (`?v=N` in the import line). Clients poll this and compare against
     // their own compiled-in CLIENT_VERSION to detect a stale bundle after
-    // a redeploy. Parsed once at process start and cached.
+    // a redeploy. Re-read on every request: the file is tiny, the
+    // endpoint is cold, and caching it caused stale-server bugs during
+    // local dev (long-running gamemaster keeps reporting the version it
+    // saw at boot even after index.html is bumped on disk).
     if first_line.starts_with("GET /version") {
-        static VERSION: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
-        let v = *VERSION.get_or_init(|| {
-            std::fs::read_to_string("crates/gameclient/index.html")
-                .ok()
-                .and_then(|s| s.find("gameclient.js?v=").map(|i| (s, i)))
-                .and_then(|(s, i)| {
-                    let tail = &s[i + "gameclient.js?v=".len()..];
-                    let n: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
-                    n.parse::<u32>().ok()
-                })
-                .unwrap_or(0)
-        });
+        let v = std::fs::read_to_string("crates/gameclient/index.html")
+            .ok()
+            .and_then(|s| s.find("gameclient.js?v=").map(|i| (s, i)))
+            .and_then(|(s, i)| {
+                let tail = &s[i + "gameclient.js?v=".len()..];
+                let n: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+                n.parse::<u32>().ok()
+            })
+            .unwrap_or(0);
         return ("200 OK", format!(r#"{{"version":{}}}"#, v));
     }
 
