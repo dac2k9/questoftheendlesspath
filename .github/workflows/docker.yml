@@ -38,3 +38,12 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Trigger Render to pull the freshly-pushed :latest image. Render's
+      # service is "Image" type which doesn't poll GHCR for changes, so
+      # we kick its deploy hook ourselves the moment the image is up.
+      # Configure RENDER_DEPLOY_HOOK in repo Settings → Secrets:
+      # Render Dashboard → service → Settings → "Deploy Hook" → copy URL.
+      - name: Trigger Render deploy
+        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
+        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
