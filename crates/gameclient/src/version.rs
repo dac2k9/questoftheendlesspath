@@ -9,17 +9,22 @@
 
 use bevy::prelude::*;
 use std::sync::{Arc, Mutex};
+use wasm_bindgen::JsValue;
 
 use crate::states::AppState;
 use crate::GameFont;
 
+fn log(s: &str) {
+    web_sys::console::log_1(&JsValue::from_str(s));
+}
+
 /// Must match the `?v=NNN` number in crates/gameclient/index.html.
 /// Bumped together by hand on every WASM rebuild.
-pub const CLIENT_VERSION: u32 = 301;
+pub const CLIENT_VERSION: u32 = 302;
 
-/// How often to poll the server for version. 60s is frequent enough that
-/// players notice a deploy within a minute without hammering the server.
-const POLL_INTERVAL_S: f32 = 60.0;
+/// How often to poll the server for version. 10 s while we debug the
+/// banner not firing — bump back to 60 once it's verified working.
+const POLL_INTERVAL_S: f32 = 10.0;
 
 pub struct VersionPlugin;
 
@@ -66,6 +71,7 @@ struct UpdateBanner;
 struct RefreshButton;
 
 fn spawn_banner(mut commands: Commands, font: Res<GameFont>) {
+    log("[version] spawn_banner ran (entered InGame)");
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -130,9 +136,22 @@ fn tick_poll(
 
 fn kick_off_fetch(slot: Arc<Mutex<Option<u32>>>) {
     wasm_bindgen_futures::spawn_local(async move {
-        let Ok(resp) = reqwest::Client::new().get("/version").send().await else { return };
-        let Ok(text) = resp.text().await else { return };
-        // Minimal parse — avoid pulling in serde_json structure for a 1-field object.
+        log(&format!("[version] fetching /version (CLIENT_VERSION={})", CLIENT_VERSION));
+        let resp = match reqwest::Client::new().get("/version").send().await {
+            Ok(r) => r,
+            Err(e) => {
+                log(&format!("[version] fetch failed: {:?}", e));
+                return;
+            }
+        };
+        let text = match resp.text().await {
+            Ok(t) => t,
+            Err(e) => {
+                log(&format!("[version] body read failed: {:?}", e));
+                return;
+            }
+        };
+        log(&format!("[version] response body: {}", text));
         let v = text.find("\"version\":")
             .and_then(|i| {
                 let tail = &text[i + "\"version\":".len()..];
@@ -142,6 +161,10 @@ fn kick_off_fetch(slot: Arc<Mutex<Option<u32>>>) {
                     .collect();
                 n.parse::<u32>().ok()
             });
+        match v {
+            Some(v) => log(&format!("[version] parsed server version = {} (client = {}, mismatch = {})", v, CLIENT_VERSION, v > CLIENT_VERSION)),
+            None => log("[version] failed to parse version from response"),
+        }
         if let (Some(v), Ok(mut g)) = (v, slot.lock()) { *g = Some(v); }
     });
 }
@@ -156,12 +179,20 @@ fn update_banner_visibility(
     if !state.mismatch {
         let srv = state.server_version.lock().ok().and_then(|g| *g);
         if let Some(v) = srv {
-            if v > CLIENT_VERSION { state.mismatch = true; }
+            if v > CLIENT_VERSION {
+                state.mismatch = true;
+                log(&format!("[version] mismatch detected — banner should appear (client={}, server={})", CLIENT_VERSION, v));
+            }
         }
     }
     let want_show = if state.mismatch { Visibility::Visible } else { Visibility::Hidden };
+    let mut count = 0;
     for mut vis in &mut banner_q {
+        count += 1;
         if *vis != want_show { *vis = want_show; }
+    }
+    if state.mismatch && count == 0 {
+        log("[version] mismatch=true but found 0 banner entities — spawn_banner likely never ran");
     }
 }
 
