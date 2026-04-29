@@ -106,6 +106,28 @@ on Render with a persistent disk mounted at `/data`).
 - `webgl2` feature required for Bevy in browser (WebGPU not supported everywhere)
 - `AssetPlugin { meta_check: AssetMetaCheck::Never }` — required for WASM asset loading
 
+## Deploy
+
+Production runs on Render at https://questoftheendlesspath-latest.onrender.com.
+The Render service is **Image-type** — it pulls a pre-built Docker image
+from GHCR rather than building from source.
+
+Pipeline (fully automatic on push to `main`):
+
+1. `git push` to `main`
+2. `.github/workflows/docker.yml` builds the multi-stage Dockerfile and
+   pushes the image to GHCR with `:latest` and `:<sha>` tags
+3. The same workflow then `curl`s Render's Deploy Hook URL (stored as the
+   `RENDER_DEPLOY_HOOK` GitHub Actions secret), which kicks off a deploy
+   that pulls the new `:latest`
+4. Render builds in ~2-4 min; the version banner on already-loaded clients
+   notices and shows the Refresh button after the next `/version` poll
+
+If the Deploy Hook step ever stops working, the workflow's curl step is
+gated on the secret being non-empty, so the build itself still succeeds —
+fall back to **Render dashboard → Manual Deploy → Deploy latest reference**
+in the meantime, then check why the secret got cleared.
+
 ## Walker bridge (treadmill → gamemaster)
 
 The gamemaster opens a WebSocket to `wss://walker.akerud.se/ws/live/<walker_uuid>`
