@@ -1104,14 +1104,22 @@ fn handle_map_click(
                 // truth for distance).
                 marker_skip = tile_index_from_meters(&display_route.waypoints, state.route_meters, &world);
             } else {
-                // Fresh route from current position — clear & reset local state.
+                // Fresh route from current position — keep the player's
+                // current sub-tile progress so re-routing mid-tile doesn't
+                // snap them back to the last confirmed tile center. The
+                // server's /set_route does the same thing on its side
+                // (preserves partial progress when the player's current
+                // tile is in the new route, which it always is here);
+                // matching the client avoids a visible flash of "snapped
+                // back" between the local update and the next server poll.
                 display_route.waypoints = segment;
-                state.route_meters = 0.0;
-                interp.start_meters = 0.0;
-                interp.target_meters = 0.0;
+                let cur = interp.current_meters();
+                state.route_meters = cur;
+                interp.start_meters = cur;
+                interp.target_meters = cur;
                 interp.elapsed = 0.0;
                 interp.duration = 0.0;
-                marker_skip = 0;
+                marker_skip = tile_index_from_meters(&display_route.waypoints, cur, &world);
             }
             display_route.locally_modified = true;
             state.route = display_route.waypoints.clone();
