@@ -356,7 +356,7 @@ impl Default for DebugOptions {
             // Default bumped from the old hardcoded 9 so mountains
             // read more strongly out of the box.
             terrain_height_amp: 80.0,
-            fog_shadow_height_px: 16.0,
+            fog_shadow_height_px: 4.0,
             tile_z_factor: 0.5,
             procedural_terrain_enabled: true,
             procedural_test_mode: false,

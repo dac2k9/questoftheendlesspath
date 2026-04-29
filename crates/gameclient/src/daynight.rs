@@ -69,14 +69,23 @@ pub struct DayNightCycle {
 
 impl Default for DayNightCycle {
     fn default() -> Self {
+        // 5-minute cycle (2.5 min day + 2.5 min night). Server-
+        // synced via /daynight, so bumping this in isolation does
+        // nothing — keep it in sync with devserver's CYCLE_SECONDS.
+        let cycle_seconds: f32 = 300.0;
+        // Seed `time_s` from the browser's wall clock so the very
+        // first frame is already at the right cycle position. Without
+        // this we'd default to 0 (dawn) and players would see a brief
+        // dawn flash on every reload before the async /daynight poll
+        // (~100 ms later) snapped to the server's wall-clock value.
+        // Server sync still corrects any drift from this estimate
+        // every 60 s.
+        let now_ms = js_sys::Date::now();
+        let now_secs = now_ms / 1000.0;
+        let time_s = now_secs.rem_euclid(cycle_seconds as f64) as f32;
         Self {
-            // 5-minute cycle (2.5 min day + 2.5 min night). Server-
-            // synced via /daynight, so bumping this in isolation does
-            // nothing — keep it in sync with devserver's CYCLE_SECONDS.
-            cycle_seconds: 300.0,
-            // Start at dawn so a fresh load sees the full sunrise
-            // transition first.
-            time_s: 0.0,
+            cycle_seconds,
+            time_s,
         }
     }
 }
