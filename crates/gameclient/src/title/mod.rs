@@ -40,6 +40,79 @@ struct LoginResult {
     player_id: String,
     name: String,
     champion: String,
+    /// Carried through so we can stash it in localStorage for
+    /// auto-rejoin on the next page load.
+    walker_uuid: String,
+}
+
+// ── localStorage session persistence ────────────────
+//
+// Save the four fields needed to rejoin: player_id, name, champion,
+// walker_uuid. On the next page load `spawn_title` reads them, fires a
+// silent /join with the same data, and skips straight to the InGame
+// state so the user doesn't have to pick walker + champion again.
+
+const LS_PLAYER_ID: &str = "qotep.player_id";
+const LS_PLAYER_NAME: &str = "qotep.player_name";
+const LS_CHAMPION: &str = "qotep.champion";
+const LS_WALKER_UUID: &str = "qotep.walker_uuid";
+
+fn save_session(player_id: &str, name: &str, champion: &str, walker_uuid: &str) {
+    let Some(window) = web_sys::window() else { return };
+    let Ok(Some(storage)) = window.local_storage() else { return };
+    let _ = storage.set_item(LS_PLAYER_ID, player_id);
+    let _ = storage.set_item(LS_PLAYER_NAME, name);
+    let _ = storage.set_item(LS_CHAMPION, champion);
+    let _ = storage.set_item(LS_WALKER_UUID, walker_uuid);
+}
+
+fn load_session() -> Option<(String, String, String, String)> {
+    let window = web_sys::window()?;
+    let storage = window.local_storage().ok()??;
+    let pid = storage.get_item(LS_PLAYER_ID).ok()??;
+    let name = storage.get_item(LS_PLAYER_NAME).ok()??;
+    let champion = storage.get_item(LS_CHAMPION).ok()??;
+    let walker_uuid = storage.get_item(LS_WALKER_UUID).ok()??;
+    if pid.is_empty() || name.is_empty() || champion.is_empty() || walker_uuid.is_empty() {
+        return None;
+    }
+    Some((pid, name, champion, walker_uuid))
+}
+
+/// Re-do a /join with the saved walker_uuid + name + champion. Server
+/// recognizes the walker_uuid and returns the matching player_id (or a
+/// fresh one if state was wiped). On success the result lands in the
+/// shared `pending.result` slot, where `check_login_result` picks it up
+/// and transitions to InGame just like a manual login.
+fn kick_off_auto_login(
+    name: String,
+    champion: String,
+    walker_uuid: String,
+    result_ref: Arc<Mutex<Option<LoginResult>>>,
+) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let client = reqwest::Client::new();
+        let url = crate::api_url("/join");
+        let body = serde_json::json!({
+            "name": name,
+            "walker_uuid": walker_uuid,
+            "champion": champion,
+        });
+        let Ok(resp) = client.post(&url).json(&body).send().await else { return };
+        let Ok(text) = resp.text().await else { return };
+        let Ok(data) = serde_json::from_str::<serde_json::Value>(&text) else { return };
+        let Some(pid) = data.get("player_id").and_then(|v| v.as_str()) else { return };
+        let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
+        let champ = data.get("champion").and_then(|v| v.as_str()).unwrap_or(&champion);
+        if let Ok(mut lock) = result_ref.lock() {
+            *lock = Some(LoginResult {
+                player_id: pid.to_string(),
+                name: pname.to_string(),
+                champion: champ.to_string(),
+                walker_uuid: walker_uuid.clone(),
+            });
+        }
+    });
 }
 
 #[derive(Clone)]
@@ -99,10 +172,57 @@ fn setup_font(mut commands: Commands, mut fonts: ResMut<Assets<Font>>) {
     commands.insert_resource(GameFont(font));
 }
 
-fn spawn_title(mut commands: Commands, font: Res<GameFont>) {
+fn spawn_title(mut commands: Commands, font: Res<GameFont>, mut pending: ResMut<PendingLogin>) {
     let f = font.0.clone();
 
     commands.insert_resource(GameSession::default());
+
+    // If we have a saved session in localStorage from a previous play
+    // session, skip the walker + champion pickers entirely. Kick off a
+    // silent /join with the saved data and show a "Reconnecting…"
+    // screen; check_login_result will transition us to InGame as soon
+    // as the response lands.
+    if let Some((pid, name, champion, walker_uuid)) = load_session() {
+        pending.waiting = true;
+        kick_off_auto_login(
+            name.clone(),
+            champion.clone(),
+            walker_uuid,
+            pending.result.clone(),
+        );
+        commands.spawn((
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(12.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.06, 0.06, 0.12)),
+            TitleScreen,
+        )).with_children(|parent| {
+            parent.spawn((
+                Text::new(format!("Welcome back, {}", name)),
+                TextFont { font: f.clone(), font_size: 14.0, ..default() },
+                TextColor(Color::srgb(1.0, 0.85, 0.3)),
+            ));
+            parent.spawn((
+                Text::new(format!("({})", champion)),
+                TextFont { font: f.clone(), font_size: 9.0, ..default() },
+                TextColor(Color::srgb(0.55, 0.55, 0.65)),
+            ));
+            parent.spawn((
+                Text::new("Reconnecting..."),
+                TextFont { font: f.clone(), font_size: 8.0, ..default() },
+                TextColor(Color::srgb(0.4, 0.4, 0.4)),
+                Node { margin: UiRect::top(Val::Px(20.0)), ..default() },
+            ));
+        });
+        log::info!("[auto-login] resuming session player_id={} champion={}", pid, champion);
+        return;
+    }
 
     commands.spawn((
         Node {
@@ -453,6 +573,7 @@ fn handle_champion_click(
                                         player_id: pid.to_string(),
                                         name: pname.to_string(),
                                         champion: champ.to_string(),
+                                        walker_uuid: walker_id.clone(),
                                     });
                                 }
                                 return;
@@ -483,6 +604,8 @@ fn check_login_result(
     };
     if let Some(r) = result {
         pending.waiting = false;
+        // Save before mutating r — avoids cloning the strings twice.
+        save_session(&r.player_id, &r.name, &r.champion, &r.walker_uuid);
         session.player_id = r.player_id;
         session.player_name = r.name;
         session.champion = r.champion;
