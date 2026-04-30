@@ -1,6 +1,7 @@
 mod combat;
 mod devserver;
 mod interior;
+mod mobile_entity;
 mod tick;
 mod walker_bridge;
 
@@ -185,6 +186,24 @@ async fn main() -> Result<()> {
     let interiors: interior::SharedInteriors = Arc::new(interior::load_interiors(&interiors_dir)?);
     info!("Loaded {} interior(s) from {}", interiors.len(), interiors_dir);
 
+    // Mobile entities (wandering NPCs / monsters / animals). Authored
+    // defs are read-only; runtime state is mutable per tick. See
+    // adventures/MOBILE_ENTITIES.md for the design.
+    let entities_path = std::env::var("ENTITIES_PATH")
+        .unwrap_or_else(|_| "adventures/seed12345_entities.json".to_string());
+    let entity_defs: mobile_entity::SharedEntityDefs =
+        Arc::new(mobile_entity::load_entities(&entities_path)?);
+    info!("Loaded {} mobile entit{} from {}",
+        entity_defs.len(),
+        if entity_defs.len() == 1 { "y" } else { "ies" },
+        entities_path,
+    );
+    let entity_states: mobile_entity::SharedEntityStates =
+        Arc::new(Mutex::new(HashMap::new()));
+    if let Ok(mut s) = entity_states.lock() {
+        mobile_entity::ensure_states(&entity_defs, &mut s);
+    }
+
     // Save path is configurable via SAVE_PATH. On Render, set this to a path
     // inside a mounted persistent disk (e.g. "/data/dev_state.json") so state
     // survives redeploys. Locally, defaults to the working directory.
@@ -356,6 +375,22 @@ async fn main() -> Result<()> {
                 ) {
                     error!("Tick error: {e:#}");
                 }
+
+                // Mobile entities advance after player ticks so a Step-6
+                // contact trigger can use the freshly-updated player
+                // positions. Independent rng stream so entity randomness
+                // doesn't drag against the player-tick rng.
+                let now_unix_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                mobile_entity::tick_entities(
+                    &entity_defs,
+                    &entity_states,
+                    &world,
+                    now_unix_ms,
+                    &mut rng_state,
+                );
 
                 // Wake all long-polling clients — they get fresh post-tick state
                 tick_signal.tick();

@@ -175,7 +175,10 @@ pub enum BehaviorState {
 }
 
 impl BehaviorState {
-    fn for_behavior(b: &Behavior) -> Self {
+    /// Initial behavior-specific state for a fresh entity (or one that
+    /// just respawned). Public so the server can rebuild it on
+    /// respawn without reaching through `MobileEntityState::from_def`.
+    pub fn for_behavior(b: &Behavior) -> Self {
         match b {
             Behavior::Wander { .. } => BehaviorState::Wander,
             Behavior::Patrol { .. } => BehaviorState::Patrol { idx: 0, forward: true },
