@@ -45,13 +45,23 @@ pub fn load_entities(path: &str) -> Result<HashMap<String, MobileEntityDef>> {
 
 /// Ensure every authored entity has matching runtime state, and drop
 /// runtime state for entities whose definitions disappeared (renamed
-/// or removed in JSON). Idempotent — safe to call on every startup.
+/// or removed in JSON). Also re-inits any entity whose saved
+/// `spawn` no longer matches its def — that happens when the author
+/// edits the JSON spawn coords, and without this check the entity
+/// stays pinned to its old saved position forever. Idempotent —
+/// safe to call on every startup.
 pub fn ensure_states(
     defs: &HashMap<String, MobileEntityDef>,
     states: &mut HashMap<String, MobileEntityState>,
 ) {
     for (id, def) in defs.iter() {
-        states.entry(id.clone()).or_insert_with(|| MobileEntityState::from_def(def));
+        let needs_reset = match states.get(id) {
+            None => true,
+            Some(s) => s.spawn != def.spawn,
+        };
+        if needs_reset {
+            states.insert(id.clone(), MobileEntityState::from_def(def));
+        }
     }
     states.retain(|id, _| defs.contains_key(id));
 }
@@ -506,6 +516,32 @@ mod tests {
     }
 
     #[test]
+    fn ensure_states_resets_when_spawn_edited() {
+        // Saved state at (5, 5), but the def has been edited to spawn
+        // somewhere else (the author moved the entity). ensure_states
+        // should detect the mismatch and re-init.
+        let mut defs = HashMap::new();
+        defs.insert("a".into(), wolf_at((100, 100), 4));
+        let mut states = HashMap::new();
+        states.insert(
+            "a".into(),
+            MobileEntityState {
+                current: (5, 5),
+                spawn: (5, 5), // mirrors what the def used to say
+                facing: Facing::Down,
+                last_step_unix_ms: 0,
+                behavior_state: BehaviorState::Wander,
+                alive: true,
+                respawn_at_unix_ms: 0,
+                nearby_players: Vec::new(),
+            },
+        );
+        ensure_states(&defs, &mut states);
+        assert_eq!(states["a"].current, (100, 100));
+        assert_eq!(states["a"].spawn, (100, 100));
+    }
+
+    #[test]
     fn ensure_states_prunes_orphans() {
         let defs: HashMap<String, MobileEntityDef> = HashMap::new();
         let mut states = HashMap::new();
@@ -558,6 +594,7 @@ mod tests {
             "a".into(),
             MobileEntityState {
                 current: (5, 5),
+                spawn: (20, 20),
                 facing: Facing::Down,
                 last_step_unix_ms: 0,
                 behavior_state: BehaviorState::Wander,

@@ -121,6 +121,13 @@ pub enum ContactAction {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MobileEntityState {
     pub current: (usize, usize),
+    /// Mirror of `MobileEntityDef.spawn` at the moment this state was
+    /// created. `ensure_states` compares this against the current def
+    /// each startup; a mismatch (author edited the JSON spawn coords)
+    /// triggers a fresh `from_def` re-init, so manual JSON edits
+    /// don't get pinned to the saved-position forever.
+    #[serde(default)]
+    pub spawn: (usize, usize),
     pub facing: Facing,
     /// Server-monotonic clock, ms since unix epoch. The tick checks
     /// `now − last_step_unix_ms ≥ step_interval_ms` to know when this
@@ -150,6 +157,7 @@ impl MobileEntityState {
     pub fn from_def(def: &MobileEntityDef) -> Self {
         Self {
             current: def.spawn,
+            spawn: def.spawn,
             facing: Facing::Down,
             last_step_unix_ms: 0,
             behavior_state: BehaviorState::for_behavior(&def.behavior),
@@ -345,6 +353,7 @@ mod tests {
     fn state_roundtrip() {
         let s = MobileEntityState {
             current: (12, 14),
+            spawn: (10, 10),
             facing: Facing::Right,
             last_step_unix_ms: 1745000000000,
             behavior_state: BehaviorState::Patrol { idx: 2, forward: false },
