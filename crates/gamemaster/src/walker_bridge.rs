@@ -30,6 +30,13 @@ struct Segment {
     moving: bool,
     speed_kmh: f32,
     distance_m: f32,
+    /// Segment identifier — changes whenever the user's state (walking/idle,
+    /// speed, incline) changes. We use this to detect segment transitions
+    /// and reset our delta baseline; without it, going idle→walking
+    /// produces a phantom delta = (new segment's full distance − previous
+    /// segment's distance), inflating total_distance_m.
+    #[serde(default)]
+    started_at: String,
 }
 
 /// Build the walker config from environment variables.
@@ -90,7 +97,11 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
     info!("[Walker bridge {}] Connected", player_id);
 
     let (mut write, mut read) = ws_stream.split();
+    // `last_distance` only makes sense within a single segment — when
+    // segment.started_at changes, we adopt the new segment's distance_m
+    // as a fresh baseline (no delta produced for that message).
     let mut last_distance: Option<f32> = None;
+    let mut last_started_at: Option<String> = None;
     let mut last_update = Instant::now();
     let mut last_movement = Instant::now(); // last time distance actually changed
     // Flip on per-bridge message tracing by setting WALKER_BRIDGE_TRACE=1.
@@ -168,6 +179,7 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
             // Segment closed (belt stopped)
             info!("[Walker bridge {}] STOPPED (msg #{})", player_id, msg_count);
             last_distance = None;
+            last_started_at = None;
             if let Ok(mut lock) = state.lock() {
                 if let Some(player) = lock.get_mut(player_id) {
                     player.current_speed_kmh = 0.0;
@@ -177,17 +189,37 @@ async fn run_bridge(state: &SharedState, player_id: &str, walker_user_id: &str) 
             continue;
         };
 
-        let raw_delta = match last_distance {
-            Some(prev) => (seg.distance_m - prev).max(0.0) as f64,
-            None => 0.0,
+        // Detect segment transitions. A segment is one continuous slice
+        // where state (walking/idle, speed, incline) is constant —
+        // changing any of those closes the current segment and opens a
+        // new one with its own `distance_m` counter. Computing
+        // current.distance_m − previous.distance_m across that boundary
+        // produces a phantom delta = the entire new segment's distance
+        // (e.g. idle 0 → walking 5 km = +5 km in one tick), which
+        // inflates total_distance_m and skips the player ahead in
+        // levels. On a transition we re-baseline without producing a
+        // delta.
+        let segment_changed = match &last_started_at {
+            Some(prev) => *prev != seg.started_at,
+            None => false,
+        };
+        let raw_delta = if last_distance.is_none() || segment_changed {
+            if segment_changed && trace {
+                info!("[Walker bridge {}] segment changed → rebaseline (was {:?}, now {})",
+                    player_id, last_started_at, seg.started_at);
+            }
+            0.0
+        } else {
+            let prev = last_distance.unwrap();
+            (seg.distance_m - prev).max(0.0) as f64
         };
         last_distance = Some(seg.distance_m);
-        // Sanity cap: max realistic real-world per-message delta is
-        // ~33 m (12 km/h × 10 s message gap). 50 m gives margin
-        // without ever rejecting legit data; anything beyond was a
-        // glitch in the upstream walker feed (occasionally spikes in
-        // tens of km, which inflated player.total_distance_m and
-        // jumped levels). Log when we drop a spike so we can tell.
+        last_started_at = Some(seg.started_at.clone());
+
+        // Defense-in-depth cap. With segment-aware deltas the legit max
+        // is roughly 33 m (12 km/h × 10 s). 50 m gives margin without
+        // rejecting realistic data; if anything ever beats this it's a
+        // glitch in the upstream feed (segment_changed missed, etc.).
         const MAX_SANE_DELTA_M: f64 = 50.0;
         let distance_delta = if raw_delta > MAX_SANE_DELTA_M {
             tracing::warn!(

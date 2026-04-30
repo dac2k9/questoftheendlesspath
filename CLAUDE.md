@@ -134,6 +134,19 @@ The gamemaster opens a WebSocket to `wss://walker.akerud.se/ws/live/<walker_uuid
 per player and translates Walker's segment updates into `is_walking` /
 `current_speed_kmh` / `total_distance_m` on `DevPlayerState`.
 
+**Segment semantics (important).** A *segment* in the walker feed is a
+continuous period where state is constant — same walking/idle, speed,
+incline. Any state change closes the current segment and opens a new
+one. `segment.distance_m` only reflects movement *within that segment*,
+not cumulative across the day. The bridge tracks `segment.started_at`
+and **re-baselines `last_distance` whenever it changes**; without that,
+naively computing `current.distance_m − previous.distance_m` across a
+segment boundary produces a phantom delta equal to the full new
+segment's distance, inflating `total_distance_m` by anywhere from a
+few meters to a few km in a single tick (and skipping multiple levels).
+The same reset happens on initial connect / reconnect. There is also a
+50-m defense-in-depth cap on per-message deltas after that.
+
 This is the **only** path that writes treadmill-derived data into game state.
 The legacy `POST /walker_update` HTTP endpoint — which the excluded `walker/`
 crate used to call with client-supplied `distance` — was removed: it was
