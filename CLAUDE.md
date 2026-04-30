@@ -551,7 +551,6 @@ curl -s -X POST $BASE/admin/revoke_completion \
 
 ## TODO
 
-- Persistent state on Render (free tier wipes dev_state.json on deploy)
 - LLM adventure skill (`/adventure` generates events from POI JSON)
 - **Mobile entities** (autonomous moving NPCs / monsters / animals) —
   full design spec in `adventures/MOBILE_ENTITIES.md`. Targeted for the

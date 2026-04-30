@@ -5,4 +5,5 @@ pub mod interior;
 pub mod items;
 pub mod leveling;
 pub mod mapgen;
+pub mod mobile_entity;
 pub mod route;
