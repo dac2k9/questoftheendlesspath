@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result};
 use questlib::mapgen::WorldMap;
 use questlib::mobile_entity::{
-    parse_entities_json, Behavior, BehaviorState, Facing, MobileEntityDef,
+    parse_entities_json, Behavior, BehaviorState, Facing, LoopMode, MobileEntityDef,
     MobileEntityState,
 };
 
@@ -112,19 +112,140 @@ pub fn tick_entities(
     }
 }
 
+/// Pick the next tile for an entity. Returns `None` if the entity has
+/// nowhere to go this tick (genuinely stuck — it'll retry next tick).
+/// Returns `Some(state.current)` if the entity is intentionally
+/// staying put (e.g. patrol with one waypoint, already at it).
 fn pick_next_tile(
     def: &MobileEntityDef,
-    state: &MobileEntityState,
+    state: &mut MobileEntityState,
     world: &WorldMap,
     rng_state: &mut u64,
 ) -> Option<(usize, usize)> {
     match &def.behavior {
         Behavior::Wander { radius } => pick_wander(def, state, world, *radius, rng_state),
-        // Step 5 implements this. Returning current keeps the entity
-        // stationary in the meantime — fine for testing the rest of
-        // the pipeline.
-        Behavior::Patrol { .. } => Some(state.current),
+        Behavior::Patrol { waypoints, loop_mode } => {
+            pick_patrol(state, world, waypoints, *loop_mode)
+        }
     }
+}
+
+/// Patrol: take one walkable step toward `waypoints[idx]`. On
+/// reaching that waypoint, advance idx according to LoopMode (Wrap or
+/// Bounce) and target the next.
+fn pick_patrol(
+    state: &mut MobileEntityState,
+    world: &WorldMap,
+    waypoints: &[(usize, usize)],
+    loop_mode: LoopMode,
+) -> Option<(usize, usize)> {
+    if waypoints.is_empty() {
+        return None;
+    }
+    // Pull mutable patrol state out of the entity. If the saved state
+    // is the wrong variant (e.g. entity definition switched from
+    // Wander to Patrol mid-run), reset to a fresh patrol.
+    let (mut idx, mut forward) = match state.behavior_state {
+        BehaviorState::Patrol { idx, forward } => (idx, forward),
+        _ => (0, true),
+    };
+    if idx >= waypoints.len() {
+        idx = 0;
+        forward = true;
+    }
+    // If we're already at the current waypoint, advance the index
+    // first so we have a fresh target this tick.
+    if state.current == waypoints[idx] {
+        let (next_idx, next_forward) = advance_patrol_idx(idx, forward, waypoints.len(), loop_mode);
+        idx = next_idx;
+        forward = next_forward;
+    }
+    state.behavior_state = BehaviorState::Patrol { idx, forward };
+    let target = waypoints[idx];
+    if state.current == target {
+        return Some(state.current);
+    }
+    one_step_toward(state.current, target, world)
+}
+
+fn advance_patrol_idx(
+    idx: usize,
+    forward: bool,
+    len: usize,
+    loop_mode: LoopMode,
+) -> (usize, bool) {
+    if len <= 1 {
+        return (0, true);
+    }
+    match loop_mode {
+        LoopMode::Wrap => ((idx + 1) % len, true),
+        LoopMode::Bounce => {
+            if forward {
+                if idx + 1 >= len {
+                    (idx.saturating_sub(1), false)
+                } else {
+                    (idx + 1, true)
+                }
+            } else if idx == 0 {
+                (1.min(len - 1), true)
+            } else {
+                (idx - 1, false)
+            }
+        }
+    }
+}
+
+/// Take a single walkable cardinal step from `from` toward `to`.
+/// Greedy heuristic — picks the axis with the largest delta first,
+/// falling back to the other axis if the preferred neighbor isn't
+/// walkable. Returns `None` if both candidate steps are blocked
+/// (entity stays put for a tick, retries on the next).
+fn one_step_toward(
+    from: (usize, usize),
+    to: (usize, usize),
+    world: &WorldMap,
+) -> Option<(usize, usize)> {
+    let dx = to.0 as i32 - from.0 as i32;
+    let dy = to.1 as i32 - from.1 as i32;
+    let mut tries: [(i32, i32); 2] = [(0, 0), (0, 0)];
+    if dx.abs() >= dy.abs() {
+        if dx != 0 {
+            tries[0] = (dx.signum(), 0);
+        }
+        if dy != 0 {
+            tries[1] = (0, dy.signum());
+        }
+    } else {
+        if dy != 0 {
+            tries[0] = (0, dy.signum());
+        }
+        if dx != 0 {
+            tries[1] = (dx.signum(), 0);
+        }
+    }
+    for (sx, sy) in &tries {
+        if *sx == 0 && *sy == 0 {
+            continue;
+        }
+        let nx = from.0 as i32 + sx;
+        let ny = from.1 as i32 + sy;
+        if nx < 0
+            || ny < 0
+            || (nx as usize) >= world.width
+            || (ny as usize) >= world.height
+        {
+            continue;
+        }
+        let cost = questlib::route::tile_cost(
+            world.biome_at(nx as usize, ny as usize),
+            world.has_road_at(nx as usize, ny as usize),
+        );
+        if cost == u32::MAX {
+            continue;
+        }
+        return Some((nx as usize, ny as usize));
+    }
+    None
 }
 
 /// Wander: pick a random walkable cardinal neighbor. If currently
@@ -299,6 +420,71 @@ mod tests {
         assert!(s.alive);
         assert_eq!(s.current, (20, 20));
         assert_eq!(s.respawn_at_unix_ms, 0);
+    }
+
+    fn patrol_at(spawn: (usize, usize), waypoints: Vec<(usize, usize)>, mode: LoopMode) -> MobileEntityDef {
+        MobileEntityDef {
+            id: "p1".into(),
+            kind: EntityKind::Npc,
+            sprite: "skeleton_soldier".into(),
+            spawn,
+            behavior: Behavior::Patrol { waypoints, loop_mode: mode },
+            // 60_000 tpm = 1 tile / ms, so each tick advances exactly
+            // once when the test bumps now_unix_ms by 1 per call.
+            movement: Movement { speed_tiles_per_min: 60_000 },
+            on_contact: ContactAction::None,
+            respawn_after_secs: None,
+        }
+    }
+
+    #[test]
+    fn patrol_walks_through_waypoints_wrap() {
+        let world = flat_world();
+        let mut defs = HashMap::new();
+        // Short loop: (50,40) → (52,40) → (52,42) → wrap.
+        defs.insert(
+            "p1".into(),
+            patrol_at((50, 40), vec![(50, 40), (52, 40), (52, 42)], LoopMode::Wrap),
+        );
+        let states = Arc::new(Mutex::new(HashMap::new()));
+        ensure_states(&defs, &mut states.lock().unwrap());
+        let mut rng = 1u64;
+        let mut visited = std::collections::HashSet::new();
+        for i in 0..40 {
+            tick_entities(&defs, &states, &world, i + 1, &mut rng);
+            visited.insert(states.lock().unwrap()["p1"].current);
+        }
+        // All three waypoints should have been touched.
+        assert!(visited.contains(&(50, 40)));
+        assert!(visited.contains(&(52, 40)));
+        assert!(visited.contains(&(52, 42)));
+    }
+
+    #[test]
+    fn patrol_bounce_reverses_at_endpoints() {
+        let world = flat_world();
+        let mut defs = HashMap::new();
+        defs.insert(
+            "p1".into(),
+            patrol_at((30, 30), vec![(30, 30), (32, 30)], LoopMode::Bounce),
+        );
+        let states = Arc::new(Mutex::new(HashMap::new()));
+        ensure_states(&defs, &mut states.lock().unwrap());
+        let mut rng = 1u64;
+        // Step long enough that we should reach (32, 30), then bounce back.
+        let mut positions = Vec::new();
+        for i in 0..15 {
+            tick_entities(&defs, &states, &world, i + 1, &mut rng);
+            positions.push(states.lock().unwrap()["p1"].current);
+        }
+        // We should hit (32,30) at some point AND come back through (30,30).
+        let hit_far = positions.iter().any(|&p| p == (32, 30));
+        let returned_home = positions
+            .iter()
+            .skip_while(|&&p| p != (32, 30))
+            .any(|&p| p == (30, 30));
+        assert!(hit_far, "never reached far waypoint: {:?}", positions);
+        assert!(returned_home, "never returned home: {:?}", positions);
     }
 
     #[test]
