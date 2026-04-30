@@ -293,8 +293,10 @@ async fn main() -> Result<()> {
     let server_tick_signal = tick_signal.clone();
     let server_bridged = bridged_players.clone();
     let server_interiors = interiors.clone();
+    let server_entity_defs = entity_defs.clone();
+    let server_entity_states = entity_states.clone();
     tokio::spawn(async move {
-        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world, server_combat, server_tick_signal, server_bridged, server_interiors).await {
+        if let Err(e) = devserver::start_dev_server(server_state, server_events, server_notifs, server_world, server_combat, server_tick_signal, server_bridged, server_interiors, server_entity_defs, server_entity_states).await {
             error!("Dev server error: {e}");
         }
     });

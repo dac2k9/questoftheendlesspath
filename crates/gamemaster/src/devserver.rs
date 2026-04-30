@@ -110,7 +110,7 @@ impl TickSignal {
     }
 }
 
-pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal, bridged_players: crate::walker_bridge::BridgedPlayers, interiors: crate::interior::SharedInteriors) -> Result<()> {
+pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal, bridged_players: crate::walker_bridge::BridgedPlayers, interiors: crate::interior::SharedInteriors, entity_defs: crate::mobile_entity::SharedEntityDefs, entity_states: crate::mobile_entity::SharedEntityStates) -> Result<()> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".to_string());
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!("Dev server listening on http://127.0.0.1:{}", port);
@@ -125,6 +125,8 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
         let tick_signal = tick_signal.clone();
         let bridged_players = bridged_players.clone();
         let interiors = interiors.clone();
+        let entity_defs = entity_defs.clone();
+        let entity_states = entity_states.clone();
 
         tokio::spawn(async move {
             // Read headers + body (may arrive in separate TCP packets)
@@ -243,7 +245,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                     }
                 }
             } else {
-                handle_request(&request, &state, &events, &notifs, &world, &combat, &interiors)
+                handle_request(&request, &state, &events, &notifs, &world, &combat, &interiors, &entity_defs, &entity_states)
             };
 
             // Serve static files for the game client
@@ -257,6 +259,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                 && !path.starts_with("/unequip_item") && !path.starts_with("/heartbeat")
                 && !path.starts_with("/notifications")
                 && !path.starts_with("/interior")
+                && !path.starts_with("/entities")
                 && status == "404 Not Found"
             {
                 let clean_path = path.split('?').next().unwrap_or(path);
@@ -466,7 +469,7 @@ async fn handle_join(
     ))
 }
 
-fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat, interiors: &crate::interior::SharedInteriors) -> (&'static str, String) {
+fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat, interiors: &crate::interior::SharedInteriors, entity_defs: &crate::mobile_entity::SharedEntityDefs, entity_states: &crate::mobile_entity::SharedEntityStates) -> (&'static str, String) {
     let first_line = request.lines().next().unwrap_or("");
 
     // CORS preflight
@@ -479,6 +482,50 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         let lock = state.lock().unwrap();
         let players: Vec<&DevPlayerState> = lock.values().collect();
         let json = serde_json::to_string(&players).unwrap_or_default();
+        return ("200 OK", json);
+    }
+
+    // GET /entities?player_id=X — alive mobile entities within a
+    // viewport-radius (Chebyshev) of the requesting player. Filters
+    // dead entities and entities outside the radius so each client
+    // only ships what's about to be on-screen.
+    if first_line.starts_with("GET /entities") {
+        const VIEW_RADIUS: i32 = 20;
+        let player_id = first_line.split('?').nth(1)
+            .and_then(|qs| qs.split('&').find(|p| p.starts_with("player_id=")))
+            .and_then(|p| p.strip_prefix("player_id="))
+            .and_then(|v| v.split_whitespace().next())
+            .unwrap_or("");
+        let player_xy = if player_id.is_empty() {
+            None
+        } else {
+            state.lock().ok().and_then(|s| s.get(player_id).map(|p| (p.map_tile_x, p.map_tile_y)))
+        };
+        let mut payload: Vec<serde_json::Value> = Vec::new();
+        if let (Some((px, py)), Ok(states_lock)) = (player_xy, entity_states.lock()) {
+            for (id, def) in entity_defs.iter() {
+                let Some(s) = states_lock.get(id) else { continue };
+                if !s.alive { continue; }
+                let dx = (s.current.0 as i32 - px).abs();
+                let dy = (s.current.1 as i32 - py).abs();
+                if dx.max(dy) > VIEW_RADIUS { continue; }
+                let facing = match s.facing {
+                    questlib::mobile_entity::Facing::Up => "up",
+                    questlib::mobile_entity::Facing::Down => "down",
+                    questlib::mobile_entity::Facing::Left => "left",
+                    questlib::mobile_entity::Facing::Right => "right",
+                };
+                payload.push(serde_json::json!({
+                    "id": id,
+                    "sprite": def.sprite,
+                    "x": s.current.0,
+                    "y": s.current.1,
+                    "facing": facing,
+                }));
+            }
+        }
+        let json = serde_json::to_string(&serde_json::json!({"entities": payload}))
+            .unwrap_or_else(|_| r#"{"entities":[]}"#.to_string());
         return ("200 OK", json);
     }
 
