@@ -364,6 +364,21 @@ pub fn check_contacts(
         }
         match &def.on_contact {
             ContactAction::Combat { difficulty } => {
+                let event_id = combat_event_id_for(eid);
+                // Spec: an entity is engaged by ONE player at a time.
+                // If a combat keyed by this entity's event_id already
+                // exists in shared_combat (anyone else fighting it),
+                // skip — without this, every tick re-runs start_combat
+                // and overwrites the combat state, ping-ponging between
+                // players standing on the same tile and never letting
+                // the fight resolve.
+                let already_engaged = shared_combat
+                    .lock()
+                    .map(|lock| lock.contains_key(&event_id))
+                    .unwrap_or(false);
+                if already_engaged {
+                    continue;
+                }
                 for (pid, ppos, total_m, eq) in &players {
                     if *ppos != s.current {
                         continue;
@@ -371,7 +386,6 @@ pub fn check_contacts(
                     if crate::combat::player_in_combat(shared_combat, pid) {
                         continue;
                     }
-                    let event_id = combat_event_id_for(eid);
                     let display = def.name.clone().unwrap_or_else(|| eid.clone());
                     let kind = questlib::events::kind::EventKind::RandomEncounter {
                         enemy_name: display.clone(),
@@ -390,6 +404,10 @@ pub fn check_contacts(
                         crate::push_notif(&mut n, pid, format!("A {} attacks!", display));
                     }
                     tracing::info!("[mobile_entity] combat started: {} vs {}", pid, eid);
+                    // Only one player can engage per tick — others on
+                    // the same tile see the entity vanish (it's in
+                    // combat with someone else) until the fight ends.
+                    break;
                 }
             }
             ContactAction::Dialogue { .. } | ContactAction::Trade { .. } => {

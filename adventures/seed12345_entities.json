@@ -5,7 +5,7 @@
       "kind": "monster",
       "name": "Forest Wolf",
       "sprite": "club_goblin",
-      "spawn": [38, 64],
+      "spawn": [13, 44],
       "behavior": {
         "type": "wander",
         "radius": 4
@@ -24,7 +24,7 @@
       "kind": "npc",
       "name": "Baker Greta",
       "sprite": "skeleton_soldier",
-      "spawn": [33, 66],
+      "spawn": [10, 45],
       "behavior": {
         "type": "wander",
         "radius": 2

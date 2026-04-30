@@ -485,12 +485,13 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("200 OK", json);
     }
 
-    // GET /entities?player_id=X — alive mobile entities within a
-    // viewport-radius (Chebyshev) of the requesting player. Filters
-    // dead entities and entities outside the radius so each client
-    // only ships what's about to be on-screen.
+    // GET /entities?player_id=X — all alive mobile entities. The
+    // earlier 20-tile Chebyshev viewport filter was a bandwidth
+    // optimization for adventures with hundreds of entities; until
+    // we get there, ship everything so testers never wonder "why is
+    // it invisible from here". Easy to re-enable when we need it.
     if first_line.starts_with("GET /entities") {
-        const VIEW_RADIUS: i32 = 20;
+        const VIEW_RADIUS: i32 = i32::MAX;
         let player_id = first_line.split('?').nth(1)
             .and_then(|qs| qs.split('&').find(|p| p.starts_with("player_id=")))
             .and_then(|p| p.strip_prefix("player_id="))
