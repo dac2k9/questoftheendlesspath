@@ -370,6 +370,8 @@ async fn main() -> Result<()> {
                     &shared_notifs,
                     &shared_combat,
                     &interiors,
+                    &entity_defs,
+                    &entity_states,
                     &mut player_fogs,
                     &mut player_last_distance,
                     &mut player_boss_wait_notified,
@@ -378,10 +380,10 @@ async fn main() -> Result<()> {
                     error!("Tick error: {e:#}");
                 }
 
-                // Mobile entities advance after player ticks so a Step-6
-                // contact trigger can use the freshly-updated player
-                // positions. Independent rng stream so entity randomness
-                // doesn't drag against the player-tick rng.
+                // Mobile entities advance after player ticks so the
+                // contact phase below sees the freshest positions on
+                // both sides. Independent rng stream so entity
+                // randomness doesn't drag against the player-tick rng.
                 let now_unix_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as u64)
@@ -392,6 +394,13 @@ async fn main() -> Result<()> {
                     &world,
                     now_unix_ms,
                     &mut rng_state,
+                );
+                mobile_entity::check_contacts(
+                    &entity_defs,
+                    &entity_states,
+                    &state,
+                    &shared_combat,
+                    &shared_notifs,
                 );
 
                 // Wake all long-polling clients — they get fresh post-tick state

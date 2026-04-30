@@ -18,8 +18,8 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result};
 use questlib::mapgen::WorldMap;
 use questlib::mobile_entity::{
-    parse_entities_json, Behavior, BehaviorState, Facing, LoopMode, MobileEntityDef,
-    MobileEntityState,
+    parse_entities_json, Behavior, BehaviorState, ContactAction, Facing, LoopMode,
+    MobileEntityDef, MobileEntityState,
 };
 
 /// Authored entity definitions, keyed by id. Read-only after load.
@@ -307,6 +307,138 @@ fn next_rng(state: &mut u64) -> u32 {
     (*state >> 33) as u32
 }
 
+// ── Contact handling ────────────────────────────────────
+
+/// Synthetic event-id prefix used for combats started by a mobile
+/// monster contact. tick.rs's victory handler matches on this prefix
+/// to credit the kill back to the entity (mark dead, set respawn).
+pub const MOBILE_MONSTER_PREFIX: &str = "mobile_monster:";
+
+pub fn combat_event_id_for(entity_id: &str) -> String {
+    format!("{}{}", MOBILE_MONSTER_PREFIX, entity_id)
+}
+
+pub fn parse_combat_event_id(event_id: &str) -> Option<&str> {
+    event_id.strip_prefix(MOBILE_MONSTER_PREFIX)
+}
+
+/// Walk every alive entity, check whether any player is in contact,
+/// and start combat / push dialogue notifications. Runs after both
+/// player and entity ticks so positions on both sides are fresh.
+pub fn check_contacts(
+    defs: &HashMap<String, MobileEntityDef>,
+    entity_states: &SharedEntityStates,
+    state: &crate::devserver::SharedState,
+    shared_combat: &crate::combat::SharedCombat,
+    shared_notifs: &crate::SharedNotifs,
+) {
+    // Snapshot overworld player positions so we don't hold the state
+    // lock while we mutate entity states + combat.
+    let players: Vec<(String, (usize, usize), u64, (i32, i32, i32))> = {
+        let Ok(lock) = state.lock() else { return };
+        lock.iter()
+            .filter(|(_, p)| p.location.interior_id().is_none())
+            .map(|(pid, p)| {
+                let eq = questlib::items::equipment_bonuses(
+                    &p.equipment,
+                    crate::item_catalog(),
+                    &p.item_upgrades,
+                );
+                (
+                    pid.clone(),
+                    (p.map_tile_x as usize, p.map_tile_y as usize),
+                    p.total_distance_m as u64,
+                    eq,
+                )
+            })
+            .collect()
+    };
+    if players.is_empty() {
+        return;
+    }
+    let Ok(mut entity_lock) = entity_states.lock() else { return };
+    for (eid, def) in defs.iter() {
+        let Some(s) = entity_lock.get_mut(eid) else { continue };
+        if !s.alive {
+            continue;
+        }
+        match &def.on_contact {
+            ContactAction::Combat { difficulty } => {
+                for (pid, ppos, total_m, eq) in &players {
+                    if *ppos != s.current {
+                        continue;
+                    }
+                    if crate::combat::player_in_combat(shared_combat, pid) {
+                        continue;
+                    }
+                    let event_id = combat_event_id_for(eid);
+                    let display = def.name.clone().unwrap_or_else(|| eid.clone());
+                    let kind = questlib::events::kind::EventKind::RandomEncounter {
+                        enemy_name: display.clone(),
+                        description: format!("{} attacks!", display),
+                        difficulty: *difficulty,
+                    };
+                    crate::combat::start_combat(
+                        shared_combat,
+                        &event_id,
+                        &kind,
+                        *total_m,
+                        *eq,
+                        pid,
+                    );
+                    if let Ok(mut n) = shared_notifs.lock() {
+                        crate::push_notif(&mut n, pid, format!("A {} attacks!", display));
+                    }
+                    tracing::info!("[mobile_entity] combat started: {} vs {}", pid, eid);
+                }
+            }
+            ContactAction::Dialogue { .. } | ContactAction::Trade { .. } => {
+                let mut current_in_range: Vec<String> = Vec::new();
+                for (pid, ppos, _, _) in &players {
+                    let dx = (ppos.0 as i32 - s.current.0 as i32).abs();
+                    let dy = (ppos.1 as i32 - s.current.1 as i32).abs();
+                    if dx.max(dy) <= 1 {
+                        current_in_range.push(pid.clone());
+                    }
+                }
+                // First-approach detection: in current set but not in
+                // last tick's set → push notification once.
+                let display = def.name.clone().unwrap_or_else(|| eid.clone());
+                for pid in &current_in_range {
+                    if !s.nearby_players.contains(pid) {
+                        if let Ok(mut n) = shared_notifs.lock() {
+                            crate::push_notif(&mut n, pid, format!("{} is here.", display));
+                        }
+                    }
+                }
+                s.nearby_players = current_in_range;
+            }
+            ContactAction::None => {}
+        }
+    }
+}
+
+/// Mark an entity as dead and schedule its respawn (if configured).
+/// Called by tick.rs from the combat-victory handler when it sees
+/// an event id with the `mobile_monster:` prefix.
+pub fn mark_killed(
+    defs: &HashMap<String, MobileEntityDef>,
+    states: &SharedEntityStates,
+    entity_id: &str,
+    now_unix_ms: u64,
+) -> Option<MobileEntityDef> {
+    let def = defs.get(entity_id)?.clone();
+    let mut lock = states.lock().ok()?;
+    let s = lock.get_mut(entity_id)?;
+    s.alive = false;
+    s.nearby_players.clear();
+    s.respawn_at_unix_ms = match def.respawn_after_secs {
+        Some(secs) => now_unix_ms + secs as u64 * 1000,
+        None => 0,
+    };
+    Some(def)
+}
+
 fn direction_to_facing(from: (usize, usize), to: (usize, usize)) -> Facing {
     let dx = to.0 as i32 - from.0 as i32;
     let dy = to.1 as i32 - from.1 as i32;
@@ -341,6 +473,7 @@ mod tests {
             movement: Movement { speed_tiles_per_min: 60 }, // 1 tile/sec
             on_contact: ContactAction::Combat { difficulty: 1 },
             respawn_after_secs: None,
+            name: None,
         }
     }
 
@@ -412,6 +545,7 @@ mod tests {
                 behavior_state: BehaviorState::Wander,
                 alive: false,
                 respawn_at_unix_ms: 1_000,
+                nearby_players: Vec::new(),
             },
         );
         let mut rng = 1u64;
@@ -434,6 +568,7 @@ mod tests {
             movement: Movement { speed_tiles_per_min: 60_000 },
             on_contact: ContactAction::None,
             respawn_after_secs: None,
+            name: None,
         }
     }
 

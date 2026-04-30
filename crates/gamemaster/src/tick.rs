@@ -18,6 +18,8 @@ pub fn run_tick_dev(
     shared_notifs: &SharedNotifs,
     shared_combat: &SharedCombat,
     interiors: &crate::interior::SharedInteriors,
+    entity_defs: &crate::mobile_entity::SharedEntityDefs,
+    entity_states: &crate::mobile_entity::SharedEntityStates,
     player_fogs: &mut HashMap<String, FogBitfield>,
     player_last_distance: &mut HashMap<String, f64>,
     // player_id → event_id we've already sent "waiting for others" for.
@@ -609,7 +611,46 @@ pub fn run_tick_dev(
             )
         };
 
-        if victory_event_id.starts_with("monster_") {
+        if let Some(entity_id) = crate::mobile_entity::parse_combat_event_id(victory_event_id) {
+            // Mobile monster victory — mark dead, schedule respawn,
+            // pay loot. Difficulty comes from the entity def's
+            // ContactAction::Combat.
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            if let Some(def) = crate::mobile_entity::mark_killed(entity_defs, entity_states, entity_id, now_ms) {
+                let display = def.name.clone().unwrap_or_else(|| entity_id.to_string());
+                let difficulty = match def.on_contact {
+                    questlib::mobile_entity::ContactAction::Combat { difficulty } => difficulty,
+                    _ => 1,
+                };
+                let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+                if let Some(pid) = fighter_pid.clone() {
+                    if let Some(p) = lock.get_mut(&pid) {
+                        let gold = 30 + (difficulty as i32 * 20);
+                        p.gold += gold;
+                        let catalog = Some(crate::item_catalog());
+                        let drop = match difficulty {
+                            1 | 2 => Some("health_potion"),
+                            3 => Some("iron_sword"),
+                            4 => Some("chainmail"),
+                            5.. => Some("greater_health_potion"),
+                            _ => None,
+                        };
+                        let mut msg = format!("{} defeated! +{} gold", display, gold);
+                        if let Some(item) = drop {
+                            questlib::items::add_item(&mut p.inventory, item, catalog);
+                            let item_name = catalog.and_then(|c| c.get(item)).map(|d| d.display_name.as_str()).unwrap_or(item);
+                            msg.push_str(&format!(", +{}", item_name));
+                        }
+                        if let Ok(mut notifs) = shared_notifs.lock() {
+                            crate::push_notif(&mut notifs, &pid, msg);
+                        }
+                    }
+                }
+            }
+        } else if victory_event_id.starts_with("monster_") {
             // World monster victory — mark defeated, give loot
             let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
             if let Some(pid) = fighter_pid.clone() {
@@ -831,6 +872,16 @@ mod tests {
         std::sync::Arc::new(HashMap::new())
     }
 
+    /// Empty mobile-entity defs/states for tick tests — these tests
+    /// don't exercise mobile entities. The dedicated suite in
+    /// crate::mobile_entity covers that path.
+    fn test_entity_defs() -> crate::mobile_entity::SharedEntityDefs {
+        std::sync::Arc::new(HashMap::new())
+    }
+    fn test_entity_states() -> crate::mobile_entity::SharedEntityStates {
+        std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()))
+    }
+
     /// Run N ticks, incrementing total_distance by delta_per_tick each time.
     fn run_ticks(
         state: &SharedState, world: &WorldMap, events: &SharedEvents, notifs: &SharedNotifs, combat: &SharedCombat,
@@ -846,7 +897,7 @@ mod tests {
                     p.total_distance_m += delta_per_tick;
                 }
             }
-            run_tick_dev(state, world, events, notifs, combat, &interiors, fogs, last_dist, &mut boss_wait, 0.5).unwrap();
+            run_tick_dev(state, world, events, notifs, combat, &interiors, &test_entity_defs(), &test_entity_states(), fogs, last_dist, &mut boss_wait, 0.5).unwrap();
         }
     }
 
@@ -863,7 +914,7 @@ mod tests {
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.gold, 0, "idle player should earn no gold");
@@ -880,12 +931,12 @@ mod tests {
         let mut last_dist = HashMap::new();
 
         // First tick inits last_distance, so add distance then tick again
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
         {
             let mut lock = state.lock().unwrap();
             lock.get_mut(&pid).unwrap().total_distance_m = 110.0;
         }
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert!(p.gold > 0, "walking without route should still earn gold");
@@ -977,7 +1028,7 @@ mod tests {
                 let mut lock = state.lock().unwrap();
                 lock.get_mut(&pid).unwrap().total_distance_m += 10.0;
             }
-            run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+            run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
             let p = get_player(&state, &pid);
             let pos = (p.map_tile_x as usize, p.map_tile_y as usize);
@@ -1051,8 +1102,8 @@ mod tests {
         let mut last_dist = HashMap::new();
 
         // Two ticks with same distance — no movement
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.route_meters_walked, 0.0);

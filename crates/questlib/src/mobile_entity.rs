@@ -30,6 +30,9 @@ pub struct MobileEntityDef {
     /// Null = permanent kill. 600 = respawn after 10 minutes.
     #[serde(default)]
     pub respawn_after_secs: Option<u32>,
+    /// Display name for in-game messages. Falls back to `id` if absent.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -133,6 +136,12 @@ pub struct MobileEntityState {
     pub alive: bool,
     #[serde(default)]
     pub respawn_at_unix_ms: u64,
+    /// Player ids currently within a contact-trigger radius of this
+    /// entity. Used to dedupe dialogue notifications: a player only
+    /// gets re-greeted when they leave and come back. Empty for
+    /// non-NPC entities.
+    #[serde(default)]
+    pub nearby_players: Vec<String>,
 }
 
 impl MobileEntityState {
@@ -146,6 +155,7 @@ impl MobileEntityState {
             behavior_state: BehaviorState::for_behavior(&def.behavior),
             alive: true,
             respawn_at_unix_ms: 0,
+            nearby_players: Vec::new(),
         }
     }
 }
@@ -216,6 +226,7 @@ mod tests {
             movement: Movement::default(),
             on_contact: ContactAction::Combat { difficulty: 2 },
             respawn_after_secs: Some(600),
+            name: None,
         }
     }
 
@@ -321,6 +332,7 @@ mod tests {
             movement: Movement::default(),
             on_contact: ContactAction::None,
             respawn_after_secs: None,
+            name: None,
         };
         let s = MobileEntityState::from_def(&d);
         assert_eq!(
@@ -338,6 +350,7 @@ mod tests {
             behavior_state: BehaviorState::Patrol { idx: 2, forward: false },
             alive: false,
             respawn_at_unix_ms: 1745001000000,
+            nearby_players: vec!["p1".into(), "p2".into()],
         };
         let j = serde_json::to_string(&s).unwrap();
         let back: MobileEntityState = serde_json::from_str(&j).unwrap();
