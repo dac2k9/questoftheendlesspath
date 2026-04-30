@@ -54,6 +54,12 @@ struct SaveData {
     version: u32,
     players: Vec<DevPlayerState>,
     events: EventCatalog,
+    /// Per-entity runtime state (current tile, alive/dead, respawn
+    /// timer). Authored fields (sprite, behavior, etc.) load fresh
+    /// from JSON every startup — only mutable bits live here. Empty
+    /// for old saves; populated from JSON via ensure_states.
+    #[serde(default)]
+    mobile_entities: HashMap<String, questlib::mobile_entity::MobileEntityState>,
 }
 
 fn default_save_version() -> u32 { 1 }
@@ -186,24 +192,6 @@ async fn main() -> Result<()> {
     let interiors: interior::SharedInteriors = Arc::new(interior::load_interiors(&interiors_dir)?);
     info!("Loaded {} interior(s) from {}", interiors.len(), interiors_dir);
 
-    // Mobile entities (wandering NPCs / monsters / animals). Authored
-    // defs are read-only; runtime state is mutable per tick. See
-    // adventures/MOBILE_ENTITIES.md for the design.
-    let entities_path = std::env::var("ENTITIES_PATH")
-        .unwrap_or_else(|_| "adventures/seed12345_entities.json".to_string());
-    let entity_defs: mobile_entity::SharedEntityDefs =
-        Arc::new(mobile_entity::load_entities(&entities_path)?);
-    info!("Loaded {} mobile entit{} from {}",
-        entity_defs.len(),
-        if entity_defs.len() == 1 { "y" } else { "ies" },
-        entities_path,
-    );
-    let entity_states: mobile_entity::SharedEntityStates =
-        Arc::new(Mutex::new(HashMap::new()));
-    if let Ok(mut s) = entity_states.lock() {
-        mobile_entity::ensure_states(&entity_defs, &mut s);
-    }
-
     // Save path is configurable via SAVE_PATH. On Render, set this to a path
     // inside a mounted persistent disk (e.g. "/data/dev_state.json") so state
     // survives redeploys. Locally, defaults to the working directory.
@@ -218,6 +206,30 @@ async fn main() -> Result<()> {
         }
     }
     info!("Save path: {}", save_path);
+
+    // Mobile entities (wandering NPCs / monsters / animals). Authored
+    // defs are read-only; runtime state is mutable per tick. See
+    // adventures/MOBILE_ENTITIES.md for the design.
+    let entities_path = std::env::var("ENTITIES_PATH")
+        .unwrap_or_else(|_| "adventures/seed12345_entities.json".to_string());
+    let entity_defs: mobile_entity::SharedEntityDefs =
+        Arc::new(mobile_entity::load_entities(&entities_path)?);
+    info!("Loaded {} mobile entit{} from {}",
+        entity_defs.len(),
+        if entity_defs.len() == 1 { "y" } else { "ies" },
+        entities_path,
+    );
+    // Seed runtime state from the save file (positions, alive/dead,
+    // respawn timers); ensure_states then fills in fresh state for
+    // any newly-authored entity and prunes saved entries whose def
+    // disappeared from JSON.
+    let saved_entities = load_mobile_entities(save_path);
+    let entity_states: mobile_entity::SharedEntityStates =
+        Arc::new(Mutex::new(saved_entities));
+    if let Ok(mut s) = entity_states.lock() {
+        mobile_entity::ensure_states(&entity_defs, &mut s);
+        info!("Mobile entities runtime state: {} active", s.len());
+    }
 
     // Load events. Always start from the JSON definitions so shop inventories,
     // new events, trigger tweaks etc. take effect across restarts. Then overlay
@@ -409,12 +421,12 @@ async fn main() -> Result<()> {
                 // Save state to disk every ~30 ticks (~30 seconds)
                 save_counter += 1;
                 if save_counter % 30 == 0 {
-                    save_state(save_path, &state, &shared_events);
+                    save_state(save_path, &state, &shared_events, &entity_states);
                 }
             }
             _ = &mut shutdown => {
                 info!("Shutdown signal received — saving state and exiting");
-                save_state(save_path, &state, &shared_events);
+                save_state(save_path, &state, &shared_events, &entity_states);
                 return Ok(());
             }
         }
@@ -459,7 +471,23 @@ fn load_state(path: &str) -> Option<HashMap<String, DevPlayerState>> {
     Some(save.players.into_iter().map(|p| (p.id.clone(), p)).collect())
 }
 
-fn save_state(path: &str, state: &SharedState, events: &SharedEvents) {
+/// Re-read just the mobile_entities section from disk so the main loop
+/// can restore positions / alive flags / respawn timers across
+/// restarts. ensure_states fills in fresh state for any def whose
+/// saved entry is missing (new entity added) and prunes saved entries
+/// for defs that are gone (removed from JSON).
+fn load_mobile_entities(path: &str) -> HashMap<String, questlib::mobile_entity::MobileEntityState> {
+    let Ok(json) = std::fs::read_to_string(path) else { return HashMap::new() };
+    let Ok(save) = serde_json::from_str::<SaveData>(&json) else { return HashMap::new() };
+    save.mobile_entities
+}
+
+fn save_state(
+    path: &str,
+    state: &SharedState,
+    events: &SharedEvents,
+    entity_states: &mobile_entity::SharedEntityStates,
+) {
     let save = {
         let lock = match state.lock() {
             Ok(l) => l,
@@ -469,10 +497,15 @@ fn save_state(path: &str, state: &SharedState, events: &SharedEvents) {
             Ok(l) => l,
             Err(e) => { error!("save_state: events mutex poisoned: {e}"); return; }
         };
+        let entity_lock = match entity_states.lock() {
+            Ok(l) => l,
+            Err(e) => { error!("save_state: entity states mutex poisoned: {e}"); return; }
+        };
         SaveData {
             version: SAVE_VERSION,
             players: lock.values().cloned().collect(),
             events: events_lock.clone(),
+            mobile_entities: entity_lock.clone(),
         }
     };
     let json = match serde_json::to_string_pretty(&save) {
