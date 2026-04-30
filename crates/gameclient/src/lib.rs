@@ -5,6 +5,7 @@ mod ambient;
 mod combat;
 mod daynight;
 mod dialogue;
+mod entities;
 mod hud;
 mod music;
 mod player_shadow;
@@ -78,6 +79,7 @@ pub fn start() {
         // kept for now so we can revisit; re-enable by adding the
         // plugin back here.
         // .add_plugins(player_shadow::PlayerShadowPlugin)
+        .add_plugins(entities::EntitiesPlugin)
         .add_plugins(version::VersionPlugin)
         .insert_resource(UiHovered(false))
         .add_systems(Update, (detect_ui_hover, update_cursor))
