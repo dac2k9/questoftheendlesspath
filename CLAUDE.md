@@ -243,6 +243,39 @@ Diagnostic / recovery:
 - Persisted in save file, restored on Game Master restart
 - Fogged tiles show "???" on hover, can't click to plan route
 
+### Mobile entities
+
+Autonomous moving NPCs / monsters / animals. Defined in
+`adventures/seed{N}_entities.json` (override path via `ENTITIES_PATH`
+env var), one entity per object with `id` / `kind` / `sprite` / `spawn`
+/ `behavior` / `on_contact` / optional `respawn_after_secs`.
+
+Behaviors (Phase 1):
+- **Wander**: random walk within `radius` tiles of the spawn point.
+- **Patrol**: loop through a list of `waypoints`; `loop_mode` is
+  `wrap` or `bounce`.
+
+Contact actions:
+- **Combat**: when an entity ends a server tick on a player's tile,
+  combat starts via the existing `init_combat` path. Synthetic
+  `event_id` is `mobile_monster:{entity_id}`. Victory marks the entity
+  dead and schedules respawn (configurable per entity).
+- **Dialogue / Trade**: when a player enters Chebyshev distance ≤ 1
+  for the first time, push a notification with the entity's `name`.
+  Full dialogue UI activation is Phase 2.
+
+Server: `gamemaster::mobile_entity` owns the tick loop, contact phase,
+and JSON loader. Client: `gameclient::entities` polls
+`/entities?player_id=X` every 1 s, renders + interpolates sprites
+keyed off the `sprite` registry name (currently mapped to existing
+monster atlases — `slime`, `club_goblin`, `skeleton_soldier`, etc.).
+Save-state preserves runtime state (position, alive, respawn timer)
+under `mobile_entities`; authored bits reload fresh from JSON every
+startup.
+
+Full design spec: `adventures/MOBILE_ENTITIES.md` (Phase 2/3 sections
+still apply).
+
 ### Leveling
 - Walking distance = XP. Curve is **geometric**, each level-up gap 10 %
   larger than the last. Cumulative meters to reach level N:
@@ -552,9 +585,11 @@ curl -s -X POST $BASE/admin/revoke_completion \
 ## TODO
 
 - LLM adventure skill (`/adventure` generates events from POI JSON)
-- **Mobile entities** (autonomous moving NPCs / monsters / animals) —
-  full design spec in `adventures/MOBILE_ENTITIES.md`. Targeted for the
-  next adventure; nothing built yet.
+- **Mobile entities Phase 2**: reactive behaviors (chase / flee), full
+  dialogue UI activation from NPC contact (currently a notification
+  only), follow-path behavior, day/night schedules. Phase 1 (Wander +
+  Patrol + combat-on-contact) shipped — see notes below and the spec
+  at `adventures/MOBILE_ENTITIES.md`.
 - Real auth (currently /notifications only does a sanity check; anyone with a
   known player_id can poll that player's queue)
 - Delete or revive the excluded `walker` crate (currently dead-on-disk)

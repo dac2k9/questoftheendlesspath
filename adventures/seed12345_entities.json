@@ -1,0 +1,41 @@
+{
+  "entities": [
+    {
+      "id": "grassland_wolf_1",
+      "kind": "monster",
+      "name": "Forest Wolf",
+      "sprite": "club_goblin",
+      "spawn": [38, 64],
+      "behavior": {
+        "type": "wander",
+        "radius": 4
+      },
+      "movement": {
+        "speed_tiles_per_min": 6
+      },
+      "on_contact": {
+        "type": "combat",
+        "difficulty": 2
+      },
+      "respawn_after_secs": 600
+    },
+    {
+      "id": "village_npc_baker",
+      "kind": "npc",
+      "name": "Baker Greta",
+      "sprite": "skeleton_soldier",
+      "spawn": [33, 66],
+      "behavior": {
+        "type": "wander",
+        "radius": 2
+      },
+      "movement": {
+        "speed_tiles_per_min": 4
+      },
+      "on_contact": {
+        "type": "dialogue",
+        "event_id": "village_baker_intro"
+      }
+    }
+  ]
+}
