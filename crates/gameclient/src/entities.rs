@@ -314,10 +314,21 @@ fn render_entities(
 
             // Smooth interpolation toward target. Same exponential
             // decay used by OtherPlayerSprite — looks natural.
+            // If the gap is bigger than ~2 tiles the entity probably
+            // teleported (server respawn, JSON spawn-coords edited);
+            // snap directly so we don't draw a 4-second sliding leap
+            // across the map. ≤2 tiles = normal wander step → smooth.
             let dt = time.delta_secs();
-            let lerp = 1.0 - (-4.0_f32 * dt).exp();
-            tf.translation.x += (target.x - tf.translation.x) * lerp;
-            tf.translation.y += (target.y - tf.translation.y) * lerp;
+            let dist_sq = (target.x - tf.translation.x).powi(2)
+                + (target.y - tf.translation.y).powi(2);
+            if dist_sq > (32.0_f32 * 32.0_f32) {
+                tf.translation.x = target.x;
+                tf.translation.y = target.y;
+            } else {
+                let lerp = 1.0 - (-4.0_f32 * dt).exp();
+                tf.translation.x += (target.x - tf.translation.x) * lerp;
+                tf.translation.y += (target.y - tf.translation.y) * lerp;
+            }
             tf.translation.x = tf.translation.x.round();
             tf.translation.y = tf.translation.y.round();
 

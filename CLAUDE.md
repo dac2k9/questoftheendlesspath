@@ -273,6 +273,27 @@ Save-state preserves runtime state (position, alive, respawn timer)
 under `mobile_entities`; authored bits reload fresh from JSON every
 startup.
 
+Quirks worth knowing:
+
+- **`/entities` viewport filter is currently OFF** (returns every alive
+  entity regardless of distance). Was a 20-tile Chebyshev radius for
+  bandwidth — turned off until the world has enough entities to
+  matter. Easy flip in `devserver.rs::handle_request` (the
+  `VIEW_RADIUS` const).
+- **Auto-reset on spawn-coord change.** `MobileEntityState.spawn`
+  mirrors `def.spawn` at creation; `ensure_states` re-inits any
+  entity whose saved spawn no longer matches the JSON, so editing
+  `seed{N}_entities.json` and restarting moves the entity to its
+  new home automatically. No `dev_state.json` surgery required.
+- **Combat is one-player-per-entity.** `check_contacts` skips an
+  entity entirely when `shared_combat` already has its event_id,
+  and breaks after binding the first matching player on the tile.
+  Without these guards two players standing on the same tile
+  ping-ponged combat-state inserts each tick.
+- **Client snaps on big position jumps** (> 2 tiles) instead of
+  smoothly interpolating across them — handles auto-respawn and
+  spawn-coord edits cleanly without a long visible "leap".
+
 Full design spec: `adventures/MOBILE_ENTITIES.md` (Phase 2/3 sections
 still apply).
 
