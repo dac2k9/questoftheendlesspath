@@ -406,6 +406,7 @@ async fn main() -> Result<()> {
                     &world,
                     now_unix_ms,
                     &mut rng_state,
+                    &shared_combat,
                 );
                 mobile_entity::check_contacts(
                     &entity_defs,

@@ -83,7 +83,23 @@ pub fn tick_entities(
     world: &WorldMap,
     now_unix_ms: u64,
     rng_state: &mut u64,
+    shared_combat: &crate::combat::SharedCombat,
 ) {
+    // Snapshot which entities are currently engaged in combat so we can
+    // freeze their movement for the duration. Without this the wolf
+    // (etc.) keeps wandering on the world map even while the player is
+    // mid-fight in the combat overlay — visible as the sprite walking
+    // off across the map.
+    let engaged_ids: std::collections::HashSet<String> = shared_combat
+        .lock()
+        .ok()
+        .map(|lock| {
+            lock.keys()
+                .filter_map(|k| k.strip_prefix(MOBILE_MONSTER_PREFIX).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
     let mut lock = match states.lock() {
         Ok(l) => l,
         Err(_) => return,
@@ -103,6 +119,14 @@ pub fn tick_entities(
                 s.behavior_state = BehaviorState::for_behavior(&def.behavior);
                 s.facing = Facing::Down;
             }
+            continue;
+        }
+        // Frozen while a player is fighting this entity. last_step is
+        // not advanced, so once combat ends the entity may step once
+        // immediately (interval will have elapsed many times over),
+        // then resume normal pacing. Acceptable behavior — wolf wakes
+        // up and takes its first step right after victory/flee.
+        if engaged_ids.contains(id) {
             continue;
         }
         // Step pacing.
@@ -508,6 +532,10 @@ mod tests {
         WorldMap::generate(99)
     }
 
+    fn empty_combat() -> crate::combat::SharedCombat {
+        Arc::new(Mutex::new(HashMap::new()))
+    }
+
     fn wolf_at(spawn: (usize, usize), radius: u32) -> MobileEntityDef {
         MobileEntityDef {
             id: "test_wolf".into(),
@@ -578,22 +606,23 @@ mod tests {
         let states = Arc::new(Mutex::new(HashMap::new()));
         ensure_states(&defs, &mut states.lock().unwrap());
         let mut rng = 1u64;
+        let combat = empty_combat();
 
         // First tick: last_step is 0 → interval (10000 ms) elapsed → step.
-        tick_entities(&defs, &states, &world, 1_000_000_000, &mut rng);
+        tick_entities(&defs, &states, &world, 1_000_000_000, &mut rng, &combat);
         let pos_after_1 = states.lock().unwrap()["a"].current;
         let last_step_1 = states.lock().unwrap()["a"].last_step_unix_ms;
         assert_eq!(last_step_1, 1_000_000_000);
 
         // Second tick 1 s later: interval not yet elapsed → no step.
-        tick_entities(&defs, &states, &world, 1_000_001_000, &mut rng);
+        tick_entities(&defs, &states, &world, 1_000_001_000, &mut rng, &combat);
         let pos_after_2 = states.lock().unwrap()["a"].current;
         let last_step_2 = states.lock().unwrap()["a"].last_step_unix_ms;
         assert_eq!(pos_after_1, pos_after_2);
         assert_eq!(last_step_1, last_step_2);
 
         // Third tick 11 s later: interval elapsed → step.
-        tick_entities(&defs, &states, &world, 1_000_012_000, &mut rng);
+        tick_entities(&defs, &states, &world, 1_000_012_000, &mut rng, &combat);
         let last_step_3 = states.lock().unwrap()["a"].last_step_unix_ms;
         assert_eq!(last_step_3, 1_000_012_000);
     }
@@ -621,7 +650,8 @@ mod tests {
             },
         );
         let mut rng = 1u64;
-        tick_entities(&defs, &states, &world, 2_000, &mut rng);
+        let combat = empty_combat();
+        tick_entities(&defs, &states, &world, 2_000, &mut rng, &combat);
         let s = states.lock().unwrap()["a"].clone();
         assert!(s.alive);
         assert_eq!(s.current, (20, 20));
@@ -656,9 +686,10 @@ mod tests {
         let states = Arc::new(Mutex::new(HashMap::new()));
         ensure_states(&defs, &mut states.lock().unwrap());
         let mut rng = 1u64;
+        let combat = empty_combat();
         let mut visited = std::collections::HashSet::new();
         for i in 0..40 {
-            tick_entities(&defs, &states, &world, i + 1, &mut rng);
+            tick_entities(&defs, &states, &world, i + 1, &mut rng, &combat);
             visited.insert(states.lock().unwrap()["p1"].current);
         }
         // All three waypoints should have been touched.
@@ -678,10 +709,11 @@ mod tests {
         let states = Arc::new(Mutex::new(HashMap::new()));
         ensure_states(&defs, &mut states.lock().unwrap());
         let mut rng = 1u64;
+        let combat = empty_combat();
         // Step long enough that we should reach (32, 30), then bounce back.
         let mut positions = Vec::new();
         for i in 0..15 {
-            tick_entities(&defs, &states, &world, i + 1, &mut rng);
+            tick_entities(&defs, &states, &world, i + 1, &mut rng, &combat);
             positions.push(states.lock().unwrap()["p1"].current);
         }
         // We should hit (32,30) at some point AND come back through (30,30).
@@ -704,11 +736,12 @@ mod tests {
         let states = Arc::new(Mutex::new(HashMap::new()));
         ensure_states(&defs, &mut states.lock().unwrap());
         let mut rng = 42u64;
+        let combat = empty_combat();
         // 100 steps; entity should never drift more than `radius + 1`
         // away (the +1 accounts for the moment it's exactly at the
         // boundary and trying to come back).
         for i in 0..100 {
-            tick_entities(&defs, &states, &world, i + 1, &mut rng);
+            tick_entities(&defs, &states, &world, i + 1, &mut rng, &combat);
         }
         let s = states.lock().unwrap()["a"].clone();
         let dx = (s.current.0 as i32 - 50).abs();

@@ -1113,21 +1113,39 @@ fn handle_map_click(
                 marker_skip = tile_index_from_meters(&display_route.waypoints, state.route_meters, &world);
             } else {
                 // Fresh route from current position — keep the player's
-                // current sub-tile progress so re-routing mid-tile doesn't
-                // snap them back to the last confirmed tile center. The
-                // server's /set_route does the same thing on its side
-                // (preserves partial progress when the player's current
-                // tile is in the new route, which it always is here);
-                // matching the client avoids a visible flash of "snapped
-                // back" between the local update and the next server poll.
-                display_route.waypoints = segment;
-                let cur = interp.current_meters();
-                state.route_meters = cur;
-                interp.start_meters = cur;
-                interp.target_meters = cur;
+                // current sub-tile progress so re-routing mid-tile
+                // doesn't snap them back to the last confirmed tile
+                // center, AND doesn't skip forward through the new
+                // route's tiles. The server's /set_route does the same
+                // thing on its side; mirror that math here so the local
+                // update stays consistent until the next poll confirms.
+                //
+                // Bug history: passing `interp.current_meters()` straight
+                // into the new route applied OLD-route meters to a NEW
+                // route whose first tile is `current_pos` — at meter 100
+                // of [A,B,C] you're on C, but at meter 100 of [C,F,G]
+                // you've walked past C and F into G. Visible as a
+                // forward jump that "skipped a tile entirely" on click.
+                let old_route = std::mem::replace(&mut display_route.waypoints, segment);
+                let cost_to_idx = |route: &[(usize, usize)], idx: usize| -> f64 {
+                    route[..idx].iter()
+                        .map(|&(x, y)| world.server_tile_cost(x, y) as f64)
+                        .sum()
+                };
+                let cur_visual = interp.current_meters();
+                let partial_raw = old_route.iter().position(|&w| w == current_pos)
+                    .map(|i| (cur_visual - cost_to_idx(&old_route, i)).max(0.0))
+                    .unwrap_or(0.0);
+                // Clamp inside the current tile so visual lerp leading the
+                // server can't bleed into the new route's NEXT tile.
+                let cur_cost = world.server_tile_cost(current_pos.0, current_pos.1) as f64;
+                let new_meters = partial_raw.min((cur_cost - 0.01).max(0.0));
+                state.route_meters = new_meters;
+                interp.start_meters = new_meters;
+                interp.target_meters = new_meters;
                 interp.elapsed = 0.0;
                 interp.duration = 0.0;
-                marker_skip = tile_index_from_meters(&display_route.waypoints, cur, &world);
+                marker_skip = tile_index_from_meters(&display_route.waypoints, new_meters, &world);
             }
             display_route.locally_modified = true;
             state.route = display_route.waypoints.clone();
