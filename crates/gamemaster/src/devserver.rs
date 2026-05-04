@@ -1366,6 +1366,42 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             return ("200 OK", r#"{"ok":true}"#.to_string());
         }
 
+        // POST /admin/dump_combat — snapshot of in-memory shared_combat
+        // (keys + brief status). Diagnostic only — use this when a player
+        // sits on a monster and combat won't start; a non-empty list with
+        // a `mobile_monster:<id>` key for the entity in question means a
+        // previous fight didn't get cleaned up.
+        if first_line.starts_with("POST /admin/dump_combat") {
+            let lock = combat.lock().unwrap();
+            let keys: Vec<serde_json::Value> = lock.iter().map(|(k, c)| {
+                serde_json::json!({
+                    "event_id": k,
+                    "player_id": c.player_id,
+                    "status": format!("{:?}", c.status),
+                    "player_hp": c.player_hp,
+                    "enemy_hp": c.enemy_hp,
+                })
+            }).collect();
+            return ("200 OK", serde_json::to_string(&keys).unwrap_or_else(|_| "[]".into()));
+        }
+
+        // POST /admin/clear_combat — drain shared_combat. Recovery hatch
+        // for the stuck-entry case where the contact-skip log fires but
+        // there's no live fight. Optional `event_id` clears just one.
+        if first_line.starts_with("POST /admin/clear_combat") {
+            let target = data.get("event_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let mut lock = combat.lock().unwrap();
+            let removed: Vec<String> = if let Some(ref id) = target {
+                if lock.remove(id).is_some() { vec![id.clone()] } else { vec![] }
+            } else {
+                let keys: Vec<String> = lock.keys().cloned().collect();
+                lock.clear();
+                keys
+            };
+            tracing::info!("[admin] clear_combat removed {:?}", removed);
+            return ("200 OK", serde_json::to_string(&removed).unwrap_or_else(|_| "[]".into()));
+        }
+
         // POST /admin/grant_completion — { player_id, event_id }
         if first_line.starts_with("POST /admin/grant_completion") {
             let pid = data.get("player_id").and_then(|v| v.as_str()).unwrap_or("").to_string();

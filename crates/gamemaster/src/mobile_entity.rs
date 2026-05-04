@@ -387,6 +387,19 @@ pub fn check_contacts(
                     .map(|lock| lock.contains_key(&event_id))
                     .unwrap_or(false);
                 if already_engaged {
+                    // If a player is actually standing on this entity's
+                    // tile but we skip, that's the "stuck combat entry"
+                    // failure mode (a previous fight that wasn't cleaned
+                    // up). Log it once per second so it's easy to spot
+                    // in the deploy logs.
+                    for (pid, ppos, _, _) in &players {
+                        if *ppos == s.current {
+                            tracing::warn!(
+                                "[mobile_entity] contact-skip: {} on tile {:?} of {} but stale combat entry blocks (event_id={})",
+                                pid, ppos, eid, event_id,
+                            );
+                        }
+                    }
                     continue;
                 }
                 for (pid, ppos, total_m, eq) in &players {
@@ -394,6 +407,10 @@ pub fn check_contacts(
                         continue;
                     }
                     if crate::combat::player_in_combat(shared_combat, pid) {
+                        tracing::warn!(
+                            "[mobile_entity] contact-skip: {} on tile {:?} of {} but player already in another combat",
+                            pid, ppos, eid,
+                        );
                         continue;
                     }
                     let display = def.name.clone().unwrap_or_else(|| eid.clone());

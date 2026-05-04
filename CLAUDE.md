@@ -592,6 +592,17 @@ curl -s -X POST $BASE/admin/reset_event \
 curl -s -X POST $BASE/admin/revoke_completion \
   -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
   -d '{"player_id":"<uuid>","event_id":"find_traveler"}'
+
+# Diagnose / unstick combat. dump_combat returns the in-memory combat
+# map; clear_combat drops one key (or all if event_id is omitted). Use
+# when a player sits on a mobile monster and combat won't start —
+# check the deploy logs for `[mobile_entity] contact-skip:` warnings.
+curl -s -X POST $BASE/admin/dump_combat \
+  -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
+  -d '{}'
+curl -s -X POST $BASE/admin/clear_combat \
+  -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
+  -d '{"event_id":"mobile_monster:grassland_wolf_1"}'
 ```
 
 ## State Persistence
