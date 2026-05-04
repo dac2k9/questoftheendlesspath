@@ -124,7 +124,15 @@ struct PathMarker;
 pub struct PlayerSprite;
 
 #[derive(Component)]
-struct OtherPlayerSprite(String); // player_id
+struct OtherPlayerSprite {
+    id: String,
+    /// Unrounded sub-pixel position the lerp operates on. Only the
+    /// rounded value is written to the transform — without this, the
+    /// in-place rounding eats fractional progress each frame and the
+    /// sprite freezes ~7 px shy of a static target (most visible when
+    /// another player stops mid-tile from your perspective).
+    visual_pos: Vec2,
+}
 
 #[derive(Component)]
 struct OtherPlayerAnim {
@@ -1319,7 +1327,7 @@ fn update_other_players(
     world: Option<Res<WorldGrid>>,
     mut images: ResMut<Assets<Image>>,
     mut atlases: ResMut<Assets<TextureAtlasLayout>>,
-    mut existing: Query<(Entity, &OtherPlayerSprite, &mut Transform, &mut Sprite, &mut OtherPlayerAnim, &mut Visibility), Without<OtherPlayerName>>,
+    mut existing: Query<(Entity, &mut OtherPlayerSprite, &mut Transform, &mut Sprite, &mut OtherPlayerAnim, &mut Visibility), Without<OtherPlayerName>>,
     mut name_q: Query<(&OtherPlayerName, &mut Transform, &mut Visibility), (Without<OtherPlayerSprite>, Without<PlayerNameTag>)>,
     font: Res<GameFont>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -1342,7 +1350,7 @@ fn update_other_players(
     // loop below will re-show the ones still in `others`.
     let visible_ids: std::collections::HashSet<&str> = others.iter().map(|p| p.id.as_str()).collect();
     for (_, ops, _, _, _, mut vis) in &mut existing {
-        if !visible_ids.contains(ops.0.as_str()) {
+        if !visible_ids.contains(ops.id.as_str()) {
             *vis = Visibility::Hidden;
         }
     }
@@ -1371,18 +1379,22 @@ fn update_other_players(
         } else { tile_pos };
 
         // Find existing sprite for this player
-        let found = existing.iter_mut().find(|(_, ops, _, _, _, _)| ops.0 == other.id);
+        let found = existing.iter_mut().find(|(_, ops, _, _, _, _)| ops.id == other.id);
 
-        if let Some((_, _, mut tf, mut sprite, mut anim, mut vis)) = found {
+        if let Some((_, mut ops, mut tf, mut sprite, mut anim, mut vis)) = found {
             *vis = Visibility::Visible;
-            // Smooth interpolation toward target
+            // Smooth interpolation toward target. Lerp on the unrounded
+            // visual_pos so rounding for crisp pixels doesn't eat the
+            // sub-pixel progress and freeze the sprite a few px shy of
+            // a static target.
             let dt = time.delta_secs();
             let lerp = 1.0 - (-4.0_f32 * dt).exp();
-            tf.translation.x += (target_pos.x - tf.translation.x) * lerp;
-            tf.translation.y += (target_pos.y - tf.translation.y) * lerp;
-            // Snap to whole pixels
-            tf.translation.x = tf.translation.x.round();
-            tf.translation.y = tf.translation.y.round();
+            ops.visual_pos = ops.visual_pos.lerp(target_pos, lerp);
+            if ops.visual_pos.distance_squared(target_pos) < 0.01 {
+                ops.visual_pos = target_pos;
+            }
+            tf.translation.x = ops.visual_pos.x.round();
+            tf.translation.y = ops.visual_pos.y.round();
 
             // Animation
             let is_walking = other.is_walking && other.current_speed_kmh > 0.1;
@@ -1420,8 +1432,8 @@ fn update_other_players(
             let pos = target_pos;
             commands.spawn((
                 Sprite { image: tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
-                Transform::from_xyz(pos.x, pos.y, 4.0),
-                OtherPlayerSprite(other.id.clone()),
+                Transform::from_xyz(pos.x.round(), pos.y.round(), 4.0),
+                OtherPlayerSprite { id: other.id.clone(), visual_pos: pos },
                 OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false, cols: info.cols, facing_rows: info.facing_rows, facing_flip: info.facing_flip },
             ));
             // Name tag — hidden by default; the TAB pass below reveals it

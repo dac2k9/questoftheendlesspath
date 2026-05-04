@@ -99,6 +99,11 @@ struct MobileEntitySprite {
     id: String,
     /// Most recent server-confirmed tile position (in world coords).
     target_world: Vec2,
+    /// Unrounded sub-pixel position the lerp operates on. Only the
+    /// rounded value gets written to the transform — without this,
+    /// rounding the transform in-place destroys fractional progress
+    /// each frame and the entity freezes ~7 px shy of its target tile.
+    visual_pos: Vec2,
     facing: EntityFacing,
 }
 
@@ -319,23 +324,27 @@ fn render_entities(
             // snap directly so we don't draw a 4-second sliding leap
             // across the map. ≤2 tiles = normal wander step → smooth.
             let dt = time.delta_secs();
-            let dist_sq = (target.x - tf.translation.x).powi(2)
-                + (target.y - tf.translation.y).powi(2);
+            let dist_sq = (target.x - marker.visual_pos.x).powi(2)
+                + (target.y - marker.visual_pos.y).powi(2);
             if dist_sq > (32.0_f32 * 32.0_f32) {
-                tf.translation.x = target.x;
-                tf.translation.y = target.y;
+                marker.visual_pos = target;
             } else {
                 let lerp = 1.0 - (-4.0_f32 * dt).exp();
-                tf.translation.x += (target.x - tf.translation.x) * lerp;
-                tf.translation.y += (target.y - tf.translation.y) * lerp;
+                marker.visual_pos = marker.visual_pos.lerp(target, lerp);
+                // Snap when within a sub-pixel of the target so the
+                // entity actually lands on the tile grid. Without this
+                // the lerp asymptotes and never lands exactly.
+                if marker.visual_pos.distance_squared(target) < 0.01 {
+                    marker.visual_pos = target;
+                }
             }
-            tf.translation.x = tf.translation.x.round();
-            tf.translation.y = tf.translation.y.round();
+            tf.translation.x = marker.visual_pos.x.round();
+            tf.translation.y = marker.visual_pos.y.round();
 
             // Walk-cycle: keep animating while still distant from
             // target, freeze on the first frame once we've arrived.
-            let arrived = (tf.translation.x - target.x).abs() < 0.6
-                && (tf.translation.y - target.y).abs() < 0.6;
+            let arrived = (marker.visual_pos.x - target.x).abs() < 0.6
+                && (marker.visual_pos.y - target.y).abs() < 0.6;
             let is_walking = !arrived || moved;
             let cols = anim.cols;
             let row = facing.atlas_row();
@@ -378,6 +387,7 @@ fn render_entities(
                 MobileEntitySprite {
                     id: poll.id.clone(),
                     target_world: target,
+                    visual_pos: target,
                     facing,
                 },
                 WalkAnimTimer {
