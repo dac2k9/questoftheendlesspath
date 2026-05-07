@@ -1,3 +1,4 @@
+pub mod boons;
 pub mod combat;
 pub mod events;
 pub mod fog;
