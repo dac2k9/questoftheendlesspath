@@ -297,6 +297,47 @@ Quirks worth knowing:
 Full design spec: `adventures/MOBILE_ENTITIES.md` (Phase 2/3 sections
 still apply).
 
+### Boons (meta-progression)
+
+Permanent rewards earned by defeating climactic bosses. Boons survive
+across adventures even though level / gold / inventory all reset on
+each new run — they're the only thing that compounds across runs.
+
+Source of truth: `questlib::boons` (static catalog + effect helpers).
+Per-player owned ids live on `DevPlayerState.boons: Vec<String>`,
+which is in `#[serde(default)]` so existing saves load.
+
+Flow:
+1. Boss event has `grants_boon: true` (default false). On victory the
+   server sets `pending_boon_choice` on each participant via
+   `tick::queue_boon_choice` — three deterministic ids picked from
+   `pick_choices(seed=hash(player_id, event_id), n=3, owned)`.
+2. Client polls `MyPlayerState.pending_boon_choice`, opens the boon
+   picker modal (`gameclient::boon_picker`), shows three cards.
+3. Click → `POST /select_boon {player_id, boon_id}` → server validates
+   and pushes to `player.boons`, clears `pending_boon_choice`.
+4. Effect helpers in `questlib::boons` (`speed_multiplier`,
+   `gold_multiplier`, `biome_cost_multiplier`, etc.) are folded into
+   the relevant compute sites in tick.rs and `/forge_upgrade`.
+
+V1 catalog (9 boons): Swift Boots (+5% walk), Trailblazer
+(forest/swamp/snow −20% cost), Roadwise (roads extra −25%), Sprint
+(+20% for first 1 km of session), Goldfinger (+10% gold), Wealthy
+Start (+500 gold per adventure), Treasure Sense (chests on minimap
+within 10 tiles through fog — wired client-side later), Forge
+Discount (−25% upgrade cost), Cartographer (+1 fog reveal radius).
+
+Sprint's "first 1 km of session" anchors on
+`session_start_distance_m`, which resets when the player resumes
+walking after a >60 s idle gap. So between play sessions the boost
+re-applies; you can't farm by just standing still and walking again.
+
+Retroactive grants: `POST /admin/grant_boon_choice {player_id,
+event_id?}` queues a picker for a player who beat a climactic event
+before `grants_boon: true` was added (e.g. the original Frost Lord
+victory before this system landed). Same deterministic 3-of-N as the
+natural grant.
+
 ### Leveling
 - Walking distance = XP. Curve is **geometric**, each level-up gap 10 %
   larger than the last. Cumulative meters to reach level N:
@@ -603,6 +644,14 @@ curl -s -X POST $BASE/admin/dump_combat \
 curl -s -X POST $BASE/admin/clear_combat \
   -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
   -d '{"event_id":"mobile_monster:grassland_wolf_1"}'
+
+# Retroactive boon grant — queue a 3-of-N picker for a player who
+# beat a climactic event before grants_boon was added to its kind.
+# event_id is optional (defaults to "manual_grant"); same id keeps
+# the offered set stable across re-grants without an interim select.
+curl -s -X POST $BASE/admin/grant_boon_choice \
+  -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
+  -d '{"player_id":"<uuid>","event_id":"tower_20"}'
 ```
 
 ## State Persistence

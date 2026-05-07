@@ -277,6 +277,12 @@ pub struct MyPlayerState {
     /// DevPlayerState.item_upgrades. Used by the Forge UI to show current
     /// level and next-tier cost per equipped item.
     pub item_upgrades: std::collections::HashMap<String, u8>,
+    /// Permanent meta-progression boons earned across adventures.
+    pub boons: Vec<String>,
+    /// When `Some`, the boon picker modal opens and the player must
+    /// pick one of `choices` before continuing. Cleared by the server
+    /// after `/select_boon`.
+    pub pending_boon_choice: Option<crate::supabase::PendingBoonChoice>,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -800,6 +806,8 @@ fn apply_server_state(
     state.location = me.location.clone();
     state.completed_events = me.completed_events.clone();
     state.item_upgrades = me.item_upgrades.clone();
+    state.boons = me.boons.clone();
+    state.pending_boon_choice = me.pending_boon_choice.clone();
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {

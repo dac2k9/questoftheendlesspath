@@ -66,6 +66,24 @@ pub struct PlayerRow {
     /// Forge upgrade level per equipped item id. Used by the Forge UI.
     #[serde(default)]
     pub item_upgrades: std::collections::HashMap<String, u8>,
+    /// Permanent meta-progression boons earned across adventures.
+    #[serde(default)]
+    pub boons: Vec<String>,
+    /// Pending boon picker (set after a climactic-quest victory). When
+    /// `Some`, the client opens the boon picker modal and the player
+    /// must choose one of `choices` to dismiss it.
+    #[serde(default)]
+    pub pending_boon_choice: Option<PendingBoonChoice>,
+}
+
+/// Mirror of `gamemaster::devserver::PendingBoonChoice`. Boon ids only —
+/// the client looks up display name / description via
+/// `questlib::boons::lookup` so we don't ship duplicate metadata over
+/// the wire.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct PendingBoonChoice {
+    pub event_id: String,
+    pub choices: Vec<String>,
 }
 
 /// The server sends `location` as `{"kind": "overworld"}` or

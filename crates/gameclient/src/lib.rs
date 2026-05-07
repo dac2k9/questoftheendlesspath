@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use wasm_bindgen::prelude::*;
 
 mod ambient;
+mod boon_picker;
 mod combat;
 mod daynight;
 mod dialogue;
@@ -80,6 +81,7 @@ pub fn start() {
         // plugin back here.
         // .add_plugins(player_shadow::PlayerShadowPlugin)
         .add_plugins(entities::EntitiesPlugin)
+        .add_plugins(boon_picker::BoonPickerPlugin)
         .add_plugins(version::VersionPlugin)
         .insert_resource(UiHovered(false))
         .add_systems(Update, (detect_ui_hover, update_cursor))
