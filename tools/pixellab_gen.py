@@ -82,6 +82,40 @@ def get_json(endpoint: str, token: str) -> dict:
         return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
 
+def get_balance(token: str) -> dict:
+    """Fetch /balance — used to print credits used this run."""
+    return get_json("/balance", token)
+
+
+def extract_credits(resp: dict) -> Optional[float]:
+    """Find a credits-remaining number in the /balance response. Tries a
+    few likely paths since the docs don't pin the shape — falls back to
+    None and the caller silently skips reporting."""
+    if not isinstance(resp, dict):
+        return None
+    # Walk a small set of likely paths.
+    paths = [
+        ("data", "remaining_credits"),
+        ("data", "credits"),
+        ("data", "balance"),
+        ("data", "remaining_generations"),
+        ("remaining_credits",),
+        ("credits",),
+        ("remaining_generations",),
+        ("balance",),
+    ]
+    for path in paths:
+        v: object = resp
+        for k in path:
+            if not isinstance(v, dict):
+                v = None
+                break
+            v = v.get(k)
+        if isinstance(v, (int, float)):
+            return float(v)
+    return None
+
+
 def poll_job(job_id: str, token: str, max_wait_s: int = 300, debug: bool = False) -> dict:
     """Poll /background-jobs/{id} until terminal status. Returns the
     last response (whether success or failure). Pixellab's POST endpoints
@@ -269,6 +303,17 @@ def main() -> int:
 
     n_done, n_skip, n_fail = 0, 0, 0
     last_credits = None
+    # Snapshot credits at start so we can report delta at end. Best-
+    # effort — if /balance returns an unexpected shape we just skip
+    # the report rather than fail the run.
+    initial_credits = None
+    if not args.dry_run:
+        bal = get_balance(token)
+        if args.debug:
+            print("[balance] initial:", json.dumps(bal, default=str)[:300])
+        initial_credits = extract_credits(bal)
+        if initial_credits is not None:
+            print(f"[balance] {int(initial_credits)} credits available")
 
     for asset in assets:
         out_rel = asset.get("out")
@@ -378,8 +423,13 @@ def main() -> int:
 
     print()
     print(f"Summary: {n_done} generated, {n_skip} skipped, {n_fail} failed")
-    if last_credits is not None:
-        print(f"Credits remaining (last reported): {last_credits}")
+    # Report credit usage for this run by re-querying balance.
+    if not args.dry_run and initial_credits is not None:
+        bal = get_balance(token)
+        final_credits = extract_credits(bal)
+        if final_credits is not None:
+            used = int(initial_credits - final_credits)
+            print(f"Credits: {int(final_credits)} remaining (used {used} this run)")
     return 0 if n_fail == 0 else 1
 
 
