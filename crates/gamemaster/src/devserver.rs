@@ -77,6 +77,23 @@ pub struct DevPlayerState {
     /// Fog of war per interior the player has visited. key = interior id.
     #[serde(default)]
     pub interior_fog: std::collections::HashMap<String, String>,
+    /// Permanent meta-progression boons earned across adventures.
+    /// Boon ids only — definitions live in `questlib::boons::catalog()`.
+    /// Survives adventure resets (level / gold / inventory all wipe; this
+    /// list does not).
+    #[serde(default)]
+    pub boons: Vec<String>,
+    /// `total_distance_m` when the current play session started — i.e.,
+    /// when the player went from a long idle gap (>60 s) to walking
+    /// again. Used for the Sprint boon's "first 1 km of session" check.
+    /// Resets to current `total_distance_m` on each resume so the
+    /// boost actually re-applies between play sessions.
+    #[serde(default)]
+    pub session_start_distance_m: f64,
+    /// Last time the player was actively walking (unix seconds). Used to
+    /// detect "long idle" → resume transitions for `session_start_distance_m`.
+    #[serde(default)]
+    pub last_walking_unix: u64,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
@@ -623,7 +640,13 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             if cur >= MAX_FORGE_LEVEL {
                 return ("400 Bad Request", r#"{"error":"already at max level"}"#.to_string());
             }
-            let cost = BASE_COST * (cur as i32 + 1);
+            // Forge Discount boon (and any future stacking forge mults)
+            // applies here; round to nearest int and floor at 1 so the
+            // upgrade still costs *something* even with deep discounts.
+            let raw_cost = BASE_COST * (cur as i32 + 1);
+            let cost = ((raw_cost as f32) * questlib::boons::forge_cost_multiplier(&p.boons))
+                .round()
+                .max(1.0) as i32;
             if p.gold < cost {
                 return ("400 Bad Request", format!(r#"{{"error":"need {} gold"}}"#, cost));
             }

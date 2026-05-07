@@ -97,7 +97,11 @@ pub fn run_tick_dev(
             capped
         };
 
-        // Apply speed multipliers: passive (boots) × active buffs (potions).
+        // Apply speed multipliers: passive (boots) × active buffs
+        // (potions) × meta-progression (boons). Boons may also reduce
+        // tile traversal cost in specific biomes / on roads — applied
+        // here as an inverse multiplier on delta, so a 0.8 cost mult
+        // becomes a 1.25× speed bump while on that tile.
         let catalog = crate::item_catalog();
         let boots_mult = questlib::items::equipment_speed_multiplier(&player.equipment, catalog, &player.item_upgrades);
         let now_unix = std::time::SystemTime::now()
@@ -107,7 +111,20 @@ pub fn run_tick_dev(
             .filter(|b| b.expires_unix > now_unix && b.kind == "speed")
             .map(|b| b.multiplier)
             .product();
-        let speed_mult = (boots_mult * buff_mult) as f64;
+        let session_meters = (player.total_distance_m - player.session_start_distance_m).max(0.0) as f32;
+        let boon_speed_mult = questlib::boons::speed_multiplier(&player.boons, session_meters);
+        let cur_biome = world.biome_at(player.map_tile_x as usize, player.map_tile_y as usize);
+        let cur_on_road = world.has_road_at(player.map_tile_x as usize, player.map_tile_y as usize);
+        let biome_cost_mult = questlib::boons::biome_cost_multiplier(&player.boons, cur_biome).max(0.01);
+        let road_cost_mult = if cur_on_road {
+            questlib::boons::road_cost_multiplier(&player.boons).max(0.01)
+        } else {
+            1.0
+        };
+        let speed_mult = (boots_mult * buff_mult) as f64
+            * boon_speed_mult as f64
+            / biome_cost_mult as f64
+            / road_cost_mult as f64;
         let delta = raw_delta * speed_mult;
         if (speed_mult - 1.0).abs() > 0.01 {
             info!("[{}] speed_mult={:.2}x (boots={:.2}, buffs={:.2})", player.name, speed_mult, boots_mult, buff_mult);
@@ -200,7 +217,8 @@ pub fn run_tick_dev(
             }
             let tx = new_tile.map(|(x, _)| x as usize).unwrap_or(player.map_tile_x as usize);
             let ty = new_tile.map(|(_, y)| y as usize).unwrap_or(player.map_tile_y as usize);
-            if fog.reveal_radius(tx, ty, 5) {
+            let fog_radius = (5_i32 + questlib::boons::fog_radius_bonus(&player.boons)).max(1) as usize;
+            if fog.reveal_radius(tx, ty, fog_radius) {
                 new_revealed = Some(fog.to_base64());
             }
 
@@ -255,12 +273,25 @@ pub fn run_tick_dev(
                 // Vec small without needing a separate buff-housekeeping pass).
                 p.active_buffs.retain(|b| b.expires_unix > now_unix);
 
+                // Boon-aware gold awarder. Multiplies by goldfinger-style
+                // boon mults, rounds to nearest int, ensures >=1 if the
+                // raw amount was >0 (so players never lose a coin to
+                // rounding when boons are tiny).
+                let award_gold = |p: &mut crate::devserver::DevPlayerState, raw: i32| -> i32 {
+                    if raw <= 0 { return 0; }
+                    let mult = questlib::boons::gold_multiplier(&p.boons);
+                    let amount = ((raw as f32) * mult).round() as i32;
+                    let amount = amount.max(if mult > 0.0 { 1 } else { 0 });
+                    p.gold += amount;
+                    amount
+                };
+
                 // Apply chest loot
                 if let Some((chest_id, loot)) = chest_loot {
                     p.opened_chests.push(chest_id);
-                    p.gold += loot.gold;
+                    let granted = award_gold(p, loot.gold);
                     let catalog = Some(crate::item_catalog());
-                    let mut parts = vec![format!("+{} gold", loot.gold)];
+                    let mut parts = vec![format!("+{} gold", granted)];
                     for item_id in &loot.items {
                         questlib::items::add_item(&mut p.inventory, item_id, catalog);
                         let name = catalog.and_then(|c| c.get(item_id)).map(|d| d.display_name.as_str()).unwrap_or(item_id);
@@ -274,11 +305,21 @@ pub fn run_tick_dev(
                 if p.debug_walking {
                     p.total_distance_m += delta;
                 }
+                // Session-start tracking for the Sprint boon. If the
+                // player resumed after a long idle gap (>60 s of not
+                // walking), reset session_start_distance_m so the boost
+                // re-applies for the first 1 km of this session.
+                if p.is_walking {
+                    if now_unix.saturating_sub(p.last_walking_unix) > 60 {
+                        p.session_start_distance_m = p.total_distance_m;
+                    }
+                    p.last_walking_unix = now_unix;
+                }
                 // Gold: 1 gold per 10 meters walked (based on distance milestones)
                 let old_gold_milestone = ((p.total_distance_m - delta) / 10.0) as i32;
                 let new_gold_milestone = (p.total_distance_m / 10.0) as i32;
-                gold_delta = (new_gold_milestone - old_gold_milestone).max(0);
-                p.gold += gold_delta;
+                let raw_gold = (new_gold_milestone - old_gold_milestone).max(0);
+                gold_delta = award_gold(p, raw_gold);
                 p.route_meters_walked = new_route_meters;
                 if let Some((tx, ty)) = new_tile {
                     p.prev_tile = Some((p.map_tile_x, p.map_tile_y));
@@ -628,7 +669,8 @@ pub fn run_tick_dev(
                 let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
                 if let Some(pid) = fighter_pid.clone() {
                     if let Some(p) = lock.get_mut(&pid) {
-                        let gold = 30 + (difficulty as i32 * 20);
+                        let raw_gold = 30 + (difficulty as i32 * 20);
+                        let gold = ((raw_gold as f32) * questlib::boons::gold_multiplier(&p.boons)).round() as i32;
                         p.gold += gold;
                         let catalog = Some(crate::item_catalog());
                         let drop = match difficulty {
@@ -660,7 +702,8 @@ pub fn run_tick_dev(
                     let idx: usize = victory_event_id.strip_prefix("monster_").and_then(|s| s.parse().ok()).unwrap_or(0);
                     let difficulty = world.monsters.get(idx).map(|m| m.difficulty).unwrap_or(1);
                     let name = world.monsters.get(idx).map(|m| m.monster_type.display_name()).unwrap_or("Monster");
-                    let gold = 30 + (difficulty as i32 * 20);
+                    let raw_gold = 30 + (difficulty as i32 * 20);
+                    let gold = ((raw_gold as f32) * questlib::boons::gold_multiplier(&p.boons)).round() as i32;
                     p.gold += gold;
                     // Item drop based on difficulty
                     let catalog = Some(crate::item_catalog());
@@ -694,7 +737,8 @@ pub fn run_tick_dev(
                         .and_then(|interior| interior.monsters.get(monster_idx))
                         .map(|m| (m.difficulty, m.monster_type.display_name().to_string()))
                         .unwrap_or((1, "Monster".to_string()));
-                    let gold = 30 + (difficulty as i32 * 20);
+                    let raw_gold = 30 + (difficulty as i32 * 20);
+                    let gold = ((raw_gold as f32) * questlib::boons::gold_multiplier(&p.boons)).round() as i32;
                     p.gold += gold;
                     let catalog = Some(crate::item_catalog());
                     let drop = match difficulty {
