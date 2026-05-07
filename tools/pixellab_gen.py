@@ -70,11 +70,37 @@ def extract_image_b64(data: dict) -> Optional[str]:
     looks like an image."""
     if not isinstance(data, dict):
         return None
-    for key in ("image", "image_b64", "image_base64", "png", "data"):
+    for key in ("image", "image_b64", "image_base64", "png", "data", "base64", "content"):
         v = data.get(key)
-        if isinstance(v, str) and len(v) > 100:
+        if isinstance(v, str) and len(v) > 100 and not v.startswith(("http://", "https://")):
+            return v
+        # Some APIs wrap the base64 inside another object: `image: {b64: "..."}`
+        if isinstance(v, dict):
+            inner = extract_image_b64(v)
+            if inner:
+                return inner
+    return None
+
+
+def extract_image_url(data: dict) -> Optional[str]:
+    """Some endpoints return an image URL instead of inline base64.
+    We fetch it ourselves before saving."""
+    if not isinstance(data, dict):
+        return None
+    for key in ("url", "image_url", "png_url", "asset_url", "src"):
+        v = data.get(key)
+        if isinstance(v, str) and v.startswith(("http://", "https://")):
             return v
     return None
+
+
+def fetch_and_write(url: str, out_path: pathlib.Path) -> int:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
+        body = resp.read()
+    out_path.write_bytes(body)
+    return len(body)
 
 
 def extract_direction_images(data: dict) -> Optional[dict]:
@@ -210,33 +236,70 @@ def main() -> int:
 
         print(f"[gen  ] {asset['id']:<22} ({asset['type']})...", end=" ", flush=True)
         resp = gen(asset, token)
-        if not resp.get("success"):
-            print(f"FAIL — {resp.get('error', '?')}")
+
+        # Always dump raw response under --debug so we can iterate on
+        # the extractor when an endpoint returns an unexpected shape.
+        if args.debug:
+            print()
+            dbg = json.dumps(resp, indent=2, default=str)
+            if len(dbg) > 2500:
+                dbg = dbg[:2500] + "\n  ... (truncated)"
+            print("  raw response:\n  " + dbg.replace("\n", "\n  "))
+
+        # Hard error path: HTTP 4xx/5xx or network exception (only our
+        # post_json wrapper sets {success: False, error: "..."} like that).
+        if resp.get("success") is False and resp.get("error"):
+            print(f"FAIL — {resp['error']}")
             n_fail += 1
             continue
-        data = resp.get("data") or {}
+
+        # Try multiple paths to find the image. Pixellab's docs suggest
+        # `data.image` but actual responses may use different keys, may
+        # be at top-level, or may be a URL we have to fetch.
+        candidates = [resp]
+        if isinstance(resp.get("data"), dict):
+            candidates.append(resp["data"])
+        if isinstance(resp.get("result"), dict):
+            candidates.append(resp["result"])
 
         if asset["type"] == "character_4dir":
-            dirs = extract_direction_images(data)
+            dirs = None
+            for c in candidates:
+                dirs = extract_direction_images(c)
+                if dirs:
+                    break
             if dirs:
                 size = write_directions(dirs, out_path)
                 print(f"OK ({len(dirs)} directions, {size} bytes total)")
                 n_done += 1
                 continue
-            # Fall through to single-image handling — some endpoints
-            # may return a single sheet rather than per-direction.
+            # Fall through to single-image handling.
 
-        img = extract_image_b64(data)
-        if not img:
-            print(
-                f"FAIL — no image in response (data keys: {list(data.keys()) if isinstance(data, dict) else 'n/a'})"
-            )
-            if args.debug:
-                print("  raw response:", json.dumps(resp, indent=2)[:1500])
+        img_b64 = None
+        img_url = None
+        for c in candidates:
+            img_b64 = extract_image_b64(c)
+            if img_b64:
+                break
+            img_url = extract_image_url(c)
+            if img_url:
+                break
+
+        if not img_b64 and not img_url:
+            top_keys = list(resp.keys()) if isinstance(resp, dict) else []
+            data_keys = list(resp.get("data", {}).keys()) if isinstance(resp.get("data"), dict) else []
+            print(f"FAIL — no image found. top: {top_keys[:8]} data: {data_keys[:8]}")
+            if not args.debug:
+                snippet = json.dumps(resp, default=str)[:400]
+                print(f"  snippet: {snippet} (re-run with --debug for full body)")
             n_fail += 1
             continue
+
         try:
-            size = write_png(img, out_path)
+            if img_b64:
+                size = write_png(img_b64, out_path)
+            else:
+                size = fetch_and_write(img_url, out_path)
         except Exception as e:
             print(f"FAIL — write {out_path}: {e}")
             n_fail += 1
