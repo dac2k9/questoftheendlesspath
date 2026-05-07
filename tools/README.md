@@ -13,8 +13,9 @@ isn't already on disk, and saves PNGs under
 # 1. Get a token from https://pixellab.ai/account
 export PIXEL_LAB_TOKEN=...   # paste your token here
 
-# 2. Install the only dependency
-pip install pyyaml
+# 2. Install dependencies (PyYAML for the manifest, Pillow for
+#    rgba_bytes → PNG encoding used by character_4dir output)
+pip install pyyaml Pillow
 ```
 
 ### Generate

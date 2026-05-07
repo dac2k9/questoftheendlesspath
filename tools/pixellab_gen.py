@@ -194,24 +194,25 @@ def fetch_and_write(url: str, out_path: pathlib.Path) -> int:
 
 
 def extract_direction_images(data: dict) -> Optional[dict]:
-    """For `/create-character-with-4-directions`, the API may return a
-    dict like `{down: <b64>, up: <b64>, left: <b64>, right: <b64>}`
-    or wrap them under `directions`. Returns a {direction: b64} dict
-    if found, else None."""
+    """For /create-character-with-4-directions the API returns
+    `images: {north: {...}, south: {...}, east: {...}, west: {...}}`,
+    each entry being `{type, width, base64}` where `type` is either
+    `"base64"` (PNG already) or `"rgba_bytes"` (raw pixel data we
+    have to encode via Pillow). Returns a {direction: image_dict}
+    dict, where direction is the compass key as-is."""
     if not isinstance(data, dict):
         return None
-    candidate = data.get("directions") or data
-    if not isinstance(candidate, dict):
+    images = data.get("images") or data.get("directions")
+    if not isinstance(images, dict):
         return None
     out = {}
-    for d in ("down", "up", "left", "right"):
-        v = candidate.get(d)
-        if isinstance(v, str) and len(v) > 100:
+    for d in ("north", "south", "east", "west", "down", "up", "left", "right"):
+        v = images.get(d)
+        if isinstance(v, dict) and isinstance(v.get("base64"), str):
             out[d] = v
-        elif isinstance(v, dict):
-            inner = extract_image_b64(v)
-            if inner:
-                out[d] = inner
+        elif isinstance(v, str) and len(v) > 100:
+            # Bare base64 string (older shape).
+            out[d] = {"type": "base64", "base64": v}
     return out if len(out) >= 2 else None
 
 
@@ -260,16 +261,56 @@ def write_png(b64: str, out_path: pathlib.Path) -> int:
     return len(raw)
 
 
+def _rgba_to_png(raw: bytes, width: int, height: int) -> bytes:
+    """Wrap raw RGBA pixel bytes in a PNG file. Lazy-imports Pillow so
+    the script still parses for users who haven't installed it; only
+    rgba_bytes outputs (currently character_4dir) need this path."""
+    try:
+        from PIL import Image
+    except ImportError as e:
+        raise RuntimeError(
+            "rgba_bytes output requires Pillow. Install: pip install Pillow"
+        ) from e
+    import io
+    img = Image.frombytes("RGBA", (width, height), raw)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def write_image_dict(img: dict, out_path: pathlib.Path) -> int:
+    """Save one image given as a {type, width, base64} dict. Handles
+    both `type: "base64"` (PNG-encoded base64) and `type: "rgba_bytes"`
+    (raw RGBA pixel bytes — needs Pillow to encode as PNG)."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    img_type = img.get("type", "base64")
+    raw = base64.b64decode(img["base64"])
+    if img_type == "rgba_bytes":
+        width = int(img.get("width") or 0)
+        if width <= 0 or len(raw) % (4 * width) != 0:
+            raise RuntimeError(
+                f"rgba_bytes: bad width {width} for {len(raw)} bytes"
+            )
+        height = len(raw) // (4 * width)
+        png = _rgba_to_png(raw, width, height)
+        out_path.write_bytes(png)
+    else:
+        # type: "base64" → already a PNG.
+        out_path.write_bytes(raw)
+    return out_path.stat().st_size
+
+
 def write_directions(directions: dict, out_path: pathlib.Path) -> int:
     """Save 4-direction output as 4 PNGs adjacent to `out_path`. Atlas
-    stitching into our 4-row monster format is a separate step."""
+    stitching into our 4-row monster format is a separate step. Each
+    direction entry is `{type, width, base64}`; pixellab uses compass
+    keys (north/south/east/west) — saved as `<name>_<dir>.png`."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     stem = out_path.stem
     total = 0
-    for d, b64 in directions.items():
+    for d, img in directions.items():
         sibling = out_path.with_name(f"{stem}_{d}.png")
-        sibling.write_bytes(base64.b64decode(b64))
-        total += sibling.stat().st_size
+        total += write_image_dict(img, sibling)
     return total
 
 
