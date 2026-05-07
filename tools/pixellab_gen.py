@@ -63,20 +63,76 @@ def post_json(endpoint: str, body: dict, token: str) -> dict:
         return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
 
+def get_json(endpoint: str, token: str) -> dict:
+    """GET helper for the background-jobs poll. Same error envelope as
+    post_json so the caller can treat them uniformly."""
+    url = f"{API_BASE}{endpoint}"
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body_txt = e.read().decode(errors="replace") if hasattr(e, "read") else ""
+        return {"success": False, "error": f"HTTP {e.code}: {body_txt[:300]}"}
+    except Exception as e:
+        return {"success": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def poll_job(job_id: str, token: str, max_wait_s: int = 300, debug: bool = False) -> dict:
+    """Poll /background-jobs/{id} until terminal status. Returns the
+    last response (whether success or failure). Pixellab's POST endpoints
+    return `{background_job_id, status: "processing"}` and do the actual
+    image generation off-thread, so this turns the async API into a
+    blocking one for the script's purposes."""
+    import time
+    interval = 2.0
+    deadline = time.time() + max_wait_s
+    last_status = None
+    while time.time() < deadline:
+        resp = get_json(f"/background-jobs/{job_id}", token)
+        if resp.get("success") is False and resp.get("error"):
+            return resp
+        status = resp.get("status")
+        if debug and status != last_status:
+            print(f"\n  [poll] status={status}", end="", flush=True)
+            last_status = status
+        # Terminal states — done either way; let the extractor decide.
+        if status in ("complete", "completed", "done", "succeeded", "success", "finished"):
+            return resp
+        if status in ("failed", "error", "cancelled", "canceled"):
+            return resp
+        time.sleep(interval)
+    return {"success": False, "error": f"poll timeout after {max_wait_s}s on job {job_id}"}
+
+
 def extract_image_b64(data: dict) -> Optional[str]:
     """Try common keys where the API may have stuffed the base64 PNG.
-    Pixellab's docs hint at `data.image` but variants exist across
-    endpoints — this is best-effort, falls through to None if nothing
-    looks like an image."""
+    Pixellab's actual job response wraps it as
+    `last_response.images[0].base64` (list of {type, width, base64}).
+    Other endpoints may use simpler shapes — try a handful of paths."""
     if not isinstance(data, dict):
         return None
-    for key in ("image", "image_b64", "image_base64", "png", "data", "base64", "content"):
+    # Direct string fields.
+    for key in ("image", "image_b64", "image_base64", "png", "base64", "content"):
         v = data.get(key)
         if isinstance(v, str) and len(v) > 100 and not v.startswith(("http://", "https://")):
             return v
-        # Some APIs wrap the base64 inside another object: `image: {b64: "..."}`
         if isinstance(v, dict):
             inner = extract_image_b64(v)
+            if inner:
+                return inner
+    # Lists of image objects: `images: [{type: "base64", base64: "..."}]`
+    images = data.get("images")
+    if isinstance(images, list) and images:
+        first = images[0]
+        if isinstance(first, str) and len(first) > 100:
+            return first
+        if isinstance(first, dict):
+            inner = extract_image_b64(first)
             if inner:
                 return inner
     return None
@@ -237,6 +293,14 @@ def main() -> int:
         print(f"[gen  ] {asset['id']:<22} ({asset['type']})...", end=" ", flush=True)
         resp = gen(asset, token)
 
+        # Pixellab's image endpoints kick off background jobs and
+        # return {background_job_id, status: "processing"} immediately.
+        # Block here, polling /background-jobs/{id} until terminal.
+        job_id = resp.get("background_job_id") if isinstance(resp, dict) else None
+        if job_id:
+            print(f"job {job_id[:8]}...", end="", flush=True)
+            resp = poll_job(job_id, token, debug=args.debug)
+
         # Always dump raw response under --debug so we can iterate on
         # the extractor when an endpoint returns an unexpected shape.
         if args.debug:
@@ -253,10 +317,12 @@ def main() -> int:
             n_fail += 1
             continue
 
-        # Try multiple paths to find the image. Pixellab's docs suggest
-        # `data.image` but actual responses may use different keys, may
-        # be at top-level, or may be a URL we have to fetch.
+        # Try multiple paths to find the image. Pixellab's job responses
+        # wrap it under `last_response.images[]`; older endpoints may
+        # use `data.*` or top-level keys.
         candidates = [resp]
+        if isinstance(resp.get("last_response"), dict):
+            candidates.append(resp["last_response"])
         if isinstance(resp.get("data"), dict):
             candidates.append(resp["data"])
         if isinstance(resp.get("result"), dict):
