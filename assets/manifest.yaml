@@ -1,0 +1,80 @@
+# Asset generation manifest — drives `tools/pixellab_gen.py`.
+#
+# Each entry generates one PNG (or, for 4-direction characters, one
+# sheet or set of direction PNGs depending on the API response).
+# Already-generated outputs are skipped unless `--force` is passed,
+# so re-running the script is safe — only missing assets cost credits.
+#
+# Type → endpoint mapping (see tools/pixellab_gen.py):
+#   character_4dir → /create-character-with-4-directions
+#   image          → /generate-image-v2
+#   object         → /generate-image-v2 (with transparent-background phrasing)
+#   tileset        → /tilesets
+
+adventure: sample-fantasy
+
+defaults:
+  # All `out` paths are joined onto this root. Generated assets land
+  # in `assets/generated/` so they don't mix with hand-authored ones
+  # we want to preserve under source control.
+  out_root: crates/gameclient/assets/generated
+
+assets:
+  # ── Monsters (4-direction sprites with walk cycles) ─────
+  - id: bog_wraith
+    type: character_4dir
+    description: "ghostly pale-green swamp wraith, fantasy pixel art"
+    size: 64
+    out: monsters/BogWraith.png
+
+  - id: stone_golem
+    type: character_4dir
+    description: "small stone golem with mossy patches, fantasy pixel art"
+    size: 64
+    out: monsters/StoneGolem.png
+
+  # ── POI illustrations (top-down landmark views) ─────────
+  - id: poi_workshop
+    type: image
+    description: "small fantasy workshop with anvil and forge, top-down view, pixel art"
+    size: [48, 48]
+    out: poi/workshop.png
+
+  - id: poi_apothecary
+    type: image
+    description: "tiny fantasy apothecary cottage with green roof and herb garden, top-down view, pixel art"
+    size: [48, 48]
+    out: poi/apothecary.png
+
+  # ── Chests ──────────────────────────────────────────────
+  - id: chest_silver
+    type: object
+    description: "silver-bound treasure chest, closed, fantasy, transparent background, pixel art"
+    size: [32, 32]
+    out: objects/chest_silver.png
+
+  - id: chest_gold
+    type: object
+    description: "ornate gold treasure chest, closed, fantasy, transparent background, pixel art"
+    size: [32, 32]
+    out: objects/chest_gold.png
+
+  # ── Gear icons (transparent-background single sprites) ──
+  - id: gear_warhammer
+    type: object
+    description: "fantasy warhammer weapon item icon, transparent background, pixel art"
+    size: [32, 32]
+    out: gear/warhammer.png
+
+  - id: gear_emerald_amulet
+    type: object
+    description: "emerald amulet pendant on transparent background, fantasy pixel art"
+    size: [32, 32]
+    out: gear/emerald_amulet.png
+
+  # ── Biome tile sample (one or two only — sampling) ──────
+  - id: tile_marsh
+    type: tileset
+    description: "marshy swamp ground, top-down tile, fantasy"
+    tile_size: 16
+    out: tiles/marsh.png
