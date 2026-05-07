@@ -78,6 +78,12 @@ pub enum EventKind {
         /// what actually keeps player damage in check at high levels.
         #[serde(default)]
         def_per_level: Option<i32>,
+        /// When true, victory pushes a 3-of-N boon choice onto the
+        /// player. Boons survive across adventures even though level /
+        /// gold / inventory reset, so reserve this for climactic
+        /// quests (final boss of an adventure, not every cave troll).
+        #[serde(default)]
+        grants_boon: bool,
     },
     StoryBeat {
         lines: Vec<String>,
@@ -174,6 +180,7 @@ mod tests {
             hp_per_level: None,
             atk_per_level: None,
             def_per_level: None,
+            grants_boon: false,
         };
         let json = serde_json::to_string(&kind).unwrap();
         assert!(json.contains("\"type\":\"boss\""));

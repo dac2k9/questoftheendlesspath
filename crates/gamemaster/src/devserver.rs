@@ -94,6 +94,24 @@ pub struct DevPlayerState {
     /// detect "long idle" → resume transitions for `session_start_distance_m`.
     #[serde(default)]
     pub last_walking_unix: u64,
+    /// Pending boon choice from a recent climactic-quest victory.
+    /// Cleared by `POST /select_boon`. The 3 IDs are deterministic per
+    /// `(player_id, event_id)` so a refresh / re-poll won't re-roll
+    /// the offer. Client polls this and pops the picker modal when
+    /// it's `Some`.
+    #[serde(default)]
+    pub pending_boon_choice: Option<PendingBoonChoice>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PendingBoonChoice {
+    /// Event the boon was earned from (so the client can show "for
+    /// defeating X" context, and so `pick_choices` can be re-derived
+    /// deterministically without trusting the saved `choices`).
+    pub event_id: String,
+    /// The 3 (or fewer) boon ids on offer. Empty would mean every
+    /// boon already owned — server clears the pending in that case.
+    pub choices: Vec<String>,
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
@@ -615,6 +633,42 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
     // `/walker_update` was removed. Treadmill data flows through the
     // WebSocket bridge (`gamemaster::walker_bridge`) directly into
     // DevPlayerState; no client-supplied distance.
+
+    // POST /select_boon — body: {"player_id": "...", "boon_id": "swift_boots"}.
+    // Consumes the player's pending boon choice (set by a climactic
+    // quest victory). Validates that boon_id is one of the offered
+    // three, that the player doesn't already own it, and that a
+    // pending choice actually exists.
+    if first_line.starts_with("POST /select_boon") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            #[derive(Deserialize)]
+            struct Req { player_id: String, boon_id: String }
+            let Ok(req) = serde_json::from_str::<Req>(&request[body_start + 4..]) else {
+                return ("400 Bad Request", r#"{"error":"bad body"}"#.to_string());
+            };
+            let mut lock = state.lock().unwrap();
+            let Some(p) = lock.get_mut(&req.player_id) else {
+                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+            };
+            let Some(pending) = p.pending_boon_choice.clone() else {
+                return ("400 Bad Request", r#"{"error":"no pending boon choice"}"#.to_string());
+            };
+            if !pending.choices.iter().any(|c| c == &req.boon_id) {
+                return ("400 Bad Request", r#"{"error":"boon_id not in offered choices"}"#.to_string());
+            }
+            if questlib::boons::lookup(&req.boon_id).is_none() {
+                return ("400 Bad Request", r#"{"error":"unknown boon_id"}"#.to_string());
+            }
+            if p.boons.iter().any(|b| b == &req.boon_id) {
+                return ("400 Bad Request", r#"{"error":"already owned"}"#.to_string());
+            }
+            p.boons.push(req.boon_id.clone());
+            p.pending_boon_choice = None;
+            tracing::info!("[boons] {} selected '{}' (now owns {})", p.name, req.boon_id, p.boons.len());
+            return ("200 OK", format!(r#"{{"ok":true,"selected":"{}"}}"#, req.boon_id));
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
 
     // POST /forge_upgrade — spend gold to add a stat level to an equipped
     // item. Body: {"player_id": "...", "item_id": "iron_sword"}.
@@ -1387,6 +1441,37 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             event.force_status(new_status);
             tracing::info!("[admin] reset_event {} -> {:?}", event_id, new_status);
             return ("200 OK", r#"{"ok":true}"#.to_string());
+        }
+
+        // POST /admin/grant_boon_choice — { player_id, event_id? }
+        // Queue a boon picker for a player who's already past a
+        // climactic event (e.g. existing save where the player beat
+        // the boss before grants_boon was added to that event). The
+        // 3 offered ids are deterministic on (player_id, event_id),
+        // so re-grants without a select in between yield the same set.
+        if first_line.starts_with("POST /admin/grant_boon_choice") {
+            let pid = data.get("player_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let event_id = data.get("event_id").and_then(|v| v.as_str()).unwrap_or("manual_grant").to_string();
+            if pid.is_empty() {
+                return ("400 Bad Request", r#"{"error":"player_id required"}"#.to_string());
+            }
+            let mut lock = state.lock().unwrap();
+            let Some(p) = lock.get_mut(&pid) else {
+                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+            };
+            let seed = questlib::boons::choice_seed(&p.id, &event_id);
+            let choices: Vec<String> = questlib::boons::pick_choices(seed, 3, &p.boons)
+                .into_iter().map(String::from).collect();
+            if choices.is_empty() {
+                return ("400 Bad Request", r#"{"error":"player already owns every boon"}"#.to_string());
+            }
+            p.pending_boon_choice = Some(PendingBoonChoice {
+                event_id: event_id.clone(),
+                choices: choices.clone(),
+            });
+            tracing::info!("[admin] grant_boon_choice player={} event={} choices={:?}", p.name, event_id, choices);
+            let json = serde_json::json!({ "ok": true, "choices": choices }).to_string();
+            return ("200 OK", json);
         }
 
         // POST /admin/dump_combat — snapshot of in-memory shared_combat

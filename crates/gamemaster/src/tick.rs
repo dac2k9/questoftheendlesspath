@@ -763,6 +763,14 @@ pub fn run_tick_dev(
         } else if let Some(event) = events_lock.get_mut(victory_event_id) {
             // Quest event victory — apply outcomes to ALL coop participants
             if event.transition(EventStatus::Completed).is_ok() {
+                // Climactic boss with `grants_boon: true`: each participant
+                // gets a 3-of-N boon picker queued. Determined here (once)
+                // so we can apply per-participant after the apply_outcome
+                // loop without re-borrowing event.
+                let grants_boon = matches!(
+                    event.kind,
+                    questlib::events::kind::EventKind::Boss { grants_boon: true, .. }
+                );
                 let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
                 let participants = if !coop_pids.is_empty() { coop_pids.clone() } else { fighter_pid.clone().into_iter().collect() };
                 for pid in &participants {
@@ -770,6 +778,9 @@ pub fn run_tick_dev(
                         p.completed_events.push(victory_event_id.clone());
                         for outcome in &event.outcomes {
                             apply_outcome(outcome, p, fog);
+                        }
+                        if grants_boon {
+                            queue_boon_choice(p, victory_event_id);
                         }
                     }
                 }
@@ -780,6 +791,13 @@ pub fn run_tick_dev(
                             for pid in &participants {
                                 crate::push_notif(&mut notifs, &pid, text.clone());
                             }
+                        }
+                    }
+                }
+                if grants_boon {
+                    if let Ok(mut notifs) = shared_notifs.lock() {
+                        for pid in &participants {
+                            crate::push_notif(&mut notifs, &pid, "A boon awaits — choose your reward.".to_string());
                         }
                     }
                 }
@@ -851,6 +869,28 @@ fn make_test_state(players: Vec<DevPlayerState>) -> (SharedState, SharedEvents, 
         Arc::new(Mutex::new(HashMap::new())),
         Arc::new(Mutex::new(HashMap::new())),
     )
+}
+
+/// Queue a 3-of-N boon choice on the player as a side-effect of
+/// completing a climactic quest. Idempotent — if the player already has
+/// a pending choice (rare: two grants land before they pick), the new
+/// one overwrites it (most-recent grant wins, no piling up). The 3 ids
+/// are deterministic on `(player_id, event_id)`, so refresh / re-poll
+/// gets the same offer.
+fn queue_boon_choice(player: &mut DevPlayerState, event_id: &str) {
+    let seed = questlib::boons::choice_seed(&player.id, event_id);
+    let choices: Vec<String> = questlib::boons::pick_choices(seed, 3, &player.boons)
+        .into_iter().map(String::from).collect();
+    if choices.is_empty() {
+        // Nothing left to grant — every boon already owned. Silently
+        // drop instead of leaving an empty offer that the client
+        // would have to render.
+        return;
+    }
+    player.pending_boon_choice = Some(crate::devserver::PendingBoonChoice {
+        event_id: event_id.to_string(),
+        choices,
+    });
 }
 
 fn apply_outcome(outcome: &EventOutcome, player: &mut DevPlayerState, fog: &mut FogBitfield) {

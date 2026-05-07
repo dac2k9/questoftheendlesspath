@@ -117,6 +117,7 @@ mod tests {
                         hp_per_level: None,
                         atk_per_level: None,
                         def_per_level: None,
+                        grants_boon: false,
                     },
                     trigger: TriggerCondition::All {
                         conditions: vec![
