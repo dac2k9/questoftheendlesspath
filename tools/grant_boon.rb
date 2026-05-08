@@ -1,29 +1,24 @@
 #!/usr/bin/env ruby
-# Grant a boon choice on the deployed server. One-shot tool for the
-# retroactive case where a player beat a climactic event before
-# `grants_boon: true` was added to its kind. Future boss victories
-# trigger the picker automatically — no need to run this for those.
+# Boon-admin helper. Three modes:
 #
-# Usage:
-#   1. Edit ADMIN_TOKEN below (or `export ADMIN_TOKEN=...`).
-#   2. Run:
-#        ruby tools/grant_boon.rb
-#      Or filter to a specific player by name substring:
-#        ruby tools/grant_boon.rb daniel
+#   ruby tools/grant_boon.rb                  # list all players + boons
+#   ruby tools/grant_boon.rb <name>           # grant a 3-of-N picker
+#   ruby tools/grant_boon.rb cancel <name>    # clear a pending picker
 #
-# Output is the offered 3 boon ids — reload the browser and the
-# picker modal should appear.
+# `<name>` is a case-insensitive substring of the player's display
+# name. Match must be unique — if multiple players match, the script
+# aborts with the candidate list. Default mode (no args) lists every
+# player so you can see who's on the server before granting.
+#
+# Edit ADMIN_TOKEN below or set ADMIN_TOKEN in your shell env.
 
 require 'net/http'
 require 'json'
 require 'uri'
 
-# Edit this if you don't want to use the env var.
 ADMIN_TOKEN = ENV['ADMIN_TOKEN'] || 'PASTE_YOUR_TOKEN_HERE'
-
-# Override via env if needed (e.g. local dev: BASE=http://localhost:3001).
-BASE     = ENV['BASE']     || 'https://questoftheendlesspath-latest.onrender.com'
-EVENT_ID = ENV['EVENT_ID'] || 'tower_20'
+BASE        = ENV['BASE']        || 'https://questoftheendlesspath-latest.onrender.com'
+EVENT_ID    = ENV['EVENT_ID']    || 'tower_20'
 
 if ADMIN_TOKEN.start_with?('PASTE_')
   abort "ERROR: set ADMIN_TOKEN at the top of the script or in your shell env."
@@ -38,52 +33,83 @@ end
 def get_json(path)
   uri = URI("#{BASE}#{path}")
   res = http_for(uri).request(Net::HTTP::Get.new(uri.request_uri))
-  unless res.is_a?(Net::HTTPSuccess)
-    abort "GET #{path}: HTTP #{res.code}\n  body: #{res.body[0,300]}"
-  end
+  abort "GET #{path}: HTTP #{res.code}\n  body: #{res.body[0,300]}" unless res.is_a?(Net::HTTPSuccess)
   JSON.parse(res.body)
 end
 
 def post_admin(path, body)
   uri = URI("#{BASE}#{path}")
   req = Net::HTTP::Post.new(uri.request_uri)
-  req['Content-Type'] = 'application/json'
+  req['Content-Type']  = 'application/json'
   req['X-Admin-Token'] = ADMIN_TOKEN
   req.body = body.to_json
-  res = http_for(uri).request(req)
-  [res.code, res.body]
+  [http_for(uri).request(req).then { |r| [r.code, r.body] }].flatten
 end
 
-# 1. Fetch /players (hash keyed by player_id).
+def parse_args
+  args = ARGV.dup
+  cmd = args.shift
+  case cmd
+  when nil, ''
+    [:list, nil]
+  when 'cancel'
+    name = args.shift
+    abort "usage: ruby tools/grant_boon.rb cancel <name>" if name.nil? || name.empty?
+    [:cancel, name]
+  else
+    [:grant, cmd]
+  end
+end
+
+def find_unique(players, name_substr)
+  needle = name_substr.downcase
+  matches = players.select { |p| (p['name'] || '').downcase.include?(needle) }
+  case matches.size
+  when 0
+    abort "no player matches '#{name_substr}'\nnames on server: #{players.map { |p| p['name'] }.inspect}"
+  when 1
+    matches.first
+  else
+    abort "'#{name_substr}' matches multiple — narrow it down: #{matches.map { |p| p['name'] }.inspect}"
+  end
+end
+
+def list_players(players)
+  puts "#{players.size} players on #{BASE}:"
+  players.sort_by { |p| (p['name'] || '').downcase }.each do |p|
+    pending = p['pending_boon_choice'] ? "  PENDING: #{p['pending_boon_choice']['choices'].inspect}" : ''
+    boons = p['boons'] || []
+    puts "  #{p['name'].to_s.ljust(20)}  id=#{p['id']}  boons=#{boons.inspect}#{pending}"
+  end
+  puts
+  puts "Grant: ruby tools/grant_boon.rb <name-substring>"
+  puts "Cancel: ruby tools/grant_boon.rb cancel <name-substring>"
+end
+
+mode, name = parse_args
 players = get_json('/players')
-abort "no players on the server" if players.empty?
+abort "no players on the server" if players.nil? || players.empty?
 
-# 2. Pick the player. CLI arg = case-insensitive name substring filter;
-# absent → the first (or only) player on the server.
-filter = ARGV[0]
-pick = if filter && !filter.empty?
-  players.find { |_id, p| (p['name'] || '').downcase.include?(filter.downcase) }
-else
-  players.first
+case mode
+when :list
+  list_players(players)
+when :grant
+  info = find_unique(players, name)
+  pid = info['id']
+  if info['pending_boon_choice']
+    puts "Note: #{info['name']} already has a pending picker; granting will overwrite it."
+  end
+  code, body = post_admin('/admin/grant_boon_choice', { player_id: pid, event_id: EVENT_ID })
+  puts "Granted to #{info['name']} (#{pid})"
+  puts "HTTP #{code}: #{body}"
+when :cancel
+  info = find_unique(players, name)
+  pid = info['id']
+  unless info['pending_boon_choice']
+    puts "No pending picker on #{info['name']} — nothing to cancel."
+    exit 0
+  end
+  code, body = post_admin('/admin/clear_boon_choice', { player_id: pid })
+  puts "Cleared pending picker for #{info['name']} (#{pid})"
+  puts "HTTP #{code}: #{body}"
 end
-abort "no player matches '#{filter}' — names: #{players.values.map { |p| p['name'] }.inspect}" unless pick
-
-pid, info = pick
-puts "Player: #{info['name']} (#{pid})"
-puts "Already-owned boons: #{(info['boons'] || []).inspect}"
-
-# 3. Grant.
-code, body = post_admin('/admin/grant_boon_choice', { player_id: pid, event_id: EVENT_ID })
-puts ""
-puts "HTTP #{code}: #{body}"
-
-unless code == '200'
-  abort "Grant failed. Common causes: ADMIN_TOKEN wrong, server not yet redeployed " \
-        "with the boons feature, or player already owns every boon."
-end
-
-resp = JSON.parse(body) rescue {}
-choices = resp['choices'] || []
-puts ""
-puts "Offered: #{choices.join(', ')}"
-puts "Reload your browser (Cmd-Shift-R) and the picker should appear."

@@ -1474,6 +1474,24 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             return ("200 OK", json);
         }
 
+        // POST /admin/clear_boon_choice — { player_id } — drop the
+        // player's pending boon picker without consuming it. Use to
+        // reverse a misdirected grant_boon_choice.
+        if first_line.starts_with("POST /admin/clear_boon_choice") {
+            let pid = data.get("player_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if pid.is_empty() {
+                return ("400 Bad Request", r#"{"error":"player_id required"}"#.to_string());
+            }
+            let mut lock = state.lock().unwrap();
+            let Some(p) = lock.get_mut(&pid) else {
+                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+            };
+            let had = p.pending_boon_choice.is_some();
+            p.pending_boon_choice = None;
+            tracing::info!("[admin] clear_boon_choice player={} (had pending: {})", p.name, had);
+            return ("200 OK", format!(r#"{{"ok":true,"had_pending":{}}}"#, had));
+        }
+
         // POST /admin/dump_combat — snapshot of in-memory shared_combat
         // (keys + brief status). Diagnostic only — use this when a player
         // sits on a monster and combat won't start; a non-empty list with
