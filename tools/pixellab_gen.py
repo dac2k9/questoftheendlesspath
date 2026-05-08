@@ -363,7 +363,21 @@ def main() -> int:
             n_fail += 1
             continue
         out_path = out_root / out_rel
-        if out_path.exists() and not args.force:
+        # character_4dir saves 4 sibling files (`<stem>_<dir>.png`) and
+        # never writes the bare out_path. Look for those instead so a
+        # second run actually skips a previously-generated character.
+        if asset.get("type") == "character_4dir":
+            stem = out_path.stem
+            siblings = [
+                out_path.with_name(f"{stem}_{d}.png")
+                for d in ("north", "south", "east", "west")
+            ]
+            existing = [p for p in siblings if p.exists()]
+            if len(existing) >= 4 and not args.force:
+                print(f"[skip ] {asset['id']:<22} → {out_path.with_name(stem + '_*.png')} (4/4 dirs exist)")
+                n_skip += 1
+                continue
+        elif out_path.exists() and not args.force:
             print(f"[skip ] {asset['id']:<22} → {out_path} (exists; --force to regen)")
             n_skip += 1
             continue
