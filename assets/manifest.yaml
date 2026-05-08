@@ -140,3 +140,13 @@ assets:
     description: "brass compass over folded map corner icon, fantasy pixel art, transparent background"
     size: [32, 32]
     out: boons/cartographer.png
+
+  # ── Buff icons (HUD chip sprites for temporary potion buffs) ──
+  # Same 32×32 transparent format as boons. The buff's source_item
+  # id is the lookup key, so the file under buffs/ must match
+  # (e.g. speed_potion → buffs/speed_potion.png).
+  - id: buff_speed_potion
+    type: object
+    description: "small glass potion bottle with swirling glowing green liquid, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: buffs/speed_potion.png
