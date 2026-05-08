@@ -78,3 +78,61 @@ assets:
     description: "marshy swamp ground, top-down tile, fantasy"
     tile_size: 16
     out: tiles/marsh.png
+
+  # ── Boon icons (HUD chip sprites, 32×32 with transparent bg) ──
+  # Each one renders inside a 20×20 chip on the top-left strip.
+  # Description style: "<concrete object> icon, fantasy pixel art,
+  # transparent background" — keeps the look consistent across the set.
+  - id: boon_swift_boots
+    type: object
+    description: "small winged leather boot icon, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: boons/swift_boots.png
+
+  - id: boon_trailblazer
+    type: object
+    description: "footprints leading into grass icon, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: boons/trailblazer.png
+
+  - id: boon_roadwise
+    type: object
+    description: "rolled scroll-map with red road line icon, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: boons/roadwise.png
+
+  - id: boon_sprint
+    type: object
+    description: "lightning bolt icon, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: boons/sprint.png
+
+  - id: boon_goldfinger
+    type: object
+    description: "gloved hand grasping gold coins icon, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: boons/goldfinger.png
+
+  - id: boon_wealthy_start
+    type: object
+    description: "bulging coin pouch icon, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: boons/wealthy_start.png
+
+  - id: boon_treasure_sense
+    type: object
+    description: "glowing eye over treasure chest icon, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: boons/treasure_sense.png
+
+  - id: boon_forge_discount
+    type: object
+    description: "blacksmith hammer striking anvil with sparks icon, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: boons/forge_discount.png
+
+  - id: boon_cartographer
+    type: object
+    description: "brass compass over folded map corner icon, fantasy pixel art, transparent background"
+    size: [32, 32]
+    out: boons/cartographer.png
