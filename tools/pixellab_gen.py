@@ -255,10 +255,20 @@ def gen_tileset(asset: dict, token: str) -> dict:
         else:
             upper = upper or desc
             lower = lower or desc
+    # tile_size is a {width, height} object on /tilesets, unlike the
+    # bare int we'd guess from the manifest summary. Manifest can
+    # supply an int (square) or [w, h] list — we normalize either way.
+    raw_size = asset.get("tile_size", 16)
+    if isinstance(raw_size, int):
+        tile_size = {"width": raw_size, "height": raw_size}
+    elif isinstance(raw_size, list) and len(raw_size) == 2:
+        tile_size = {"width": raw_size[0], "height": raw_size[1]}
+    else:
+        tile_size = raw_size  # already an object — pass through
     body = {
         "lower_description": lower,
         "upper_description": upper,
-        "tile_size": asset.get("tile_size", 16),
+        "tile_size": tile_size,
     }
     return post_json("/tilesets", body, token)
 
