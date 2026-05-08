@@ -1,16 +1,14 @@
-//! Owned-boons strip — small color-coded chips below the top HUD bar
-//! showing which boons the player has earned. Hovering a chip pops a
+//! Owned-boons strip — small icons below the top HUD bar showing
+//! which boons the player has earned. Hovering an icon pops a
 //! tooltip with the boon's name and description.
 //!
-//! No proper icons yet; chips use the boon's first letter on a
-//! category-colored rounded square. Colors hint at theme:
-//!   speed   = blue (Swift Boots, Trailblazer, Roadwise, Sprint)
-//!   gold    = warm yellow (Goldfinger, Wealthy Start, Forge Discount)
-//!   utility = teal/green (Treasure Sense, Cartographer)
-//! Replace with art when we have it; the chip layout / tooltip flow
-//! stays the same.
+//! Icons are 32×32 PNGs generated via the pixellab tool, embedded
+//! at compile time via `include_bytes!` so the WASM bundle is
+//! self-contained (no asset-loading roundtrip on enter-game).
 
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use std::collections::HashMap;
 
 use crate::states::AppState;
 use crate::terrain::tilemap::MyPlayerState;
@@ -20,7 +18,11 @@ pub struct BoonHudPlugin;
 
 impl Plugin for BoonHudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), spawn_boon_strip)
+        app.init_resource::<BoonIcons>()
+            .add_systems(
+                OnEnter(AppState::InGame),
+                (load_boon_icons, spawn_boon_strip).chain(),
+            )
             .add_systems(
                 Update,
                 (rebuild_chips, update_tooltip)
@@ -28,6 +30,11 @@ impl Plugin for BoonHudPlugin {
                     .run_if(in_state(AppState::InGame)),
             );
     }
+}
+
+#[derive(Resource, Default)]
+struct BoonIcons {
+    by_id: HashMap<String, Handle<Image>>,
 }
 
 #[derive(Component)]
@@ -42,10 +49,47 @@ struct BoonTooltip;
 #[derive(Component)]
 struct BoonTooltipText;
 
+fn load_boon_icons(mut icons: ResMut<BoonIcons>, mut images: ResMut<Assets<Image>>) {
+    // Embed every boon's icon at compile time. Order matches the
+    // questlib::boons catalog. Adding a new boon = generate the
+    // icon, drop the file at the path below, and add a row here.
+    let entries: &[(&str, &[u8])] = &[
+        ("swift_boots",    include_bytes!("../../assets/generated/boons/swift_boots.png")),
+        ("trailblazer",    include_bytes!("../../assets/generated/boons/trailblazer.png")),
+        ("roadwise",       include_bytes!("../../assets/generated/boons/roadwise.png")),
+        ("sprint",         include_bytes!("../../assets/generated/boons/sprint.png")),
+        ("goldfinger",     include_bytes!("../../assets/generated/boons/goldfinger.png")),
+        ("wealthy_start",  include_bytes!("../../assets/generated/boons/wealthy_start.png")),
+        ("treasure_sense", include_bytes!("../../assets/generated/boons/treasure_sense.png")),
+        ("forge_discount", include_bytes!("../../assets/generated/boons/forge_discount.png")),
+        ("cartographer",   include_bytes!("../../assets/generated/boons/cartographer.png")),
+    ];
+
+    for (id, bytes) in entries {
+        let dyn_img = match image::load_from_memory(bytes) {
+            Ok(i) => i,
+            Err(e) => {
+                log::warn!("[boons] failed to load {} icon: {}", id, e);
+                continue;
+            }
+        };
+        let rgba = dyn_img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let img = Image::new(
+            Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            TextureDimension::D2,
+            rgba.into_raw(),
+            TextureFormat::Rgba8UnormSrgb,
+            default(),
+        );
+        icons.by_id.insert(id.to_string(), images.add(img));
+    }
+    log::info!("[boons] loaded {} icons", icons.by_id.len());
+}
+
 fn spawn_boon_strip(mut commands: Commands, font: Res<GameFont>) {
-    // Strip — a row container under the top HUD bar (which is 28 px
-    // tall). Empty until rebuild_chips fills it. Stays empty when the
-    // player owns no boons; no visual at all.
+    // Strip — empty container until rebuild_chips fills it. Sits
+    // under the top HUD bar (28 px tall).
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -59,13 +103,11 @@ fn spawn_boon_strip(mut commands: Commands, font: Res<GameFont>) {
         BoonStrip,
     ));
 
-    // Tooltip — single panel that re-uses the same node every frame,
-    // toggled visible while a chip is hovered. Sits below the strip
-    // so it doesn't cover the chips themselves.
+    // Tooltip — single panel, toggled visible while a chip is hovered.
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(56.0),
+            top: Val::Px(58.0),
             left: Val::Px(8.0),
             padding: UiRect::all(Val::Px(6.0)),
             border: UiRect::all(Val::Px(1.0)),
@@ -94,18 +136,10 @@ fn spawn_boon_strip(mut commands: Commands, font: Res<GameFont>) {
     });
 }
 
-fn chip_color(boon_id: &str) -> Color {
-    match boon_id {
-        "swift_boots" | "trailblazer" | "roadwise" | "sprint" => Color::srgb(0.45, 0.7, 1.0),
-        "goldfinger" | "wealthy_start" | "forge_discount" => Color::srgb(1.0, 0.85, 0.3),
-        _ => Color::srgb(0.45, 0.85, 0.7),
-    }
-}
-
 fn rebuild_chips(
     mut commands: Commands,
     player: Res<MyPlayerState>,
-    font: Res<GameFont>,
+    icons: Res<BoonIcons>,
     strip_q: Query<Entity, With<BoonStrip>>,
     chips_q: Query<Entity, With<BoonChip>>,
     mut last_owned: Local<Vec<String>>,
@@ -121,38 +155,34 @@ fn rebuild_chips(
     }
 
     for boon_id in &player.boons {
-        let Some(boon) = questlib::boons::lookup(boon_id) else { continue };
-        let letter = boon.name
-            .chars()
-            .next()
-            .unwrap_or('?')
-            .to_ascii_uppercase()
-            .to_string();
-        let color = chip_color(boon_id);
+        let Some(handle) = icons.by_id.get(boon_id) else {
+            // Unknown boon id (catalog drift between server / client).
+            // Skip silently — server validation prevents bad ids
+            // anyway, this only fires if a generated icon goes missing.
+            continue;
+        };
 
         let chip_entity = commands
             .spawn((
                 Button,
                 Node {
-                    width: Val::Px(20.0),
-                    height: Val::Px(20.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
+                    width: Val::Px(24.0),
+                    height: Val::Px(24.0),
+                    padding: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(color),
+                BackgroundColor(Color::srgba(0.05, 0.05, 0.10, 0.55)),
                 BorderRadius::all(Val::Px(4.0)),
                 BoonChip(boon_id.clone()),
             ))
             .with_children(|c| {
                 c.spawn((
-                    Text::new(letter),
-                    TextFont {
-                        font: font.0.clone(),
-                        font_size: 11.0,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
                         ..default()
                     },
-                    TextColor(Color::srgb(0.05, 0.04, 0.02)),
+                    ImageNode::new(handle.clone()),
                 ));
             })
             .id();
@@ -167,15 +197,12 @@ fn update_tooltip(
 ) {
     let Ok(mut vis) = tooltip_q.get_single_mut() else { return };
 
-    // Find the first chip currently being hovered. Iterate every
-    // frame (not Changed<Interaction>) so the tooltip stays open as
-    // long as the cursor sits on a chip, not just on the
-    // hover-entered frame.
-    let hovered_id = chips.iter()
-        .find_map(|(interaction, chip)| {
-            matches!(interaction, Interaction::Hovered | Interaction::Pressed)
-                .then(|| chip.0.clone())
-        });
+    // Iterate every frame (not Changed<Interaction>) so the tooltip
+    // stays open as long as the cursor sits on a chip.
+    let hovered_id = chips.iter().find_map(|(interaction, chip)| {
+        matches!(interaction, Interaction::Hovered | Interaction::Pressed)
+            .then(|| chip.0.clone())
+    });
 
     if let Some(boon_id) = hovered_id {
         if let Some(boon) = questlib::boons::lookup(&boon_id) {
