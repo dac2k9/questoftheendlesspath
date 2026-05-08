@@ -283,6 +283,10 @@ pub struct MyPlayerState {
     /// pick one of `choices` before continuing. Cleared by the server
     /// after `/select_boon`.
     pub pending_boon_choice: Option<crate::supabase::PendingBoonChoice>,
+    /// Temporary buffs from consumed potions. Mirrors server-side
+    /// DevPlayerState.active_buffs. The boon HUD shows each as a
+    /// chip with a time-remaining tooltip.
+    pub active_buffs: Vec<questlib::items::ActiveBuff>,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -808,6 +812,7 @@ fn apply_server_state(
     state.item_upgrades = me.item_upgrades.clone();
     state.boons = me.boons.clone();
     state.pending_boon_choice = me.pending_boon_choice.clone();
+    state.active_buffs = me.active_buffs.clone();
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {

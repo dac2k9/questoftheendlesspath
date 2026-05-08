@@ -74,6 +74,11 @@ pub struct PlayerRow {
     /// must choose one of `choices` to dismiss it.
     #[serde(default)]
     pub pending_boon_choice: Option<PendingBoonChoice>,
+    /// Temporary buffs from consumed potions etc. The HUD shows each
+    /// one as a chip below the permanent boons strip with a hover
+    /// tooltip showing the time remaining.
+    #[serde(default)]
+    pub active_buffs: Vec<questlib::items::ActiveBuff>,
 }
 
 /// Mirror of `gamemaster::devserver::PendingBoonChoice`. Boon ids only —
