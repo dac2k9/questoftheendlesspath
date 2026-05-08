@@ -326,25 +326,46 @@ def _rgba_to_png(raw: bytes, width: int, height: int) -> bytes:
     return buf.getvalue()
 
 
+PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+
+
 def write_image_dict(img: dict, out_path: pathlib.Path) -> int:
-    """Save one image given as a {type, width, base64} dict. Handles
-    both `type: "base64"` (PNG-encoded base64) and `type: "rgba_bytes"`
-    (raw RGBA pixel bytes — needs Pillow to encode as PNG)."""
+    """Save one image given as a {type, width?, base64} dict. Detects
+    actual content via the first bytes rather than trusting `type` —
+    pixellab returns `type: "base64"` for both real PNGs and raw
+    RGBA pixel bytes, so the type label can't be relied on."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     img_type = img.get("type", "base64")
     raw = base64.b64decode(img["base64"])
-    if img_type == "rgba_bytes":
-        width = int(img.get("width") or 0)
-        if width <= 0 or len(raw) % (4 * width) != 0:
-            raise RuntimeError(
-                f"rgba_bytes: bad width {width} for {len(raw)} bytes"
-            )
-        height = len(raw) // (4 * width)
-        png = _rgba_to_png(raw, width, height)
-        out_path.write_bytes(png)
-    else:
-        # type: "base64" → already a PNG.
+
+    # If the bytes start with the PNG magic, write directly. Otherwise
+    # treat as raw RGBA — infer width from the dict, falling back to a
+    # square if absent (works for our 128×128 wang tilesets where
+    # pixellab omits width on the response).
+    if raw.startswith(PNG_SIGNATURE) and img_type != "rgba_bytes":
         out_path.write_bytes(raw)
+        return out_path.stat().st_size
+
+    width = int(img.get("width") or 0)
+    if width <= 0:
+        import math
+        pixels = len(raw) // 4
+        side = math.isqrt(pixels)
+        if side * side * 4 == len(raw):
+            width = side
+        else:
+            raise RuntimeError(
+                f"can't infer dimensions: {len(raw)} bytes, no width hint, "
+                f"and not a square RGBA image"
+            )
+    if len(raw) % (4 * width) != 0:
+        raise RuntimeError(
+            f"rgba_bytes: bad width {width} for {len(raw)} bytes "
+            f"(remainder {len(raw) % (4 * width)})"
+        )
+    height = len(raw) // (4 * width)
+    png = _rgba_to_png(raw, width, height)
+    out_path.write_bytes(png)
     return out_path.stat().st_size
 
 
