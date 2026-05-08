@@ -143,32 +143,53 @@ def poll_job(job_id: str, token: str, max_wait_s: int = 300, debug: bool = False
     return {"success": False, "error": f"poll timeout after {max_wait_s}s on job {job_id}"}
 
 
-def extract_image_b64(data: dict) -> Optional[str]:
-    """Try common keys where the API may have stuffed the base64 PNG.
-    Pixellab's actual job response wraps it as
-    `last_response.images[0].base64` (list of {type, width, base64}).
-    Other endpoints may use simpler shapes — try a handful of paths."""
+def extract_image_payload(data: dict) -> Optional[dict]:
+    """Return `{type, width?, base64}` for the first image-like record
+    found in the response, or None. Always wraps bare base64 strings
+    as `{type: "base64", ...}` so callers don't need to distinguish.
+    Bytes vs. PNG distinction matters: `type: "rgba_bytes"` requires
+    Pillow encoding (raw pixel bytes); `type: "base64"` is already
+    a PNG ready to write."""
     if not isinstance(data, dict):
         return None
-    # Direct string fields.
-    for key in ("image", "image_b64", "image_base64", "png", "base64", "content"):
+    # Direct payload at this level (e.g. /tilesets sometimes returns
+    # one big {type, width, base64} blob).
+    if isinstance(data.get("base64"), str) and len(data["base64"]) > 100:
+        return data
+    # Direct base64 strings under common keys.
+    for key in ("image", "image_b64", "image_base64", "png", "content"):
         v = data.get(key)
         if isinstance(v, str) and len(v) > 100 and not v.startswith(("http://", "https://")):
-            return v
+            return {"type": "base64", "base64": v}
         if isinstance(v, dict):
-            inner = extract_image_b64(v)
-            if inner:
-                return inner
-    # Lists of image objects: `images: [{type: "base64", base64: "..."}]`
+            r = extract_image_payload(v)
+            if r:
+                return r
+    # `images` may be a list (job result) or a dict keyed by direction
+    # (character_4dir before direction-specific extraction).
     images = data.get("images")
     if isinstance(images, list) and images:
         first = images[0]
         if isinstance(first, str) and len(first) > 100:
-            return first
+            return {"type": "base64", "base64": first}
         if isinstance(first, dict):
-            inner = extract_image_b64(first)
-            if inner:
-                return inner
+            return extract_image_payload(first)
+    if isinstance(images, dict):
+        for v in images.values():
+            if isinstance(v, dict):
+                r = extract_image_payload(v)
+                if r:
+                    return r
+    return None
+
+
+# Back-compat shim for any caller that still wants just the base64
+# string. Returns None for rgba_bytes (which has no useful "single
+# string" representation without width / encoding).
+def extract_image_b64(data: dict) -> Optional[str]:
+    payload = extract_image_payload(data)
+    if payload and payload.get("type", "base64") == "base64":
+        return payload.get("base64")
     return None
 
 
@@ -468,17 +489,17 @@ def main() -> int:
                 continue
             # Fall through to single-image handling.
 
-        img_b64 = None
+        payload = None
         img_url = None
         for c in candidates:
-            img_b64 = extract_image_b64(c)
-            if img_b64:
+            payload = extract_image_payload(c)
+            if payload:
                 break
             img_url = extract_image_url(c)
             if img_url:
                 break
 
-        if not img_b64 and not img_url:
+        if not payload and not img_url:
             top_keys = list(resp.keys()) if isinstance(resp, dict) else []
             data_keys = list(resp.get("data", {}).keys()) if isinstance(resp.get("data"), dict) else []
             print(f"FAIL — no image found. top: {top_keys[:8]} data: {data_keys[:8]}")
@@ -489,8 +510,12 @@ def main() -> int:
             continue
 
         try:
-            if img_b64:
-                size = write_png(img_b64, out_path)
+            if payload:
+                # write_image_dict handles BOTH `type: "base64"` (PNG)
+                # and `type: "rgba_bytes"` (raw → PIL → PNG). Routing
+                # all single-image saves through here means tileset
+                # output gets correctly encoded same as character dirs.
+                size = write_image_dict(payload, out_path)
             else:
                 size = fetch_and_write(img_url, out_path)
         except Exception as e:
