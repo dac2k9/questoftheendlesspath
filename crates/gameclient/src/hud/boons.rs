@@ -27,9 +27,10 @@ pub struct BoonHudPlugin;
 impl Plugin for BoonHudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BoonIcons>()
+            .init_resource::<BuffIcons>()
             .add_systems(
                 OnEnter(AppState::InGame),
-                (load_boon_icons, spawn_strips).chain(),
+                (load_boon_icons, load_buff_icons, spawn_strips).chain(),
             )
             .add_systems(
                 Update,
@@ -43,6 +44,13 @@ impl Plugin for BoonHudPlugin {
 #[derive(Resource, Default)]
 struct BoonIcons {
     by_id: HashMap<String, Handle<Image>>,
+}
+
+/// Buff icons keyed by item id (source_item on ActiveBuff). Missing
+/// keys fall back to the letter placeholder in rebuild_buff_chips.
+#[derive(Resource, Default)]
+struct BuffIcons {
+    by_source: HashMap<String, Handle<Image>>,
 }
 
 #[derive(Component)]
@@ -104,6 +112,35 @@ fn load_boon_icons(mut icons: ResMut<BoonIcons>, mut images: ResMut<Assets<Image
         icons.by_id.insert(id.to_string(), images.add(img));
     }
     log::info!("[boons] loaded {} icons", icons.by_id.len());
+}
+
+fn load_buff_icons(mut icons: ResMut<BuffIcons>, mut images: ResMut<Assets<Image>>) {
+    // One entry per buff source_item that has a custom icon. Items
+    // without an entry render as the letter-placeholder chip.
+    let entries: &[(&str, &[u8])] = &[
+        ("speed_potion", include_bytes!("../../assets/generated/buffs/speed_potion.png")),
+    ];
+
+    for (source, bytes) in entries {
+        let dyn_img = match image::load_from_memory(bytes) {
+            Ok(i) => i,
+            Err(e) => {
+                log::warn!("[buffs] failed to load {} icon: {}", source, e);
+                continue;
+            }
+        };
+        let rgba = dyn_img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let img = Image::new(
+            Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            TextureDimension::D2,
+            rgba.into_raw(),
+            TextureFormat::Rgba8UnormSrgb,
+            default(),
+        );
+        icons.by_source.insert(source.to_string(), images.add(img));
+    }
+    log::info!("[buffs] loaded {} icons", icons.by_source.len());
 }
 
 fn spawn_strips(mut commands: Commands, font: Res<GameFont>) {
@@ -226,14 +263,11 @@ fn rebuild_buff_chips(
     mut commands: Commands,
     player: Res<MyPlayerState>,
     font: Res<GameFont>,
+    icons: Res<BuffIcons>,
     strip_q: Query<Entity, With<BuffStrip>>,
     chips_q: Query<Entity, With<BuffChip>>,
     mut last_buffs: Local<Vec<questlib::items::ActiveBuff>>,
 ) {
-    // Compare on the fields that affect what we render — `expires_unix`
-    // is part of equality, so a poll that just refreshes the list with
-    // the same buffs won't trigger a respawn. The countdown in the
-    // tooltip recomputes from current time anyway.
     if player.active_buffs == *last_buffs {
         return;
     }
@@ -245,27 +279,18 @@ fn rebuild_buff_chips(
     }
 
     for buff in &player.active_buffs {
-        // Placeholder icon: first letter of the source item id (e.g.
-        // "speed_potion" → "S") on a violet chip, distinct from the
-        // permanent boons' dark-blue background. Real buff icons can
-        // slot in later.
-        let letter = buff.source_item
-            .chars()
-            .next()
-            .unwrap_or('?')
-            .to_ascii_uppercase()
-            .to_string();
         let chip_entity = commands
             .spawn((
                 Button,
                 Node {
                     width: Val::Px(24.0),
                     height: Val::Px(24.0),
+                    padding: UiRect::all(Val::Px(1.0)),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
                     ..default()
                 },
-                BackgroundColor(Color::srgba(0.45, 0.18, 0.55, 0.85)),
+                BackgroundColor(Color::srgba(0.45, 0.18, 0.55, 0.55)),
                 BorderRadius::all(Val::Px(4.0)),
                 BuffChip {
                     kind: buff.kind.clone(),
@@ -275,11 +300,30 @@ fn rebuild_buff_chips(
                 },
             ))
             .with_children(|c| {
-                c.spawn((
-                    Text::new(letter),
-                    TextFont { font: font.0.clone(), font_size: 11.0, ..default() },
-                    TextColor(Color::srgb(1.0, 0.95, 0.85)),
-                ));
+                if let Some(handle) = icons.by_source.get(&buff.source_item) {
+                    // Custom icon — same render path as permanent boons.
+                    c.spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                        ImageNode::new(handle.clone()),
+                    ));
+                } else {
+                    // No icon yet — letter placeholder.
+                    let letter = buff.source_item
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_ascii_uppercase()
+                        .to_string();
+                    c.spawn((
+                        Text::new(letter),
+                        TextFont { font: font.0.clone(), font_size: 11.0, ..default() },
+                        TextColor(Color::srgb(1.0, 0.95, 0.85)),
+                    ));
+                }
             })
             .id();
         commands.entity(strip).add_child(chip_entity);

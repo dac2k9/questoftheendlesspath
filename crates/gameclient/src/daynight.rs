@@ -180,23 +180,38 @@ impl DayNightCycle {
     }
 }
 
-fn advance_cycle(time: Res<Time>, mut cycle: ResMut<DayNightCycle>) {
-    cycle.time_s = (cycle.time_s + time.delta_secs()).rem_euclid(cycle.cycle_seconds);
+fn advance_cycle(mut cycle: ResMut<DayNightCycle>) {
+    // Compute time_s straight from the browser wall clock instead of
+    // accumulating Time::delta_secs(). Bevy's Time pauses while the
+    // tab is backgrounded — the cycle would freeze, then the next
+    // /daynight poll on resume would snap forward by however long the
+    // tab was idle. If the snap crossed dusk or dawn, the night_alpha
+    // jumped from 0 → 0.7 in a single frame: the "instant night" bug.
+    //
+    // Both client and server use `unix_now % cycle_seconds`, so this
+    // matches the server's authoritative value frame-for-frame without
+    // needing explicit sync. f64 → modulo → f32 cast preserves
+    // precision (f32 only has ~16M unique seconds before adjacent
+    // moments collapse into the same value).
+    let now_secs = js_sys::Date::now() / 1000.0;
+    cycle.time_s = (now_secs.rem_euclid(cycle.cycle_seconds as f64)) as f32;
 }
 
-/// Drain any pending server sync into the local cycle resource. Runs
-/// before `advance_cycle` so a fresh sync takes effect on the same
-/// frame without being immediately overwritten by the local tick.
+/// Drain any pending server sync. Now only `cycle_seconds` actually
+/// crosses over — `time_s` comes from wall-clock in `advance_cycle`,
+/// so the server's `time_s` value is redundant (both sides compute
+/// the same `unix_now % cycle_seconds`). The poll is still useful
+/// for picking up a server-side cycle-length change without a
+/// client redeploy.
 fn apply_server_sync(
     mut cycle: ResMut<DayNightCycle>,
     sync: Res<DayNightSync>,
 ) {
     if let Ok(mut slot) = sync.pending.lock() {
-        if let Some((time_s, cycle_seconds)) = slot.take() {
+        if let Some((_time_s, cycle_seconds)) = slot.take() {
             if cycle_seconds > 0.0 {
                 cycle.cycle_seconds = cycle_seconds;
             }
-            cycle.time_s = time_s.rem_euclid(cycle.cycle_seconds);
         }
     }
 }
