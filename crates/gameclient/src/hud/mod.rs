@@ -1,3 +1,4 @@
+pub mod boons;
 pub mod floating_text;
 pub mod journal;
 pub mod minimap;
@@ -23,6 +24,7 @@ impl Plugin for HudPlugin {
             .insert_resource(ItemCatalogRes(catalog))
             .add_plugins(journal::JournalPlugin)
             .add_plugins(minimap::MinimapPlugin)
+            .add_plugins(boons::BoonHudPlugin)
             .add_systems(OnEnter(AppState::InGame), spawn_hud)
             .add_systems(
                 Update,
