@@ -75,7 +75,11 @@ assets:
   # ── Biome tile sample (one or two only — sampling) ──────
   - id: tile_marsh
     type: tileset
-    description: "marshy swamp ground, top-down tile, fantasy"
+    # /tilesets is Wang-style: upper_description is the patch we're
+    # painting in, lower_description is the surrounding terrain it
+    # blends into.
+    upper_description: "marshy swamp ground with reeds and dark water, fantasy"
+    lower_description: "lush grass, fantasy"
     tile_size: 16
     out: tiles/marsh.png
 

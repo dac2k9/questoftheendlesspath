@@ -239,8 +239,25 @@ def gen_character_4dir(asset: dict, token: str) -> dict:
 
 
 def gen_tileset(asset: dict, token: str) -> dict:
+    # Pixellab's /tilesets is Wang-style: it generates the transition
+    # tiles between two terrains, so it needs both descriptions.
+    # Manifest can supply lower_description / upper_description
+    # explicitly; falls back to splitting `description` on " over "
+    # ("X over Y") or duplicating it as a last resort.
+    lower = asset.get("lower_description")
+    upper = asset.get("upper_description")
+    if not lower or not upper:
+        desc = asset.get("description", "")
+        if " over " in desc:
+            up, low = desc.split(" over ", 1)
+            upper = upper or up
+            lower = lower or low
+        else:
+            upper = upper or desc
+            lower = lower or desc
     body = {
-        "description": asset["description"],
+        "lower_description": lower,
+        "upper_description": upper,
         "tile_size": asset.get("tile_size", 16),
     }
     return post_json("/tilesets", body, token)
