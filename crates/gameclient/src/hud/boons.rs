@@ -8,6 +8,7 @@
 
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::text::LineBreak;
 use std::collections::HashMap;
 
 use crate::states::AppState;
@@ -47,7 +48,10 @@ struct BoonChip(String);
 struct BoonTooltip;
 
 #[derive(Component)]
-struct BoonTooltipText;
+struct BoonTooltipName;
+
+#[derive(Component)]
+struct BoonTooltipDesc;
 
 fn load_boon_icons(mut icons: ResMut<BoonIcons>, mut images: ResMut<Assets<Image>>) {
     // Embed every boon's icon at compile time. Order matches the
@@ -104,16 +108,19 @@ fn spawn_boon_strip(mut commands: Commands, font: Res<GameFont>) {
     ));
 
     // Tooltip — single panel, toggled visible while a chip is hovered.
+    // Use an explicit width (not just max_width) so the text inside
+    // gets a hard wrap target; max_width alone left descriptions
+    // truncated to one fragment of the first sentence.
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(58.0),
             left: Val::Px(8.0),
-            padding: UiRect::all(Val::Px(6.0)),
+            width: Val::Px(280.0),
+            padding: UiRect::all(Val::Px(8.0)),
             border: UiRect::all(Val::Px(1.0)),
-            max_width: Val::Px(220.0),
             flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(2.0),
+            row_gap: Val::Px(3.0),
             ..default()
         },
         BackgroundColor(Color::srgba(0.05, 0.04, 0.02, 0.95)),
@@ -123,6 +130,20 @@ fn spawn_boon_strip(mut commands: Commands, font: Res<GameFont>) {
         Visibility::Hidden,
         BoonTooltip,
     )).with_children(|tt| {
+        // Name (gold, bold-ish)
+        tt.spawn((
+            Text::new(""),
+            TextFont {
+                font: font.0.clone(),
+                font_size: 11.0,
+                ..default()
+            },
+            TextColor(Color::srgb(1.0, 0.92, 0.55)),
+            BoonTooltipName,
+        ));
+        // Description (off-white, smaller, wraps within the 280-px
+        // tooltip). TextLayout sets word-boundary line breaks so a
+        // long description doesn't shoot off the right edge.
         tt.spawn((
             Text::new(""),
             TextFont {
@@ -130,8 +151,9 @@ fn spawn_boon_strip(mut commands: Commands, font: Res<GameFont>) {
                 font_size: 9.0,
                 ..default()
             },
-            TextColor(Color::srgb(1.0, 0.92, 0.7)),
-            BoonTooltipText,
+            TextColor(Color::srgb(0.9, 0.88, 0.78)),
+            TextLayout::new_with_linebreak(LineBreak::WordBoundary),
+            BoonTooltipDesc,
         ));
     });
 }
@@ -193,7 +215,8 @@ fn rebuild_chips(
 fn update_tooltip(
     chips: Query<(&Interaction, &BoonChip)>,
     mut tooltip_q: Query<&mut Visibility, With<BoonTooltip>>,
-    mut text_q: Query<&mut Text, With<BoonTooltipText>>,
+    mut name_q: Query<&mut Text, (With<BoonTooltipName>, Without<BoonTooltipDesc>)>,
+    mut desc_q: Query<&mut Text, (With<BoonTooltipDesc>, Without<BoonTooltipName>)>,
 ) {
     let Ok(mut vis) = tooltip_q.get_single_mut() else { return };
 
@@ -206,8 +229,11 @@ fn update_tooltip(
 
     if let Some(boon_id) = hovered_id {
         if let Some(boon) = questlib::boons::lookup(&boon_id) {
-            if let Ok(mut text) = text_q.get_single_mut() {
-                *text = Text::new(format!("{}\n{}", boon.name, boon.description));
+            if let Ok(mut name) = name_q.get_single_mut() {
+                *name = Text::new(boon.name);
+            }
+            if let Ok(mut desc) = desc_q.get_single_mut() {
+                *desc = Text::new(boon.description);
             }
             *vis = Visibility::Visible;
             return;
