@@ -35,6 +35,12 @@ pub struct AdventurePreset {
     /// Human-friendly label shown on the title screen.
     pub display_name: String,
     pub map_seed: u64,
+    /// World dimensions in tiles. The frost_quest default of 100×80
+    /// is mirrored by the client's MAP_W/MAP_H. Larger adventures
+    /// (chaos = 200×160 for 4× area) propagate these through /join
+    /// so the client rebuilds its WorldGrid to match.
+    pub map_width: usize,
+    pub map_height: usize,
     pub events_path: String,
     pub entities_path: String,
     pub interiors_dir: String,
@@ -60,6 +66,8 @@ pub fn presets() -> Vec<AdventurePreset> {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(12345),
+        map_width: questlib::mapgen::MAP_W,
+        map_height: questlib::mapgen::MAP_H,
         events_path: std::env::var("EVENTS_PATH")
             .unwrap_or_else(|_| "adventures/seed12345_events.json".into()),
         entities_path: std::env::var("ENTITIES_PATH")
@@ -78,6 +86,13 @@ pub fn presets() -> Vec<AdventurePreset> {
         // in seed99999_pois.json are tuned for this seed's terrain;
         // change the seed = re-tune those coordinates.
         map_seed: 99999,
+        // 4× area (200×160 tiles). Fits within the 4096-min WebGL
+        // texture limit when baked at 16 px/tile (3200×2560). The
+        // chaos authored POI layout in seed99999_pois.json is tuned
+        // for this size — castles in each quadrant's outer ring,
+        // gates between camp and castles, camp + spire central.
+        map_width: 200,
+        map_height: 160,
         events_path: "adventures/seed99999_events.json".into(),
         entities_path: "adventures/seed99999_entities.json".into(),
         // Shares the same interiors set for now. Authored chaos
@@ -154,9 +169,12 @@ pub struct AdventureBundle {
 /// per-player save data — the caller does that afterwards (event
 /// status flags, mobile entity runtime state).
 pub fn load_bundle(preset: AdventurePreset) -> Result<AdventureBundle> {
-    tracing::info!("[adv] loading '{}' (seed {})", preset.id, preset.map_seed);
+    tracing::info!(
+        "[adv] loading '{}' (seed {}, dims {}×{})",
+        preset.id, preset.map_seed, preset.map_width, preset.map_height,
+    );
 
-    let mut world = WorldMap::generate(preset.map_seed);
+    let mut world = WorldMap::generate_sized(preset.map_seed, preset.map_width, preset.map_height);
     let procedural_pois = world.pois.len();
     if std::path::Path::new(&preset.pois_path).exists() {
         let added = load_authored_pois(&preset.pois_path, &mut world)

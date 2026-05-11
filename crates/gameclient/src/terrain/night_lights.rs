@@ -14,7 +14,7 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::sprite::{AlphaMode2d, Material2d, Material2dPlugin};
 
 use crate::states::AppState;
-use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_H, WORLD_W};
+use crate::terrain::world::{WorldGrid, TILE_PX, world_h, world_w};
 
 /// Must match MAX_LIGHTS in night_lights.wgsl (and in water.wgsl,
 /// which consumes the same `SceneLights` resource).
@@ -105,8 +105,8 @@ fn spawn_night_overlay(
     mut materials: ResMut<Assets<NightMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    let w = WORLD_W as f32 * TILE_PX;
-    let h = WORLD_H as f32 * TILE_PX;
+    let w = world_w() as f32 * TILE_PX;
+    let h = world_h() as f32 * TILE_PX;
     let cx = w / 2.0 - TILE_PX / 2.0;
     let cy = -h / 2.0 + TILE_PX / 2.0;
     let mesh = meshes.add(Rectangle::new(w, h));
@@ -169,7 +169,7 @@ fn gather_scene_lights(
             // toggle overrides this gate so the debug view still shows
             // every light everywhere.
             if !debug.fog_disabled {
-                let idx = poi.y as usize * WORLD_W + poi.x as usize;
+                let idx = poi.y as usize * world_w() + poi.x as usize;
                 if fog.revealed.get(idx).copied() != Some(true) {
                     continue;
                 }

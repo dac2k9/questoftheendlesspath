@@ -92,8 +92,8 @@ fn update_fog_material(
     let sun_pos = if debug.debug_sun_enabled {
         Vec4::new(debug.debug_sun_x, debug.debug_sun_y, 1.0, 0.0)
     } else {
-        let w = super::world::WORLD_W as f32 * super::world::TILE_PX;
-        let h = super::world::WORLD_H as f32 * super::world::TILE_PX;
+        let w = super::world::world_w() as f32 * super::world::TILE_PX;
+        let h = super::world::world_h() as f32 * super::world::TILE_PX;
         let center = Vec2::new(w / 2.0, -h / 2.0);
         let p = cycle.light_pos(center);
         let day_strength = cycle.sun_elevation().max(0.0);

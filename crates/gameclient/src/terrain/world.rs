@@ -1,10 +1,33 @@
 use bevy::prelude::*;
 use questlib::mapgen::{self, Biome, WorldMap};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{Ground, Overlay, Terrain};
 
-pub const WORLD_W: usize = mapgen::MAP_W;
-pub const WORLD_H: usize = mapgen::MAP_H;
+// World dimensions are NO LONGER compile-time constants. They're
+// runtime values set when `WorldGrid::from_seed_with_dims` runs
+// (called from `spawn_world` after the client gets `map_width` /
+// `map_height` from the `/join` response). The old `world_w()` /
+// `world_h()` consts used `mapgen::MAP_W` / `MAP_H` which baked the
+// default 100×80 in everywhere — making the chaos adventure's
+// 200×160 world impossible to render without a refactor.
+//
+// All call sites read `world_w()` / `world_h()` (loads the atomic),
+// or `world.width` / `world.height` if they already have the
+// WorldGrid Resource. The atomics keep working even before
+// `spawn_world` runs — defaults match the frost_quest size so
+// systems that fire on InGame entry don't crash with "world not
+// initialized" before the world plugin's first frame.
+static W_ATOMIC: AtomicUsize = AtomicUsize::new(mapgen::MAP_W);
+static H_ATOMIC: AtomicUsize = AtomicUsize::new(mapgen::MAP_H);
+
+pub fn world_w() -> usize { W_ATOMIC.load(Ordering::Relaxed) }
+pub fn world_h() -> usize { H_ATOMIC.load(Ordering::Relaxed) }
+pub fn set_world_dims(w: usize, h: usize) {
+    W_ATOMIC.store(w, Ordering::Relaxed);
+    H_ATOMIC.store(h, Ordering::Relaxed);
+}
+
 pub const TILE_PX: f32 = 16.0;
 
 #[derive(Clone, Copy)]
@@ -29,18 +52,27 @@ pub struct WorldGrid {
 }
 
 impl WorldGrid {
-    /// Generate world from seed using questlib map generator.
+    /// Generate a default-sized world (100 × 80). Kept for tests
+    /// and any caller that doesn't yet know per-adventure dims.
     pub fn from_seed(seed: u64) -> Self {
-        let map = WorldMap::generate(seed);
+        Self::from_seed_with_dims(seed, mapgen::MAP_W, mapgen::MAP_H)
+    }
+
+    /// Generate a world of the given dimensions. Also publishes
+    /// the dims to the `world_w()` / `world_h()` atomics so legacy
+    /// call sites read the right value.
+    pub fn from_seed_with_dims(seed: u64, width: usize, height: usize) -> Self {
+        set_world_dims(width, height);
+        let map = WorldMap::generate_sized(seed, width, height);
 
         let mut cells = vec![
-            vec![Cell { ground: Ground::Grass, overlay: None }; WORLD_W];
-            WORLD_H
+            vec![Cell { ground: Ground::Grass, overlay: None }; width];
+            height
         ];
 
         // Convert biomes to ground tiles
-        for y in 0..WORLD_H {
-            for x in 0..WORLD_W {
+        for y in 0..height {
+            for x in 0..width {
                 cells[y][x].ground = biome_to_ground(map.biome_at(x, y));
             }
         }
@@ -48,7 +80,7 @@ impl WorldGrid {
         // Carve roads
         for road in &map.roads {
             for &(rx, ry) in &road.path {
-                if rx < WORLD_W && ry < WORLD_H {
+                if rx < width && ry < height {
                     cells[ry][rx].ground = Ground::Road;
                     cells[ry][rx].overlay = None;
                 }
@@ -56,8 +88,8 @@ impl WorldGrid {
         }
 
         // Place overlays based on biome (trees in forests, rocks in mountains)
-        for y in 0..WORLD_H {
-            for x in 0..WORLD_W {
+        for y in 0..height {
+            for x in 0..width {
                 // Don't place overlays on roads or POIs
                 if cells[y][x].ground == Ground::Road {
                     continue;
@@ -99,7 +131,7 @@ impl WorldGrid {
         // later, so we skip the tile-atlas overlay for them. Otherwise a
         // tiny well icon would be stacked under the illustration.
         for poi in &map.pois {
-            if poi.x < WORLD_W && poi.y < WORLD_H {
+            if poi.x < width && poi.y < height {
                 use questlib::mapgen::PoiType::*;
                 let has_custom_sprite = matches!(
                     poi.poi_type,
@@ -113,7 +145,7 @@ impl WorldGrid {
                     for dx in -1i32..=1 {
                         let px = (poi.x as i32 + dx) as usize;
                         let py = (poi.y as i32 + dy) as usize;
-                        if px < WORLD_W && py < WORLD_H {
+                        if px < width && py < height {
                             cells[py][px].ground = Ground::Road; // cheap to walk through
                             cells[py][px].overlay = None;
                             if dx == 0 && dy == 0 && !has_custom_sprite {
@@ -130,8 +162,8 @@ impl WorldGrid {
 
         WorldGrid {
             cells,
-            width: WORLD_W,
-            height: WORLD_H,
+            width,
+            height,
             map,
         }
     }
@@ -164,7 +196,7 @@ impl WorldGrid {
         // Offset by half tile since tile_to_world puts tile center at the position
         let x = ((pos.x + TILE_PX * 0.5) / TILE_PX).floor().max(0.0) as usize;
         let y = ((-pos.y + TILE_PX * 0.5) / TILE_PX).floor().max(0.0) as usize;
-        (x.min(WORLD_W - 1), y.min(WORLD_H - 1))
+        (x.min(world_w() - 1), y.min(world_h() - 1))
     }
 }
 

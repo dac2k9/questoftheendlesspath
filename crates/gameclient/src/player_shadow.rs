@@ -24,7 +24,7 @@ use bevy::sprite::Anchor;
 use crate::daynight::DayNightCycle;
 use crate::states::AppState;
 use crate::terrain::tilemap::{DebugOptions, PlayerSprite};
-use crate::terrain::world::{TILE_PX, WORLD_H, WORLD_W};
+use crate::terrain::world::{TILE_PX, world_h, world_w};
 
 pub struct PlayerShadowPlugin;
 
@@ -109,8 +109,8 @@ fn update_shadows(
     let sun_pos = if debug.debug_sun_enabled {
         Vec3::new(debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z)
     } else {
-        let w = WORLD_W as f32 * TILE_PX;
-        let h = WORLD_H as f32 * TILE_PX;
+        let w = world_w() as f32 * TILE_PX;
+        let h = world_h() as f32 * TILE_PX;
         let center = Vec2::new(w / 2.0, -h / 2.0);
         cycle.light_pos(center)
     };

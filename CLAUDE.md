@@ -320,11 +320,20 @@ preserved** (the whole point of the meta-progression system), along
 with id / name / champion / walker_uuid. The in-game adventure menu
 button (top-right) posts to this endpoint and then reloads the page.
 
-V1 caveat (will outlive this comment): the chaos adventure currently
-shares the frost_quest seed (12345) so the client's hardcoded
-`WorldGrid::from_seed(12345)` agrees with the server. Once the seed
-propagates back through `/join`, chaos gets its own seed (planned
-99999, 4× sized) and the client rebuilds on adventure transition.
+**Per-adventure world size.** Each `AdventurePreset` carries
+`map_width` / `map_height` (frost_quest: 100×80, chaos: 200×160 —
+4× area). `/join` and `/start_new_adventure` return these alongside
+`map_seed`; the client stores them in `GameSession` and calls
+`WorldGrid::from_seed_with_dims` on enter-game. The old compile-time
+`WORLD_W` / `WORLD_H` constants are now runtime values published
+via `set_world_dims` (atomic statics readable via `world_w()` /
+`world_h()`); call sites that don't have direct access to the
+`WorldGrid` Resource read those instead. Chaos's authored POI
+coordinates in `seed99999_pois.json` are tuned for the 200×160
+layout (castles in each outer quadrant, gates between camp and
+castles, camp + spire central). Save migration (`migrate_to_bundle_dims`
+in `main.rs`) resets fog when a player's saved bitfield doesn't decode
+at the bundle's dims and clamps OOB positions to world centre.
 
 ### Boons (meta-progression)
 

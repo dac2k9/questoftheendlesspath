@@ -48,6 +48,12 @@ struct LoginResult {
     /// uses the right seed (chaos vs. frost_quest). Defaults to
     /// 12345 if the server didn't include it.
     map_seed: u64,
+    /// World dimensions returned by the server (per-adventure).
+    /// frost_quest = 100×80, chaos = 200×160. Defaults to 0 when
+    /// the server didn't include them, in which case `spawn_world`
+    /// falls back to the questlib defaults.
+    map_width: u32,
+    map_height: u32,
 }
 
 // ── localStorage session persistence ────────────────
@@ -110,6 +116,8 @@ fn kick_off_auto_login(
         let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
         let champ = data.get("champion").and_then(|v| v.as_str()).unwrap_or(&champion);
         let map_seed = data.get("map_seed").and_then(|v| v.as_u64()).unwrap_or(12345);
+        let map_width = data.get("map_width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let map_height = data.get("map_height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
         if let Ok(mut lock) = result_ref.lock() {
             *lock = Some(LoginResult {
                 player_id: pid.to_string(),
@@ -117,6 +125,8 @@ fn kick_off_auto_login(
                 champion: champ.to_string(),
                 walker_uuid: walker_uuid.clone(),
                 map_seed,
+                map_width,
+                map_height,
             });
         }
     });
@@ -576,6 +586,8 @@ fn handle_champion_click(
                                 let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
                                 let champ = data.get("champion").and_then(|v| v.as_str()).unwrap_or(&champion);
                                 let map_seed = data.get("map_seed").and_then(|v| v.as_u64()).unwrap_or(12345);
+                                let map_width = data.get("map_width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                let map_height = data.get("map_height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                                 if let Ok(mut lock) = result_ref.lock() {
                                     *lock = Some(LoginResult {
                                         player_id: pid.to_string(),
@@ -583,6 +595,8 @@ fn handle_champion_click(
                                         champion: champ.to_string(),
                                         walker_uuid: walker_id.clone(),
                                         map_seed,
+                                        map_width,
+                                        map_height,
                                     });
                                 }
                                 return;
@@ -619,6 +633,8 @@ fn check_login_result(
         session.player_name = r.name;
         session.champion = r.champion;
         session.map_seed = r.map_seed;
+        session.map_width = r.map_width;
+        session.map_height = r.map_height;
         next_state.set(AppState::InGame);
     }
 }

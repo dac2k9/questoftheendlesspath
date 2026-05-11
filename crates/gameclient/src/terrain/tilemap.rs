@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
-use super::world::{WorldGrid, WORLD_W, WORLD_H, TILE_PX};
+use super::world::{WorldGrid, world_w, world_h, TILE_PX};
 use super::path::{DisplayRoute, InterpolationState, find_path_with_items, position_and_index_from_route_meters, position_from_route_meters, tile_index_from_meters};
 use crate::states::AppState;
 use crate::supabase::{self, PolledPlayerState, SupabaseConfig};
@@ -401,7 +401,7 @@ pub struct FogOfWar {
 }
 
 impl FogOfWar {
-    fn new() -> Self { Self { revealed: vec![false; WORLD_W * WORLD_H], dirty: true } }
+    fn new() -> Self { Self { revealed: vec![false; world_w() * world_h()], dirty: true } }
     fn reveal_around(&mut self, cx: usize, cy: usize, radius: usize) {
         let r = radius as i32;
         for dy in -r..=r {
@@ -409,29 +409,29 @@ impl FogOfWar {
                 if dx * dx + dy * dy > r * r { continue; }
                 let x = cx as i32 + dx;
                 let y = cy as i32 + dy;
-                if x >= 0 && x < WORLD_W as i32 && y >= 0 && y < WORLD_H as i32 {
-                    let idx = y as usize * WORLD_W + x as usize;
+                if x >= 0 && x < world_w() as i32 && y >= 0 && y < world_h() as i32 {
+                    let idx = y as usize * world_w() + x as usize;
                     if !self.revealed[idx] { self.revealed[idx] = true; self.dirty = true; }
                 }
             }
         }
     }
     fn is_revealed(&self, x: usize, y: usize) -> bool {
-        if x < WORLD_W && y < WORLD_H { self.revealed[y * WORLD_W + x] } else { false }
+        if x < world_w() && y < world_h() { self.revealed[y * world_w() + x] } else { false }
     }
 }
 
 // ── Texture Baking (unchanged) ────────────────────────
 
 fn bake_map_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize) -> Image {
-    let map_w = WORLD_W * 16;
-    let map_h = WORLD_H * 16;
+    let map_w = world_w() * 16;
+    let map_h = world_h() * 16;
     let mut pixels = vec![0u8; map_w * map_h * 4];
     let ts_w = tileset_img.width() as usize;
     let ts_data = &tileset_img.data;
     let tile_slot = 20;
-    for y in 0..WORLD_H {
-        for x in 0..WORLD_W {
+    for y in 0..world_h() {
+        for x in 0..world_w() {
             let ground = world.get_ground(x, y);
             blit_tile(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, ground.tile_index_varied(x, y), tileset_cols, tile_slot);
             if let Some(overlay) = world.cells[y][x].overlay {
@@ -447,14 +447,14 @@ fn bake_map_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize)
 /// boundaries doesn't drag in tree silhouettes from neighbor tiles —
 /// trees should sit *on top* of the biome, not be part of its border.
 fn bake_ground_only_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize) -> Image {
-    let map_w = WORLD_W * 16;
-    let map_h = WORLD_H * 16;
+    let map_w = world_w() * 16;
+    let map_h = world_h() * 16;
     let mut pixels = vec![0u8; map_w * map_h * 4];
     let ts_w = tileset_img.width() as usize;
     let ts_data = &tileset_img.data;
     let tile_slot = 20;
-    for y in 0..WORLD_H {
-        for x in 0..WORLD_W {
+    for y in 0..world_h() {
+        for x in 0..world_w() {
             let ground = world.get_ground(x, y);
             blit_tile(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, ground.tile_index_varied(x, y), tileset_cols, tile_slot);
         }
@@ -467,14 +467,14 @@ fn bake_ground_only_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols
 /// at the un-shifted UV — so trees stay rooted to their actual tile
 /// while the ground beneath them mixes organically with neighbors.
 fn bake_overlays_only_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize) -> Image {
-    let map_w = WORLD_W * 16;
-    let map_h = WORLD_H * 16;
+    let map_w = world_w() * 16;
+    let map_h = world_h() * 16;
     let mut pixels = vec![0u8; map_w * map_h * 4]; // alpha 0 by default
     let ts_w = tileset_img.width() as usize;
     let ts_data = &tileset_img.data;
     let tile_slot = 20;
-    for y in 0..WORLD_H {
-        for x in 0..WORLD_W {
+    for y in 0..world_h() {
+        for x in 0..world_w() {
             if let Some(overlay) = world.cells[y][x].overlay {
                 blit_tile_alpha(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, overlay.tile_index_varied(x, y), tileset_cols, tile_slot);
             }
@@ -508,8 +508,8 @@ fn blit_tile_alpha(dst: &mut [u8], dst_w: usize, dx: usize, dy: usize, src: &[u8
 /// GPU so the boundary between fogged and revealed becomes a soft
 /// half-tile fade on each side instead of a hard pixel edge.
 fn create_fog_mask(fog: &FogOfWar, debug: &DebugOptions) -> Image {
-    let w = WORLD_W;
-    let h = WORLD_H;
+    let w = world_w();
+    let h = world_h();
     let mut data = vec![0u8; w * h];
     for ty in 0..h { for tx in 0..w {
         let revealed = debug.fog_disabled || fog.is_revealed(tx, ty);
@@ -545,11 +545,23 @@ fn spawn_world(
     mut materials_fog: ResMut<Assets<super::fog_shader::FogMaterial>>,
     session: Res<GameSession>,
 ) {
-    // Seed comes from the server's /join response (the player's
-    // current adventure's map_seed). Defaults to 12345 for sessions
-    // that joined before this plumb-through was wired.
+    // Seed + dimensions come from the server's /join response (the
+    // player's current adventure). Defaults make old servers and
+    // sessions that joined before this plumb-through was wired still
+    // work — 12345 / 100×80 reproduces the original frost_quest world.
     let seed = if session.map_seed != 0 { session.map_seed } else { 12345 };
-    let world = WorldGrid::from_seed(seed);
+    let width = if session.map_width != 0 {
+        session.map_width as usize
+    } else {
+        questlib::mapgen::MAP_W
+    };
+    let height = if session.map_height != 0 {
+        session.map_height as usize
+    } else {
+        questlib::mapgen::MAP_H
+    };
+    info!("[spawn_world] seed={} dims={}×{}", seed, width, height);
+    let world = WorldGrid::from_seed_with_dims(seed, width, height);
 
     let tileset_bytes = include_bytes!("../../assets/tilesets/miniworld.png");
     let tileset_dyn = image::load_from_memory(tileset_bytes).expect("tileset");
@@ -559,8 +571,8 @@ fn spawn_world(
 
     let map_img = bake_map_texture(&world, &tileset_img, 16);
     let map_handle = images.add(map_img);
-    let map_cx = (WORLD_W as f32 * TILE_PX) / 2.0 - TILE_PX / 2.0;
-    let map_cy = -(WORLD_H as f32 * TILE_PX) / 2.0 + TILE_PX / 2.0;
+    let map_cx = (world_w() as f32 * TILE_PX) / 2.0 - TILE_PX / 2.0;
+    let map_cy = -(world_h() as f32 * TILE_PX) / 2.0 + TILE_PX / 2.0;
 
     commands.spawn((Sprite { image: map_handle, ..default() }, Transform::from_xyz(map_cx, map_cy, 0.0), Visibility::Hidden, MapSprite));
     // Expose ground-only and overlays-only textures so procedural_ground
@@ -579,8 +591,8 @@ fn spawn_world(
     // baked-pixel sprite with a tiny 100×80 mask sampled by the GPU
     // with linear filter — soft half-tile fade at every
     // revealed/unrevealed boundary.
-    let w_world = WORLD_W as f32 * TILE_PX;
-    let h_world = WORLD_H as f32 * TILE_PX;
+    let w_world = world_w() as f32 * TILE_PX;
+    let h_world = world_h() as f32 * TILE_PX;
     // Make the fog mesh much bigger than the world so when the camera
     // zooms out beyond the world rectangle the fog still covers the
     // area (otherwise the camera's ClearColor would show through).
@@ -896,10 +908,10 @@ fn apply_server_state(
     if let Some(ref encoded) = me.revealed_tiles {
         if !encoded.is_empty() {
             if let Some(server_fog) = questlib::fog::FogBitfield::from_base64(encoded) {
-                for y in 0..WORLD_H {
-                    for x in 0..WORLD_W {
+                for y in 0..world_h() {
+                    for x in 0..world_w() {
                         if server_fog.is_revealed(x, y) && !fog.is_revealed(x, y) {
-                            fog.revealed[y * WORLD_W + x] = true;
+                            fog.revealed[y * world_w() + x] = true;
                             fog.dirty = true;
                         }
                     }

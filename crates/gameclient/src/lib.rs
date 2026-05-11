@@ -148,6 +148,12 @@ pub struct GameSession {
     /// terrain — defaults to 12345 (frost_quest) if the server
     /// didn't send it.
     pub map_seed: u64,
+    /// World dimensions for the player's current adventure (also set
+    /// from /join). frost_quest = 100×80; chaos = 200×160. When 0,
+    /// `spawn_world` falls back to the questlib defaults so old
+    /// servers that don't send them still work.
+    pub map_width: u32,
+    pub map_height: u32,
 }
 
 /// Available player characters — must match asset filenames in assets/sprites/.

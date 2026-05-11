@@ -12,7 +12,7 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef, Extent3d, TextureDim
 use bevy::sprite::{Material2d, Material2dPlugin, AlphaMode2d};
 
 use crate::states::AppState;
-use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_W, WORLD_H};
+use crate::terrain::world::{WorldGrid, TILE_PX, world_w, world_h};
 
 pub struct WaterShaderPlugin;
 
@@ -114,10 +114,10 @@ fn toggle_and_manage(
     //   64  — swamp (slow, murky, green-tinted ripples)
     //   128 — snow / ice (subtle frosty glints, no flow)
     //   255 — water (full ripple shimmer)
-    let mut mask_bytes = vec![0u8; WORLD_W * WORLD_H];
-    for y in 0..WORLD_H {
-        for x in 0..WORLD_W {
-            mask_bytes[y * WORLD_W + x] = match world.map.biome_at(x, y) {
+    let mut mask_bytes = vec![0u8; world_w() * world_h()];
+    for y in 0..world_h() {
+        for x in 0..world_w() {
+            mask_bytes[y * world_w() + x] = match world.map.biome_at(x, y) {
                 questlib::mapgen::Biome::Water | questlib::mapgen::Biome::DeepWater => 255,
                 questlib::mapgen::Biome::Snow => 128,
                 questlib::mapgen::Biome::Swamp => 64,
@@ -126,7 +126,7 @@ fn toggle_and_manage(
         }
     }
     let mut mask_img = Image::new(
-        Extent3d { width: WORLD_W as u32, height: WORLD_H as u32, depth_or_array_layers: 1 },
+        Extent3d { width: world_w() as u32, height: world_h() as u32, depth_or_array_layers: 1 },
         TextureDimension::D2,
         mask_bytes,
         TextureFormat::R8Unorm,
@@ -161,8 +161,8 @@ fn toggle_and_manage(
 
     // World rectangle in pixel space, matching the ground sprite's
     // transform convention (tile (0,0) centered at world origin).
-    let w = WORLD_W as f32 * TILE_PX;
-    let h = WORLD_H as f32 * TILE_PX;
+    let w = world_w() as f32 * TILE_PX;
+    let h = world_h() as f32 * TILE_PX;
     let cx = w / 2.0 - TILE_PX / 2.0;
     let cy = -h / 2.0 + TILE_PX / 2.0;
     let mesh_handle = meshes.add(Rectangle::new(w, h));
@@ -302,8 +302,8 @@ fn update_material(
         Vec4::new(debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z, 0.0)
     } else {
         // World center matches the map/lighting sprite center.
-        let w = crate::terrain::world::WORLD_W as f32 * crate::terrain::world::TILE_PX;
-        let h = crate::terrain::world::WORLD_H as f32 * crate::terrain::world::TILE_PX;
+        let w = crate::terrain::world::world_w() as f32 * crate::terrain::world::TILE_PX;
+        let h = crate::terrain::world::world_h() as f32 * crate::terrain::world::TILE_PX;
         let center = Vec2::new(w / 2.0, -h / 2.0);
         let p = cycle.light_pos(center);
         Vec4::new(p.x, p.y, p.z, 0.0)

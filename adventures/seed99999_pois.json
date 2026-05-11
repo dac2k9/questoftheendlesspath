@@ -3,80 +3,80 @@
     {
       "id": 1000,
       "poi_type": "castle_frost",
-      "x": 14,
-      "y": 12,
+      "x": 28,
+      "y": 24,
       "name": "Castle of Frost",
       "description": "An ice-spire fortress crowning the northern peaks. The Frost Queen's banner hangs at half-mast."
     },
     {
       "id": 1001,
       "poi_type": "castle_flame",
-      "x": 85,
-      "y": 18,
+      "x": 170,
+      "y": 36,
       "name": "Castle of Flame",
       "description": "A basalt keep wreathed in molten cracks. The Flame Lord rules from a throne of obsidian."
     },
     {
       "id": 1002,
       "poi_type": "castle_shadow",
-      "x": 18,
-      "y": 68,
+      "x": 36,
+      "y": 136,
       "name": "Castle of Shadow",
       "description": "Twisted spires of black stone, half-swallowed by void mist. Few who enter return."
     },
     {
       "id": 1003,
       "poi_type": "castle_storm",
-      "x": 88,
-      "y": 68,
+      "x": 176,
+      "y": 136,
       "name": "Castle of Storm",
       "description": "A windswept fortress on high cliffs. Lightning crowns its battlements at midnight."
     },
     {
       "id": 1100,
       "poi_type": "travel_gate",
-      "x": 32,
-      "y": 24,
+      "x": 64,
+      "y": 48,
       "name": "North Gate",
       "description": "A stone archway etched with glowing runes. Cracked open since the Starstone's return."
     },
     {
       "id": 1101,
       "poi_type": "travel_gate",
-      "x": 70,
-      "y": 28,
+      "x": 140,
+      "y": 56,
       "name": "East Gate",
       "description": "Twin pillars frame a shimmering portal. Touch the rune-stone to bind it to your travels."
     },
     {
       "id": 1102,
       "poi_type": "travel_gate",
-      "x": 30,
-      "y": 58,
+      "x": 60,
+      "y": 116,
       "name": "South Gate",
       "description": "Vines have crept across the runes, but the gate still hums with residual magic."
     },
     {
       "id": 1103,
       "poi_type": "travel_gate",
-      "x": 72,
-      "y": 58,
+      "x": 144,
+      "y": 116,
       "name": "West Gate",
       "description": "A weather-worn archway above a half-buried marker stone."
     },
     {
       "id": 1200,
       "poi_type": "refugee_camp",
-      "x": 50,
-      "y": 40,
+      "x": 100,
+      "y": 80,
       "name": "Survivors' Camp",
       "description": "A handful of tents around a smoky cooking fire. The refugees here saw the castles emerge from the earth."
     },
     {
       "id": 1201,
       "poi_type": "wizards_spire",
-      "x": 35,
-      "y": 25,
+      "x": 70,
+      "y": 50,
       "name": "Spire of Hael",
       "description": "A weather-cracked tower the old hedge-wizard Hael calls home. Smoke curls from the topmost window."
     }

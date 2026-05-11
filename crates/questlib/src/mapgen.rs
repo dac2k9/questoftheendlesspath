@@ -204,11 +204,22 @@ impl MonsterType {
 // ── Generation ────────────────────────────────────────
 
 impl WorldMap {
+    /// Generate a default-sized world (MAP_W × MAP_H = 100 × 80).
+    /// Kept for the frost_quest adventure and tests; new adventures
+    /// should call `generate_sized` with explicit dimensions.
     pub fn generate(seed: u64) -> Self {
+        Self::generate_sized(seed, MAP_W, MAP_H)
+    }
+
+    /// Generate a world of arbitrary dimensions. Internal helpers
+    /// derive width/height from the terrain shape, so most are
+    /// unchanged; only the steps that *create* a 2D grid
+    /// (`generate_terrain`, `noise_map`) need the dimensions.
+    pub fn generate_sized(seed: u64, width: usize, height: usize) -> Self {
         let mut rng = SeededRng::new(seed);
 
         // Step 1: Generate terrain with multi-octave noise
-        let terrain = generate_terrain(&mut rng);
+        let terrain = generate_terrain(&mut rng, width, height);
 
         // Step 2: Place points of interest
         let pois = place_pois(&mut rng, &terrain);
@@ -224,8 +235,8 @@ impl WorldMap {
 
         WorldMap {
             seed,
-            width: MAP_W,
-            height: MAP_H,
+            width,
+            height,
             terrain,
             pois,
             roads,
@@ -357,22 +368,22 @@ struct ExportPoi {
 
 // ── Terrain Generation ────────────────────────────────
 
-fn generate_terrain(rng: &mut SeededRng) -> Vec<Vec<Biome>> {
+fn generate_terrain(rng: &mut SeededRng, width: usize, height: usize) -> Vec<Vec<Biome>> {
     // Generate elevation and moisture maps using layered noise
-    let elevation = noise_map(rng.next(), 8);
-    let moisture = noise_map(rng.next(), 10);
-    let temperature = noise_map(rng.next(), 14);
+    let elevation = noise_map(rng.next(), 8, width, height);
+    let moisture = noise_map(rng.next(), 10, width, height);
+    let temperature = noise_map(rng.next(), 14, width, height);
 
-    let mut terrain = vec![vec![Biome::Grassland; MAP_W]; MAP_H];
+    let mut terrain = vec![vec![Biome::Grassland; width]; height];
 
-    for y in 0..MAP_H {
-        for x in 0..MAP_W {
+    for y in 0..height {
+        for x in 0..width {
             let e = elevation[y][x];
             let m = moisture[y][x];
             let t = temperature[y][x];
 
             // Water borders
-            let border_dist = (x.min(MAP_W - 1 - x).min(y).min(MAP_H - 1 - y)) as f32;
+            let border_dist = (x.min(width - 1 - x).min(y).min(height - 1 - y)) as f32;
             if border_dist < 3.0 {
                 terrain[y][x] = Biome::DeepWater;
                 continue;
@@ -422,12 +433,14 @@ fn generate_terrain(rng: &mut SeededRng) -> Vec<Vec<Biome>> {
 }
 
 fn add_river(rng: &mut SeededRng, terrain: &mut [Vec<Biome>]) {
+    let height = terrain.len();
+    let width = terrain[0].len();
     // River starts from a random point on one edge and meanders across
-    let start_y = 5 + (rng.next_range(MAP_H as u64 - 10) as usize);
+    let start_y = 5 + (rng.next_range(height as u64 - 10) as usize);
     let mut x = 3_usize;
     let mut y = start_y;
 
-    while x < MAP_W - 3 {
+    while x < width - 3 {
         terrain[y][x] = Biome::Water;
         // Also widen the river slightly
         if y > 0 {
@@ -439,15 +452,15 @@ fn add_river(rng: &mut SeededRng, terrain: &mut [Vec<Biome>]) {
         let r = rng.next_range(10);
         if r < 3 && y > 5 {
             y -= 1;
-        } else if r < 6 && y < MAP_H - 5 {
+        } else if r < 6 && y < height - 5 {
             y += 1;
         }
     }
 }
 
 /// Generate a 2D noise map (0.0-1.0) using multi-octave value noise.
-fn noise_map(seed: u64, base_scale: usize) -> Vec<Vec<f32>> {
-    let mut map = vec![vec![0.0f32; MAP_W]; MAP_H];
+fn noise_map(seed: u64, base_scale: usize, width: usize, height: usize) -> Vec<Vec<f32>> {
+    let mut map = vec![vec![0.0f32; width]; height];
 
     // 3 octaves of noise
     let octaves = [
@@ -457,8 +470,8 @@ fn noise_map(seed: u64, base_scale: usize) -> Vec<Vec<f32>> {
     ];
 
     for (scale, weight) in octaves {
-        for y in 0..MAP_H {
-            for x in 0..MAP_W {
+        for y in 0..height {
+            for x in 0..width {
                 map[y][x] += smooth_noise(x, y, scale, seed) * weight;
             }
         }
@@ -521,10 +534,12 @@ fn find_poi_location(
     preferred: Biome,
     existing: &[PointOfInterest],
 ) -> Option<(usize, usize)> {
+    let height = terrain.len();
+    let width = terrain[0].len();
     // Try up to 100 random positions
     for _ in 0..100 {
-        let x = 8 + rng.next_range((MAP_W - 16) as u64) as usize;
-        let y = 8 + rng.next_range((MAP_H - 16) as u64) as usize;
+        let x = 8 + rng.next_range((width - 16) as u64) as usize;
+        let y = 8 + rng.next_range((height - 16) as u64) as usize;
 
         let biome = terrain[y][x];
 
@@ -566,13 +581,17 @@ fn place_chests(
     pois: &[PointOfInterest],
     roads: &[Road],
 ) -> Vec<(usize, usize)> {
+    let height = terrain.len();
+    let width = terrain[0].len();
     let mut chests = Vec::new();
-    let target = 40;
+    // Scale target chest count with world area so a 4× area world
+    // doesn't feel underloaded compared to the default 100×80.
+    let target = (40 * width * height / (MAP_W * MAP_H)).max(40);
 
     for _ in 0..target * 20 {
         if chests.len() >= target { break; }
-        let x = (rng.next() % MAP_W as u64) as usize;
-        let y = (rng.next() % MAP_H as u64) as usize;
+        let x = (rng.next() % width as u64) as usize;
+        let y = (rng.next() % height as u64) as usize;
         let biome = terrain[y][x];
 
         // Must be walkable, not water
@@ -612,13 +631,17 @@ fn place_monsters(
     roads: &[Road],
     chests: &[(usize, usize)],
 ) -> Vec<WorldMonster> {
+    let height = terrain.len();
+    let width = terrain[0].len();
     let mut monsters = Vec::new();
-    let target = 25;
+    // Same area-scaling as chests: a bigger world earns proportionally
+    // more wandering threats.
+    let target = (25 * width * height / (MAP_W * MAP_H)).max(25);
 
     for _ in 0..target * 20 {
         if monsters.len() >= target { break; }
-        let x = (rng.next() % MAP_W as u64) as usize;
-        let y = (rng.next() % MAP_H as u64) as usize;
+        let x = (rng.next() % width as u64) as usize;
+        let y = (rng.next() % height as u64) as usize;
         let biome = terrain[y][x];
 
         if matches!(biome, Biome::Water | Biome::DeepWater) { continue; }
@@ -737,7 +760,9 @@ fn build_road_path(
             // Diagonal — add extra tile for connectivity
             let hx = (x + dx) as usize;
             let hy = y as usize;
-            if hx < MAP_W && hy < MAP_H {
+            let height = terrain.len();
+            let width = terrain[0].len();
+            if hx < width && hy < height {
                 path.push((hx, hy));
             }
         }
@@ -851,5 +876,27 @@ mod tests {
         assert!(json.contains("points_of_interest"));
         assert!(json.contains("Village"));
         println!("{json}");
+    }
+
+    #[test]
+    fn generate_sized_respects_dims() {
+        let map = WorldMap::generate_sized(99999, 200, 160);
+        assert_eq!(map.width, 200);
+        assert_eq!(map.height, 160);
+        assert_eq!(map.terrain.len(), 160);
+        assert_eq!(map.terrain[0].len(), 200);
+        // All POIs / chests / monsters must be in bounds.
+        for p in &map.pois {
+            assert!(p.x < 200 && p.y < 160, "POI out of bounds: ({},{})", p.x, p.y);
+        }
+        for (cx, cy) in &map.chests {
+            assert!(*cx < 200 && *cy < 160);
+        }
+        for m in &map.monsters {
+            assert!(m.x < 200 && m.y < 160);
+        }
+        // Bigger world earns more content (area scales 4×).
+        assert!(map.chests.len() >= 40);
+        assert!(map.monsters.len() >= 25);
     }
 }

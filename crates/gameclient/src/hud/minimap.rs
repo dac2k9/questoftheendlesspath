@@ -16,14 +16,16 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use crate::states::AppState;
 use crate::supabase::PolledPlayerState;
 use crate::terrain::tilemap::{FogOfWar, MyPlayerState};
-use crate::terrain::world::{WorldGrid, WORLD_W, WORLD_H};
+use crate::terrain::world::{WorldGrid, world_w, world_h};
 use crate::terrain::{Ground};
 use crate::GameSession;
 
-/// Rendered size on screen. 2× tile scale keeps the whole 100×80 world
-/// compact (~200×160 px) without UI hogging the corner.
-const MINIMAP_WIDTH_PX: f32 = WORLD_W as f32 * 2.0;   // 200
-const MINIMAP_HEIGHT_PX: f32 = WORLD_H as f32 * 2.0;  // 160
+/// Rendered minimap area on screen. Fixed pixel size regardless of
+/// world dims — bigger worlds get a smaller per-tile pixel ratio so
+/// the chaos 200×160 world fits the same corner as the frost_quest
+/// 100×80 one (which is rendered at 2× tile scale).
+const MINIMAP_WIDTH_PX: f32 = 200.0;
+const MINIMAP_HEIGHT_PX: f32 = 160.0;
 
 pub struct MinimapPlugin;
 
@@ -99,9 +101,9 @@ fn spawn_minimap(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 
 /// Empty/black 100×80 image used until the world is ready.
 fn blank_minimap_image() -> Image {
-    let data = vec![0u8; WORLD_W * WORLD_H * 4];
+    let data = vec![0u8; world_w() * world_h() * 4];
     Image::new(
-        Extent3d { width: WORLD_W as u32, height: WORLD_H as u32, depth_or_array_layers: 1 },
+        Extent3d { width: world_w() as u32, height: world_h() as u32, depth_or_array_layers: 1 },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8UnormSrgb,
@@ -129,11 +131,11 @@ fn regenerate_if_dirty(
     let Some(img) = images.get_mut(&minimap.handle) else { return; };
 
     let bytes = &mut img.data;
-    for y in 0..WORLD_H {
-        for x in 0..WORLD_W {
+    for y in 0..world_h() {
+        for x in 0..world_w() {
             let terrain = world.get(x, y);
             let (mut r, mut g, mut b) = ground_color(terrain.ground);
-            let revealed = fog.revealed.get(y * WORLD_W + x).copied().unwrap_or(false);
+            let revealed = fog.revealed.get(y * world_w() + x).copied().unwrap_or(false);
             if !revealed {
                 // Pure-dark fog cell. Earlier we kept a 15 % silhouette of
                 // the ground color so the map shape was hinted; that
@@ -145,7 +147,7 @@ fn regenerate_if_dirty(
                 g = 12;
                 b = 20;
             }
-            let idx = (y * WORLD_W + x) * 4;
+            let idx = (y * world_w() + x) * 4;
             bytes[idx]     = r;
             bytes[idx + 1] = g;
             bytes[idx + 2] = b;
@@ -257,9 +259,9 @@ fn update_player_dots(
 /// Map tile x to pixel x inside the minimap's image area (accounting for
 /// the 2-px padding on MinimapRoot).
 fn minimap_px_x(tile_x: f32) -> f32 {
-    2.0 + tile_x * (MINIMAP_WIDTH_PX / WORLD_W as f32)
+    2.0 + tile_x * (MINIMAP_WIDTH_PX / world_w() as f32)
 }
 
 fn minimap_px_y(tile_y: f32) -> f32 {
-    2.0 + tile_y * (MINIMAP_HEIGHT_PX / WORLD_H as f32)
+    2.0 + tile_y * (MINIMAP_HEIGHT_PX / world_h() as f32)
 }

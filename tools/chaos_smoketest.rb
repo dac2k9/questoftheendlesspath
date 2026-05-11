@@ -130,9 +130,9 @@ check("inventory wiped", s[:items].empty?, s[:items].inspect)
 check("completed_events wiped", s[:completed].empty?, s[:completed].inspect)
 puts
 
-# Step 2: Survivors' Camp (50, 40).
+# Step 2: Survivors' Camp (100, 80) — centre of the chaos 200×160 world.
 puts "Step 2: Survivors' Camp — intro dialogue"
-post_json('/admin/teleport', { player_id: pid, x: 50, y: 40 }, admin: true)
+post_json('/admin/teleport', { player_id: pid, x: 100, y: 80 }, admin: true)
 sleep 2 # let the tick fire the event
 post_json('/events/chaos_intro/complete', { player_id: pid })
 sleep 1
@@ -147,7 +147,7 @@ puts
 # in the next teleport. We check both the dialogue completion and the
 # cave-entrance completion (the latter unlocks the east portal inside).
 puts "Step 3: East Gate — Flame key + cave entry"
-post_json('/admin/teleport', { player_id: pid, x: 70, y: 28 }, admin: true)
+post_json('/admin/teleport', { player_id: pid, x: 140, y: 56 }, admin: true)
 sleep 2
 post_json('/events/chaos_east_gate_scout/complete', { player_id: pid })
 sleep 1
@@ -158,7 +158,7 @@ puts
 
 # Step 4: South Gate hermit (30, 58) — Shadow quest hub.
 puts "Step 4: South Gate — Shadow key + cave entry"
-post_json('/admin/teleport', { player_id: pid, x: 30, y: 58 }, admin: true)
+post_json('/admin/teleport', { player_id: pid, x: 60, y: 116 }, admin: true)
 sleep 2
 post_json('/events/chaos_south_gate_hermit/complete', { player_id: pid })
 sleep 1
@@ -169,7 +169,7 @@ puts
 
 # Step 5: West Gate wanderer (72, 58) — Storm quest hub.
 puts "Step 5: West Gate — Storm key + cave entry"
-post_json('/admin/teleport', { player_id: pid, x: 72, y: 58 }, admin: true)
+post_json('/admin/teleport', { player_id: pid, x: 144, y: 116 }, admin: true)
 sleep 2
 post_json('/events/chaos_west_gate_wanderer/complete', { player_id: pid })
 sleep 1
@@ -180,7 +180,7 @@ puts
 
 # Step 6: Hael's Spire — frost quest dialogue (35, 25).
 puts "Step 6: Spire of Hael — frost quest dialogue"
-post_json('/admin/teleport', { player_id: pid, x: 35, y: 25 }, admin: true)
+post_json('/admin/teleport', { player_id: pid, x: 70, y: 50 }, admin: true)
 sleep 2
 post_json('/events/chaos_hael_quest/complete', { player_id: pid })
 sleep 1
@@ -207,7 +207,7 @@ else
   puts "  walked 2000m+ — good"
   post_json('/debug_walk', { player_id: pid, speed: 0 })
   # Re-teleport to Hael to refire the trigger.
-  post_json('/admin/teleport', { player_id: pid, x: 35, y: 25 }, admin: true)
+  post_json('/admin/teleport', { player_id: pid, x: 70, y: 50 }, admin: true)
   sleep 2
   post_json('/events/chaos_hael_reward/complete', { player_id: pid })
   sleep 1
@@ -224,10 +224,10 @@ end
 # verify the necessary prereqs directly: player landed at the
 # castle tile AND has the matching key item.
 boss_pairs = [
-  ["chaos_frost_queen",       [14, 12], "frostbound_key",    SKIP_DISTANCE ? nil : "frostbound_key"],
-  ["chaos_lord_flame",        [85, 18], "ember_talisman",    "ember_talisman"],
-  ["chaos_hierophant_shadow", [18, 68], "voidlight_lantern", "voidlight_lantern"],
-  ["chaos_stormbinder",       [88, 68], "grounding_charm",   "grounding_charm"],
+  ["chaos_frost_queen",       [28,  24],  "frostbound_key",    SKIP_DISTANCE ? nil : "frostbound_key"],
+  ["chaos_lord_flame",        [170, 36],  "ember_talisman",    "ember_talisman"],
+  ["chaos_hierophant_shadow", [36,  136], "voidlight_lantern", "voidlight_lantern"],
+  ["chaos_stormbinder",       [176, 136], "grounding_charm",   "grounding_charm"],
 ]
 boss_pairs.each do |event_id, (x, y), required_item, expected_have|
   label = event_id.sub('chaos_', '').tr('_', ' ').capitalize
@@ -262,7 +262,7 @@ end
 %w[frost_axe fire_blade dragonslayer stormbringer].each do |item|
   post_json('/admin/give_item', { player_id: pid, item_id: item, quantity: 1 }, admin: true)
 end
-post_json('/admin/teleport', { player_id: pid, x: 50, y: 40 }, admin: true)
+post_json('/admin/teleport', { player_id: pid, x: 100, y: 80 }, admin: true)
 sleep 3
 post_json('/events/chaos_starstone_revealed/complete', { player_id: pid })
 sleep 2
@@ -278,7 +278,7 @@ check("chaos_starstone_revealed completed", s[:completed].include?('chaos_starst
 # castle bosses, it Dismisses without a planned route. We can only
 # verify the trigger prereqs landed (above) and that the player is
 # at the camp; the actual combat resolution needs a browser session.
-check("at Survivors' Camp tile", s[:tile] == [50, 40], s[:tile].inspect)
+check("at Survivors' Camp tile", s[:tile] == [100, 80], s[:tile].inspect)
 puts
 
 puts "──────────────────────────────────────"

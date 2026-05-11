@@ -16,7 +16,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::states::AppState;
-use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_W, WORLD_H};
+use crate::terrain::world::{WorldGrid, TILE_PX, world_w, world_h};
 
 /// Sun direction (from surface → light source), NOT normalized here —
 /// normalized at use. Upper-left, slightly above. Matches cloud shadow.
@@ -82,8 +82,8 @@ fn toggle_and_manage_overlay(
 }
 
 fn generate_lighting_image(world: &WorldGrid) -> Image {
-    let w = WORLD_W;
-    let h = WORLD_H;
+    let w = world_w();
+    let h = world_h();
     // ── 1. Heightmap, one cell per tile
     let mut height = vec![0.0_f32; w * h];
     for y in 0..h {
@@ -223,7 +223,7 @@ fn nearest_water_boundary(world: &WorldGrid, px: f32, py: f32) -> Option<WaterHi
     use questlib::mapgen::Biome::*;
     let tile_x = (px / TILE_PX).floor() as i32;
     let tile_y = (py / TILE_PX).floor() as i32;
-    if tile_x < 0 || tile_y < 0 || tile_x >= WORLD_W as i32 || tile_y >= WORLD_H as i32 {
+    if tile_x < 0 || tile_y < 0 || tile_x >= world_w() as i32 || tile_y >= world_h() as i32 {
         return None;
     }
     if matches!(world.map.biome_at(tile_x as usize, tile_y as usize), Water | DeepWater) {
@@ -236,7 +236,7 @@ fn nearest_water_boundary(world: &WorldGrid, px: f32, py: f32) -> Option<WaterHi
             if nx == 0 && ny == 0 { continue; }
             let bx = tile_x + nx;
             let by = tile_y + ny;
-            if bx < 0 || by < 0 || bx >= WORLD_W as i32 || by >= WORLD_H as i32 { continue; }
+            if bx < 0 || by < 0 || bx >= world_w() as i32 || by >= world_h() as i32 { continue; }
             if !matches!(world.map.biome_at(bx as usize, by as usize), Water | DeepWater) {
                 continue;
             }

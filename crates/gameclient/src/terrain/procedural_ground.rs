@@ -24,7 +24,7 @@ use bevy::render::render_resource::{
 use bevy::sprite::{AlphaMode2d, Material2d, Material2dPlugin};
 
 use crate::states::AppState;
-use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_H, WORLD_W};
+use crate::terrain::world::{WorldGrid, TILE_PX, world_h, world_w};
 
 /// Returns 0 — sprites no longer offset their world Y. Kept as a
 /// stable callable so the existing call sites in tilemap.rs don't
@@ -222,8 +222,8 @@ fn toggle_and_manage(
     let water_dist = images.add(generate_water_distance(&world));
     let material = materials.add(GroundMaterial {
         params: GroundParams {
-            world_w: WORLD_W as f32,
-            world_h: WORLD_H as f32,
+            world_w: world_w() as f32,
+            world_h: world_h() as f32,
             tile_px: TILE_PX,
             test_mode: if debug.procedural_test_mode { 1.0 } else { 0.0 },
             // Lighting fields filled in each frame by `update_lighting`;
@@ -297,8 +297,8 @@ fn biome_height_factor(world: &WorldGrid, x: usize, y: usize) -> f32 {
 /// UVs run 0..1 across the world rectangle (matching the previous
 /// single-quad mesh) so the autotile fragment shader is unchanged.
 fn build_tile_mesh(world: &WorldGrid, z_factor: f32) -> Mesh {
-    let w = WORLD_W;
-    let h = WORLD_H;
+    let w = world_w();
+    let h = world_h();
     let nx = w + 1; // 101 vertices wide
     let ny = h + 1; // 81 vertices tall
 
@@ -372,8 +372,8 @@ fn build_tile_mesh(world: &WorldGrid, z_factor: f32) -> Mesh {
 /// Sampler is NEAREST so the shader never sees fractional IDs.
 fn generate_biome_texture(world: &WorldGrid) -> Image {
     use questlib::mapgen::Biome::*;
-    let w = WORLD_W;
-    let h = WORLD_H;
+    let w = world_w();
+    let h = world_h();
     let mut data = Vec::with_capacity(w * h);
     for y in 0..h {
         for x in 0..w {
@@ -428,8 +428,8 @@ fn generate_test_biome_texture() -> Image {
     const S: u8 = 3;  // Desert (sand-like, used as "road")
     const N: u8 = 8;  // Snow (used as "ice")
 
-    let w = WORLD_W;
-    let h = WORLD_H;
+    let w = world_w();
+    let h = world_h();
     let mut data = vec![G; w * h];
 
     let put = |data: &mut Vec<u8>, x: i32, y: i32, b: u8| {
@@ -586,8 +586,8 @@ fn update_lighting(
     let sun_pos = if debug.debug_sun_enabled {
         Vec4::new(debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z, 0.0)
     } else {
-        let w = WORLD_W as f32 * TILE_PX;
-        let h = WORLD_H as f32 * TILE_PX;
+        let w = world_w() as f32 * TILE_PX;
+        let h = world_h() as f32 * TILE_PX;
         let center = Vec2::new(w / 2.0, -h / 2.0);
         let p = cycle.light_pos(center);
         Vec4::new(p.x, p.y, p.z, 0.0)
@@ -664,8 +664,8 @@ fn box_blur_3x3(input: &[f32], w: usize, h: usize) -> Vec<f32> {
 
 /// Bake a 100×80 R8 heightmap (3× blurred) for the Phong pass.
 fn generate_heightmap(world: &WorldGrid) -> Image {
-    let w = WORLD_W;
-    let h = WORLD_H;
+    let w = world_w();
+    let h = world_h();
     let mut height = vec![0.0_f32; w * h];
     for y in 0..h {
         for x in 0..w {
@@ -705,8 +705,8 @@ fn generate_heightmap(world: &WorldGrid) -> Image {
 /// Bake a per-pixel distance-to-water R8 texture (1600×1280).
 fn generate_water_distance(world: &WorldGrid) -> Image {
     use questlib::mapgen::Biome::*;
-    let pw = WORLD_W * TILE_PX as usize;
-    let ph = WORLD_H * TILE_PX as usize;
+    let pw = world_w() * TILE_PX as usize;
+    let ph = world_h() * TILE_PX as usize;
     let mut data = Vec::with_capacity(pw * ph);
     for py in 0..ph {
         for px in 0..pw {
@@ -715,7 +715,7 @@ fn generate_water_distance(world: &WorldGrid) -> Image {
             let tile_x = (fx / TILE_PX).floor() as i32;
             let tile_y = (fy / TILE_PX).floor() as i32;
             let in_world = tile_x >= 0 && tile_y >= 0
-                && tile_x < WORLD_W as i32 && tile_y < WORLD_H as i32;
+                && tile_x < world_w() as i32 && tile_y < world_h() as i32;
             let own_is_water = in_world && matches!(
                 world.map.biome_at(tile_x as usize, tile_y as usize),
                 Water | DeepWater
@@ -730,7 +730,7 @@ fn generate_water_distance(world: &WorldGrid) -> Image {
                     if nx == 0 && ny == 0 { continue; }
                     let bx = tile_x + nx;
                     let by = tile_y + ny;
-                    if bx < 0 || by < 0 || bx >= WORLD_W as i32 || by >= WORLD_H as i32 {
+                    if bx < 0 || by < 0 || bx >= world_w() as i32 || by >= world_h() as i32 {
                         continue;
                     }
                     if !matches!(

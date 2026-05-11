@@ -112,6 +112,54 @@ fn prune_missing_items(players: &mut HashMap<String, DevPlayerState>, catalog: &
     }
 }
 
+/// Reset stale fog bitfields + clamp out-of-bounds positions when a
+/// player's adventure resized its world (e.g. chaos grew 100×80 →
+/// 200×160). The fog bitfield's byte count is tied to width × height;
+/// a mismatched size makes `FogBitfield::from_base64` return None,
+/// which the next tick interprets as "no fog reveal yet" and
+/// re-initializes a blank one — but the saved string is still on
+/// disk, so the player keeps re-loading a fog they can never decode.
+/// Force-clearing the saved string fixes that. Same idea for positions:
+/// a player who was at (85, 18) in 100×80 chaos is still in-bounds at
+/// 200×160 (top-left quadrant) — clamp only if outright OOB, otherwise
+/// leave alone so their walk continues from where they were.
+fn migrate_to_bundle_dims(
+    players: &mut HashMap<String, DevPlayerState>,
+    bundles: &HashMap<String, adventure::AdventureBundle>,
+) {
+    for (_, p) in players.iter_mut() {
+        let Some(bundle) = bundles.get(&p.adventure_id) else { continue };
+        let w = bundle.world.width;
+        let h = bundle.world.height;
+        // Fog: a bitfield of (w*h) bits = (w*h + 7) / 8 bytes. Base64
+        // encoding inflates this by 4/3 + padding; we just check the
+        // decode succeeds at the expected size.
+        if !p.revealed_tiles.is_empty() {
+            let decoded = questlib::fog::FogBitfield::from_base64_sized(&p.revealed_tiles, w, h);
+            if decoded.is_none() {
+                info!(
+                    "[{}] fog size mismatch (saved doesn't decode at {}×{}) — clearing",
+                    p.name, w, h
+                );
+                p.revealed_tiles.clear();
+            }
+        }
+        // Position: clamp to bounds. Mostly a no-op since shrinking
+        // adventures don't exist yet, but defensive against future
+        // resizing or bad save data.
+        let max_x = (w as i32).saturating_sub(1);
+        let max_y = (h as i32).saturating_sub(1);
+        if p.map_tile_x < 0 || p.map_tile_x > max_x || p.map_tile_y < 0 || p.map_tile_y > max_y {
+            info!(
+                "[{}] position ({}, {}) OOB for {}×{} — snapping to centre",
+                p.name, p.map_tile_x, p.map_tile_y, w, h
+            );
+            p.map_tile_x = (w / 2) as i32;
+            p.map_tile_y = (h / 2) as i32;
+        }
+    }
+}
+
 /// Derive revealed_shops from completed_events for players who played
 /// before the field existed. Idempotent — safe to run every startup.
 ///
@@ -281,6 +329,9 @@ async fn main() -> Result<()> {
         });
         // Drop references to items that no longer exist in the catalog (renames etc.)
         prune_missing_items(&mut loaded, item_catalog());
+        // Reset fog + clamp positions for players whose adventure
+        // resized since the save was written.
+        migrate_to_bundle_dims(&mut loaded, &bundles);
         // Populate revealed_shops for players whose completed_events already
         // includes a shop — otherwise existing saves would show no shop
         // markers until the player revisits each one.

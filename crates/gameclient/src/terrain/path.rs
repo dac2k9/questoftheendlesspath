@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 
 use bevy::prelude::*;
 
-use super::world::{WorldGrid, WORLD_W, WORLD_H, TILE_PX};
+use super::world::{WorldGrid, world_w, world_h, TILE_PX};
 
 /// Route displayed on screen (for path markers).
 #[derive(Resource, Default)]

@@ -542,23 +542,23 @@ async fn handle_join(
     let champion = state.lock().ok()
         .and_then(|s| s.get(&player_id).map(|p| p.champion.clone()))
         .unwrap_or_default();
-    // Resolve the player's adventure → preset → map_seed so the
+    // Resolve the player's adventure → preset → seed + dims so the
     // client can build the matching WorldGrid. For new players this
-    // is always frost_quest's seed; for returning players who've
-    // switched to chaos, this returns chaos's seed.
-    let map_seed = {
+    // is always frost_quest's defaults; for returning players who've
+    // switched to chaos, this returns chaos's 200×160 + seed 99999.
+    let (map_seed, map_width, map_height) = {
         let adv_id = state.lock().ok()
             .and_then(|s| s.get(&player_id).map(|p| p.adventure_id.clone()))
             .unwrap_or_default();
         crate::adventure::presets()
             .into_iter()
             .find(|p| p.id == adv_id)
-            .map(|p| p.map_seed)
-            .unwrap_or(12345)
+            .map(|p| (p.map_seed, p.map_width, p.map_height))
+            .unwrap_or((12345, questlib::mapgen::MAP_W, questlib::mapgen::MAP_H))
     };
     ("200 OK", format!(
-        r#"{{"player_id":"{}","name":"{}","champion":"{}","map_seed":{}}}"#,
-        player_id, player_name, champion, map_seed
+        r#"{{"player_id":"{}","name":"{}","champion":"{}","map_seed":{},"map_width":{},"map_height":{}}}"#,
+        player_id, player_name, champion, map_seed, map_width, map_height
     ))
 }
 
@@ -765,11 +765,18 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             let target_preset = crate::adventure::presets()
                 .into_iter()
                 .find(|p| p.id == req.adventure_id);
-            let Some(_target_preset) = target_preset else {
+            let Some(target_preset) = target_preset else {
                 return ("400 Bad Request", format!(
                     r#"{{"error":"unknown adventure_id '{}'"}}"#, req.adventure_id
                 ).to_string());
             };
+            // Spawn at the centre of the target world so existing
+            // (50, 40) doesn't end up in the top-left quadrant of a
+            // bigger map like chaos's 200×160. Each adventure's
+            // Survivors' Camp / starting POI lives at this center
+            // (see seed{N}_pois.json).
+            let spawn_x = (target_preset.map_width / 2) as i32;
+            let spawn_y = (target_preset.map_height / 2) as i32;
             let mut lock = state.lock().unwrap();
             let Some(p) = lock.get_mut(&req.player_id) else {
                 return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
@@ -795,8 +802,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 boons,
                 adventure_boons,
                 adventure_id: req.adventure_id.clone(),
-                map_tile_x: 50,
-                map_tile_y: 40,
+                map_tile_x: spawn_x,
+                map_tile_y: spawn_y,
                 ..Default::default()
             };
             tracing::info!(

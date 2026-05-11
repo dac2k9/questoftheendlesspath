@@ -25,7 +25,7 @@ use bevy::render::render_resource::{
 use bevy::sprite::{AlphaMode2d, Material2d, Material2dPlugin};
 
 use crate::states::AppState;
-use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_H, WORLD_W};
+use crate::terrain::world::{WorldGrid, TILE_PX, world_h, world_w};
 
 pub struct TerrainLightingPlugin;
 
@@ -145,8 +145,8 @@ fn toggle_and_manage(
     // World-size mesh, placed at the map sprite's origin convention
     // (tile (0,0) centered at world origin → sprite center offset by
     // half a tile). z=0.3 matches where the old CPU overlay sat.
-    let w = WORLD_W as f32 * TILE_PX;
-    let h = WORLD_H as f32 * TILE_PX;
+    let w = world_w() as f32 * TILE_PX;
+    let h = world_h() as f32 * TILE_PX;
     let cx = w / 2.0 - TILE_PX / 2.0;
     let cy = -h / 2.0 + TILE_PX / 2.0;
     let mesh_handle = meshes.add(Rectangle::new(w, h));
@@ -175,8 +175,8 @@ fn update_material(
     let sun_pos = if debug.debug_sun_enabled {
         Vec4::new(debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z, 0.0)
     } else {
-        let w = WORLD_W as f32 * TILE_PX;
-        let h = WORLD_H as f32 * TILE_PX;
+        let w = world_w() as f32 * TILE_PX;
+        let h = world_h() as f32 * TILE_PX;
         let center = Vec2::new(w / 2.0, -h / 2.0);
         let p = cycle.light_pos(center);
         Vec4::new(p.x, p.y, p.z, 0.0)
@@ -203,8 +203,8 @@ fn update_material(
 // ── Heightmap generation (100×80 R8) ────────────────────────────────
 
 fn generate_heightmap(world: &WorldGrid) -> Image {
-    let w = WORLD_W;
-    let h = WORLD_H;
+    let w = world_w();
+    let h = world_h();
     // Build height per tile from biome, then 3× box blur so slopes
     // transition smoothly across tile boundaries instead of stepping.
     let mut height = vec![0.0_f32; w * h];
@@ -303,7 +303,7 @@ fn box_blur_3x3(input: &[f32], w: usize, h: usize) -> Vec<f32> {
 
 // ── Water-distance field (per-pixel distance to nearest water) ──────
 //
-// Baked at world pixel resolution (WORLD_W*TILE_PX × WORLD_H*TILE_PX)
+// Baked at world pixel resolution (world_w()*TILE_PX × world_h()*TILE_PX)
 // as an R8 texture where each byte = distance in pixels clamped to
 // 0..=255. Shoreline bevel only needs 0..=5 so R8 is plenty.
 //
@@ -315,8 +315,8 @@ fn box_blur_3x3(input: &[f32], w: usize, h: usize) -> Vec<f32> {
 
 fn generate_water_distance(world: &WorldGrid) -> Image {
     use questlib::mapgen::Biome::*;
-    let pw = WORLD_W * TILE_PX as usize;
-    let ph = WORLD_H * TILE_PX as usize;
+    let pw = world_w() * TILE_PX as usize;
+    let ph = world_h() * TILE_PX as usize;
     let mut data = Vec::with_capacity(pw * ph);
     for py in 0..ph {
         for px in 0..pw {
@@ -331,7 +331,7 @@ fn generate_water_distance(world: &WorldGrid) -> Image {
             let tile_x = (fx / TILE_PX).floor() as i32;
             let tile_y = (fy / TILE_PX).floor() as i32;
             let in_world = tile_x >= 0 && tile_y >= 0
-                && tile_x < WORLD_W as i32 && tile_y < WORLD_H as i32;
+                && tile_x < world_w() as i32 && tile_y < world_h() as i32;
             let own_is_water = in_world && matches!(
                 world.map.biome_at(tile_x as usize, tile_y as usize),
                 Water | DeepWater
@@ -347,7 +347,7 @@ fn generate_water_distance(world: &WorldGrid) -> Image {
                     if nx == 0 && ny == 0 { continue; }
                     let bx = tile_x + nx;
                     let by = tile_y + ny;
-                    if bx < 0 || by < 0 || bx >= WORLD_W as i32 || by >= WORLD_H as i32 {
+                    if bx < 0 || by < 0 || bx >= world_w() as i32 || by >= world_h() as i32 {
                         continue;
                     }
                     if !matches!(

@@ -23,7 +23,7 @@ use bevy::sprite::{AlphaMode2d, Material2d, Material2dPlugin};
 
 use crate::states::AppState;
 use crate::terrain::tilemap::{FogOfWar, MyPlayerState};
-use crate::terrain::world::{WorldGrid, TILE_PX, WORLD_W, WORLD_H};
+use crate::terrain::world::{WorldGrid, TILE_PX, world_w, world_h};
 
 /// Cheap uniform random in [0, 1) via the browser's Math.random(). Works
 /// on WASM without pulling in `rand` + its WASM-specific configuration.
@@ -60,8 +60,8 @@ const DROP_ALPHA_MAX: f32 = 0.80;
 /// World rectangle in world-space pixels. tile_to_world maps tile y to
 /// `-y * TILE_PX`, so the world's Y range is [-WORLD_PX_H, 0] and X range
 /// is [0, WORLD_PX_W]. Cloud positions use these bounds directly.
-fn world_px_w() -> f32 { WORLD_W as f32 * TILE_PX }
-fn world_px_h() -> f32 { WORLD_H as f32 * TILE_PX }
+fn world_px_w() -> f32 { world_w() as f32 * TILE_PX }
+fn world_px_h() -> f32 { world_h() as f32 * TILE_PX }
 
 pub struct AmbientPlugin;
 
@@ -535,7 +535,7 @@ fn emit_rain(
             // only ~5 tiles so the color stays correct through the fall.
             let (tx, ty) = WorldGrid::world_to_tile(Vec2::new(spawn_x, spawn_y));
             let revealed = fog.as_ref()
-                .and_then(|f| f.revealed.get(ty * WORLD_W + tx).copied())
+                .and_then(|f| f.revealed.get(ty * world_w() + tx).copied())
                 .unwrap_or(true);
             let color = if revealed {
                 Color::srgba(0.15, 0.25, 0.50, alpha) // dark over terrain
