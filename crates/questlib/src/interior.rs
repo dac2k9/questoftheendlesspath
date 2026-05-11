@@ -68,8 +68,13 @@ pub struct Portal {
 
 /// Simple tile grid. Floor is walkable; wall is not. All floors cost the
 /// same; no biomes inside (yet). Tile index = y * width + x.
+///
+/// JSON shape: `{"kind": "wall"}` / `{"kind": "floor"}`. The tag is
+/// required because the authored interior JSONs use that object form
+/// (per-tile) — without the tag, serde expects bare strings and
+/// rejects the existing files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum InteriorTile {
     Wall,
     Floor,
