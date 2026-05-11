@@ -1689,6 +1689,30 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             return ("200 OK", format!(r#"{{"ok":true,"had_pending":{}}}"#, had));
         }
 
+        // POST /admin/teleport — { player_id, x, y }
+        // Directly sets a player's tile, no route required. Used by
+        // tools/chaos_smoketest.rb to drive a player through the
+        // chaos quest chain without making them walk on a treadmill.
+        if first_line.starts_with("POST /admin/teleport") {
+            let pid = data.get("player_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let x = data.get("x").and_then(|v| v.as_i64()).unwrap_or(-1);
+            let y = data.get("y").and_then(|v| v.as_i64()).unwrap_or(-1);
+            if pid.is_empty() || x < 0 || y < 0 {
+                return ("400 Bad Request", r#"{"error":"player_id, x>=0, y>=0 required"}"#.to_string());
+            }
+            let mut lock = state.lock().unwrap();
+            let Some(p) = lock.get_mut(&pid) else {
+                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+            };
+            p.prev_tile = Some((p.map_tile_x, p.map_tile_y));
+            p.map_tile_x = x as i32;
+            p.map_tile_y = y as i32;
+            p.planned_route = String::new();
+            p.route_meters_walked = 0.0;
+            tracing::info!("[admin] teleport {} to ({}, {})", p.name, x, y);
+            return ("200 OK", format!(r#"{{"ok":true,"x":{},"y":{}}}"#, x, y));
+        }
+
         // POST /admin/dump_combat — snapshot of in-memory shared_combat
         // (keys + brief status). Diagnostic only — use this when a player
         // sits on a monster and combat won't start; a non-empty list with

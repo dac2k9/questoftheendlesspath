@@ -323,6 +323,18 @@
       "category": "key_item"
     },
     {
+      "id": "voidlight_lantern",
+      "display_name": "Voidlight Lantern",
+      "description": "A blackglass lantern that burns inward. The South Gate hermit said its anti-flame draws away the shadow shroud over the Castle of Shadow.",
+      "category": "key_item"
+    },
+    {
+      "id": "grounding_charm",
+      "display_name": "Grounding Charm",
+      "description": "A braid of copper wire and yew. The West Gate wanderer said the Storm Castle's lightning passes harmlessly around anyone who carries it.",
+      "category": "key_item"
+    },
+    {
       "id": "tower_key",
       "display_name": "Tower Key",
       "description": "An ancient key from the Forgotten Crypt. Opens the outer gate of the Frozen Spire.",

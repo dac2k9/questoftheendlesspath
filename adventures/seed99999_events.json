@@ -289,6 +289,256 @@
       "requires_browser": true
     },
     {
+      "id": "chaos_south_gate_hermit",
+      "name": "South Gate Hermit",
+      "description": "A wiry figure sits cross-legged by the rune-stones, a black-glass lantern unlit at her side.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Hermit Sora",
+        "lines": [
+          "I came south to be alone with the quiet. Now the quiet has teeth.",
+          "Beyond this gate, the Castle of Shadow draws a shroud across itself. You will walk up to it and find you are walking away.",
+          "Take my lantern. It burns inward — the void-light. Carry it and the shroud will lift.",
+          "Bring back the silence of that place. Whatever silence the Hierophant has left."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1102
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "voidlight_lantern"
+        },
+        {
+          "effect": "notification",
+          "text": "Received: Voidlight Lantern. The Castle of Shadow is to the south-west."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_castle_shadow_shroud",
+      "name": "Castle of Shadow — Veiled",
+      "description": "Each step you take toward the castle, the path bends you away from it. The shroud is hungry.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Voice from the Shroud",
+        "lines": [
+          "The way is veiled. You cannot find the door from outside the door.",
+          "The South Gate hermit speaks of an anti-light. Without it the shroud will turn you home, again and again."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1002
+          },
+          {
+            "condition": "not",
+            "inner": {
+              "condition": "has_item",
+              "item": "voidlight_lantern"
+            }
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "notification",
+          "text": "The shroud turns you away. Visit the South Gate hermit."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_hierophant_shadow",
+      "name": "Hierophant of Shadow",
+      "description": "The lantern flares — the shroud parts. A hooded figure rises from a half-collapsed throne of obsidian.",
+      "kind": {
+        "type": "boss",
+        "boss_name": "Hierophant of Shadow",
+        "max_hp": 260,
+        "dialogue_intro": [
+          "You carry a candle into a cathedral and call it bravery.",
+          "I am Hierophant of every word never said aloud. I am the quiet you fled to make this noise.",
+          "Step forward. I will teach you the silence you were too afraid of."
+        ],
+        "dialogue_defeat": [
+          "Curious. The candle was bigger than the cathedral.",
+          "Walk on, mortal. The storm-bound is the last."
+        ],
+        "scales_with_player": true,
+        "requires_coop": false,
+        "hp_per_level": 22,
+        "atk_per_level": 3,
+        "def_per_level": 1,
+        "grants_boon": false
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1002
+          },
+          {
+            "condition": "has_item",
+            "item": "voidlight_lantern"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 400
+        },
+        {
+          "effect": "item",
+          "name": "dragonslayer"
+        },
+        {
+          "effect": "notification",
+          "text": "Hierophant of Shadow defeated! Dropped: Dragonslayer. Three castles quiet. One remains."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_west_gate_wanderer",
+      "name": "West Gate Wanderer",
+      "description": "A traveler with charred boots and a copper-braided wrist-cord squints up at you.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Wanderer Cael",
+        "lines": [
+          "I was a fisherman. Then the cliffs east of here started ringing with thunder, and a castle stood where no castle stood.",
+          "Storm Castle. Lightning falls on anyone who climbs the cliff path.",
+          "I made this — copper and yew, the old way. Wear it and the bolts will pass around you. They won't strike a thing that won't conduct.",
+          "If you make it inside, end the Stormbinder for me. He was the storm I never saw coming."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1103
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "grounding_charm"
+        },
+        {
+          "effect": "notification",
+          "text": "Received: Grounding Charm. The Castle of Storm is to the east."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_castle_storm_struck",
+      "name": "Castle of Storm — Lightning-Ringed",
+      "description": "The cliff path is hammered with bolts. You won't take three steps before one finds you.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Voice from the Cliffs",
+        "lines": [
+          "Lightning crowns this place. Without a way to ground the strikes, the climb will kill you.",
+          "The West Gate wanderer makes charms that let the storm pass around you. Find him first."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1003
+          },
+          {
+            "condition": "not",
+            "inner": {
+              "condition": "has_item",
+              "item": "grounding_charm"
+            }
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "notification",
+          "text": "Lightning forbids the path. Visit the West Gate wanderer."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_stormbinder",
+      "name": "Stormbinder",
+      "description": "The charm hums against your wrist as you climb. At the keep's heart, a figure turns from the open sky, lightning crowning his head.",
+      "kind": {
+        "type": "boss",
+        "boss_name": "Stormbinder",
+        "max_hp": 280,
+        "dialogue_intro": [
+          "You came up the cliff with copper at your wrist. Clever, mortal.",
+          "I bound the storm to me when the boundary broke. The bolts go where I tell them, except — apparently — where you stand.",
+          "Then we will see what falls when the storm cannot reach you."
+        ],
+        "dialogue_defeat": [
+          "Even the storm passes.",
+          "Four castles quiet. Walk to the centre. The Starstone is waiting for the second cut."
+        ],
+        "scales_with_player": true,
+        "requires_coop": false,
+        "hp_per_level": 24,
+        "atk_per_level": 3,
+        "def_per_level": 1,
+        "grants_boon": false
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1003
+          },
+          {
+            "condition": "has_item",
+            "item": "grounding_charm"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 500
+        },
+        {
+          "effect": "item",
+          "name": "stormbringer"
+        },
+        {
+          "effect": "notification",
+          "text": "Stormbinder defeated! Dropped: Stormbringer. Four castles quiet. The Starstone awaits."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
       "id": "chaos_frost_queen",
       "name": "Queen of Frost",
       "description": "She turns from the throne, crown of icicles gleaming. The temperature plummets.",

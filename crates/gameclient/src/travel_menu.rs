@@ -68,16 +68,17 @@ struct TravelMenuPanel;
 struct TravelGateButton(usize);
 
 fn spawn_button(mut commands: Commands, font: Res<GameFont>) {
-    // Slightly to the LEFT of the adventure-menu button so the two
-    // don't overlap. Adventure menu is at right: 8, ~75 px wide;
-    // we sit at right: 92.
+    // Sit clearly to the LEFT of the adventure-menu button.
+    // Adventure menu is at right: 8 and renders wider than the
+    // earlier estimate, so we leave a generous gap (right: 130)
+    // — the "Travel" label gets clipped by "Adventure" otherwise.
     commands
         .spawn((
             Button,
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(34.0),
-                right: Val::Px(92.0),
+                right: Val::Px(130.0),
                 padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)),
                 border: UiRect::all(Val::Px(1.0)),
                 ..default()
@@ -174,7 +175,7 @@ fn apply_fetched_gates(
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(60.0),
-                right: Val::Px(92.0),
+                right: Val::Px(130.0),
                 width: Val::Px(240.0),
                 padding: UiRect::all(Val::Px(8.0)),
                 border: UiRect::all(Val::Px(1.0)),
