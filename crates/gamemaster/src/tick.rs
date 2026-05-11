@@ -26,6 +26,11 @@ pub fn run_tick_dev(
     // Keeps the wait notification from spamming every tick.
     player_boss_wait_notified: &mut HashMap<String, String>,
     rng_roll: f32,
+    // Adventure id this tick is for. Players whose `adventure_id`
+    // doesn't match are skipped — they belong to a different bundle
+    // (different world, events, entities) and get processed in that
+    // bundle's own pass through this loop.
+    adventure_id: &str,
 ) -> Result<()> {
     // Snapshot player state — release lock so walker/debug can write
     let players: Vec<DevPlayerState> = {
@@ -37,6 +42,12 @@ pub fn run_tick_dev(
 
     for player in &players {
         let player_id = &player.id;
+
+        // Players in a different adventure get ticked under that
+        // adventure's bundle, not this one.
+        if player.adventure_id != adventure_id {
+            continue;
+        }
 
         // Players inside an interior are handled by crate::interior::run_interior_tick
         // in the outer loop. Skip them here entirely so overworld logic (fog,
@@ -852,6 +863,7 @@ fn test_player(name: &str, tile_x: i32, tile_y: i32, route: &str, distance: f64,
         total_distance_m: distance,
         is_walking: walking,
         route_meters_walked: 0.0,
+        adventure_id: crate::adventure::DEFAULT_ADVENTURE_ID.to_string(),
         ..Default::default()
     }
 }
@@ -981,7 +993,7 @@ mod tests {
                     p.total_distance_m += delta_per_tick;
                 }
             }
-            run_tick_dev(state, world, events, notifs, combat, &interiors, &test_entity_defs(), &test_entity_states(), fogs, last_dist, &mut boss_wait, 0.5).unwrap();
+            run_tick_dev(state, world, events, notifs, combat, &interiors, &test_entity_defs(), &test_entity_states(), fogs, last_dist, &mut boss_wait, 0.5, crate::adventure::DEFAULT_ADVENTURE_ID).unwrap();
         }
     }
 
@@ -998,7 +1010,7 @@ mod tests {
         let mut fogs = HashMap::new();
         let mut last_dist = HashMap::new();
 
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5, crate::adventure::DEFAULT_ADVENTURE_ID).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.gold, 0, "idle player should earn no gold");
@@ -1015,12 +1027,12 @@ mod tests {
         let mut last_dist = HashMap::new();
 
         // First tick inits last_distance, so add distance then tick again
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5, crate::adventure::DEFAULT_ADVENTURE_ID).unwrap();
         {
             let mut lock = state.lock().unwrap();
             lock.get_mut(&pid).unwrap().total_distance_m = 110.0;
         }
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5, crate::adventure::DEFAULT_ADVENTURE_ID).unwrap();
 
         let p = get_player(&state, &pid);
         assert!(p.gold > 0, "walking without route should still earn gold");
@@ -1112,7 +1124,7 @@ mod tests {
                 let mut lock = state.lock().unwrap();
                 lock.get_mut(&pid).unwrap().total_distance_m += 10.0;
             }
-            run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+            run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5, crate::adventure::DEFAULT_ADVENTURE_ID).unwrap();
 
             let p = get_player(&state, &pid);
             let pos = (p.map_tile_x as usize, p.map_tile_y as usize);
@@ -1186,8 +1198,8 @@ mod tests {
         let mut last_dist = HashMap::new();
 
         // Two ticks with same distance — no movement
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
-        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5, crate::adventure::DEFAULT_ADVENTURE_ID).unwrap();
+        run_tick_dev(&state, &w, &events, &notifs, &combat, &test_interiors(), &test_entity_defs(), &test_entity_states(), &mut fogs, &mut last_dist, &mut HashMap::new(), 0.5, crate::adventure::DEFAULT_ADVENTURE_ID).unwrap();
 
         let p = get_player(&state, &pid);
         assert_eq!(p.route_meters_walked, 0.0);

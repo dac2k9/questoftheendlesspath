@@ -62,7 +62,14 @@ pub fn presets() -> Vec<AdventurePreset> {
     let chaos = AdventurePreset {
         id: "chaos".into(),
         display_name: "Chaos Unleashed".into(),
-        map_seed: 99999,
+        // v1 caveat: the client hardcodes the world seed (12345) in
+        // its WorldGrid::from_seed call, so the chaos bundle uses the
+        // same seed for now — same terrain, but its own (currently
+        // empty) events and entities. Once we plumb the player's seed
+        // back through `/join`, this will switch to a distinct
+        // chaos-themed seed and the client will rebuild the world
+        // on adventure transition.
+        map_seed: 12345,
         events_path: "adventures/seed99999_events.json".into(),
         entities_path: "adventures/seed99999_entities.json".into(),
         // Shares the same interiors set for now. Authored chaos

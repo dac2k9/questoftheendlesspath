@@ -688,6 +688,67 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
     }
 
+    // POST /start_new_adventure — body: {"player_id": "...", "adventure_id": "chaos"}.
+    // Resets level / gold / inventory / equipment / route / fog /
+    // opened_chests / defeated_monsters / completed_events / etc.
+    // and sets `adventure_id` to the new preset. **Boons survive**
+    // (the whole point of the meta-progression system), as do
+    // name / champion / walker_uuid / player_id itself so the title
+    // screen recognizes the player on rejoin.
+    if first_line.starts_with("POST /start_new_adventure") {
+        if let Some(body_start) = request.find("\r\n\r\n") {
+            #[derive(Deserialize)]
+            struct Req { player_id: String, adventure_id: String }
+            let Ok(req) = serde_json::from_str::<Req>(&request[body_start + 4..]) else {
+                return ("400 Bad Request", r#"{"error":"bad body"}"#.to_string());
+            };
+            // Validate the target adventure is registered.
+            let target_preset = crate::adventure::presets()
+                .into_iter()
+                .find(|p| p.id == req.adventure_id);
+            let Some(_target_preset) = target_preset else {
+                return ("400 Bad Request", format!(
+                    r#"{{"error":"unknown adventure_id '{}'"}}"#, req.adventure_id
+                ).to_string());
+            };
+            let mut lock = state.lock().unwrap();
+            let Some(p) = lock.get_mut(&req.player_id) else {
+                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+            };
+            // Reset to a fresh-start state, preserving meta-progression
+            // (boons) + identity (name, champion, walker_uuid).
+            let id = p.id.clone();
+            let name = p.name.clone();
+            let champion = p.champion.clone();
+            let walker_uuid = p.walker_uuid.clone();
+            let boons = p.boons.clone();
+            let prev_adv = p.adventure_id.clone();
+            // Reset by overwriting with a Default + the kept fields.
+            // Spawn tile picked later by client on next /join? Or here?
+            // Here is simpler: spawn at (50, 40) like a new join would.
+            *p = DevPlayerState {
+                id,
+                name,
+                champion,
+                walker_uuid,
+                boons,
+                adventure_id: req.adventure_id.clone(),
+                map_tile_x: 50,
+                map_tile_y: 40,
+                ..Default::default()
+            };
+            tracing::info!(
+                "[adv] {} switched: {} → {} (keeping {} boon{})",
+                p.name, prev_adv, req.adventure_id, p.boons.len(),
+                if p.boons.len() == 1 { "" } else { "s" },
+            );
+            return ("200 OK", format!(
+                r#"{{"ok":true,"adventure_id":"{}"}}"#, req.adventure_id
+            ));
+        }
+        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
+    }
+
     // POST /forge_upgrade — spend gold to add a stat level to an equipped
     // item. Body: {"player_id": "...", "item_id": "iron_sword"}.
     // Server enforces: item must be equipped, current level < MAX_FORGE_LEVEL,

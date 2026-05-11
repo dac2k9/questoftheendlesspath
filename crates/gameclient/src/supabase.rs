@@ -79,6 +79,11 @@ pub struct PlayerRow {
     /// tooltip showing the time remaining.
     #[serde(default)]
     pub active_buffs: Vec<questlib::items::ActiveBuff>,
+    /// Which adventure this player is in. Defaults to "frost_quest"
+    /// via server-side serde so the field is present even for older
+    /// save data.
+    #[serde(default)]
+    pub adventure_id: String,
 }
 
 /// Mirror of `gamemaster::devserver::PendingBoonChoice`. Boon ids only —

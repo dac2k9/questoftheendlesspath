@@ -287,6 +287,10 @@ pub struct MyPlayerState {
     /// DevPlayerState.active_buffs. The boon HUD shows each as a
     /// chip with a time-remaining tooltip.
     pub active_buffs: Vec<questlib::items::ActiveBuff>,
+    /// Which adventure this player is in (mirrors server-side
+    /// DevPlayerState.adventure_id). Used by the adventure-menu UI
+    /// to label the current vs other adventures.
+    pub adventure_id: String,
 }
 
 /// Smoothly interpolated visual state, decoupled from server state.
@@ -813,6 +817,9 @@ fn apply_server_state(
     state.boons = me.boons.clone();
     state.pending_boon_choice = me.pending_boon_choice.clone();
     state.active_buffs = me.active_buffs.clone();
+    if !me.adventure_id.is_empty() {
+        state.adventure_id = me.adventure_id.clone();
+    }
 
     // Parse route from server — check if server has caught up to local changes.
     let server_in_sync = if let Some(ref route_json) = me.planned_route {

@@ -365,13 +365,16 @@ pub fn check_contacts(
     state: &crate::devserver::SharedState,
     shared_combat: &crate::combat::SharedCombat,
     shared_notifs: &crate::SharedNotifs,
+    adventure_id: &str,
 ) {
-    // Snapshot overworld player positions so we don't hold the state
-    // lock while we mutate entity states + combat.
+    // Snapshot overworld player positions for THIS adventure only so
+    // mobile entities don't accidentally start combat with a player
+    // who's in a different world.
     let players: Vec<(String, (usize, usize), u64, (i32, i32, i32))> = {
         let Ok(lock) = state.lock() else { return };
         lock.iter()
-            .filter(|(_, p)| p.location.interior_id().is_none())
+            .filter(|(_, p)| p.adventure_id == adventure_id
+                && p.location.interior_id().is_none())
             .map(|(pid, p)| {
                 let eq = questlib::items::equipment_bonuses(
                     &p.equipment,

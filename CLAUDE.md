@@ -297,6 +297,35 @@ Quirks worth knowing:
 Full design spec: `adventures/MOBILE_ENTITIES.md` (Phase 2/3 sections
 still apply).
 
+### Adventures (chapters)
+
+The game is split into named "adventures" (frost_quest, chaos, …),
+each with its own seed, events JSON, mobile entities, and (eventually)
+interiors directory. Adventures live in `gamemaster::adventure`:
+`presets()` returns the registered list, `load_bundle()` builds one,
+and the server loads ALL registered bundles at startup.
+
+Each player carries an `adventure_id` (`DevPlayerState.adventure_id`,
+`#[serde(default = "frost_quest")]`). The tick loop iterates bundles
+and ticks only the players whose `adventure_id` matches that bundle —
+overworld + interior + mobile-entity ticks all scope per-bundle.
+Players in different adventures don't share events, monsters, or
+combat targets; they DO share `/players` (the client filters by
+adventure to decide visibility, similar to overworld vs. interior).
+
+`POST /start_new_adventure {player_id, adventure_id}` resets the
+player's level / gold / inventory / equipment / route / fog /
+opened_chests / defeated_monsters / completed_events. **Boons are
+preserved** (the whole point of the meta-progression system), along
+with id / name / champion / walker_uuid. The in-game adventure menu
+button (top-right) posts to this endpoint and then reloads the page.
+
+V1 caveat (will outlive this comment): the chaos adventure currently
+shares the frost_quest seed (12345) so the client's hardcoded
+`WorldGrid::from_seed(12345)` agrees with the server. Once the seed
+propagates back through `/join`, chaos gets its own seed (planned
+99999, 4× sized) and the client rebuilds on adventure transition.
+
 ### Boons (meta-progression)
 
 Permanent rewards earned by defeating climactic bosses. Boons survive

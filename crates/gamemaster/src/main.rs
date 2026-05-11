@@ -186,57 +186,92 @@ async fn main() -> Result<()> {
     }
     info!("Save path: {}", save_path);
 
-    // Load the default adventure's bundle (world + events + interiors
-    // + mobile entities). The chaos adventure stays unloaded for now;
-    // the next refactor step adds per-adventure routing so both can
-    // be live at once.
-    let bundle = adventure::load_bundle(
-        adventure::presets()
-            .into_iter()
-            .find(|p| p.id == adventure::DEFAULT_ADVENTURE_ID)
-            .expect("default adventure preset present"),
-    )?;
-    let world = bundle.world.clone();
-    let interiors = bundle.interiors.clone();
-    let entity_defs = bundle.entity_defs.clone();
-    let entity_states = bundle.entity_states.clone();
-    let shared_events = bundle.events.clone();
+    // Load every registered adventure into a single map keyed by
+    // adventure_id. Each player's `adventure_id` picks which bundle
+    // their tick + endpoints run against. For now all interiors are
+    // shared, but world/events/entities are per-adventure.
+    let bundles: Arc<HashMap<String, adventure::AdventureBundle>> = {
+        let mut map = HashMap::new();
+        for preset in adventure::presets() {
+            let id = preset.id.clone();
+            let b = adventure::load_bundle(preset)?;
+            map.insert(id, b);
+        }
+        Arc::new(map)
+    };
+    info!("Loaded {} adventure bundle(s): {:?}",
+        bundles.len(),
+        bundles.keys().collect::<Vec<_>>(),
+    );
 
-    // Seed mobile-entity runtime state from the save file (positions,
-    // alive/dead, respawn timers). ensure_states fills in fresh state
-    // for any newly-authored entity and prunes saved entries whose
-    // def disappeared from JSON.
+    // Seed mobile-entity runtime state for each bundle from the save
+    // file. Save format is single-adventure today (all entity states
+    // under one key) — we apply it to the default bundle only.
+    // Future: split saved states per adventure_id when we have
+    // entities to save across multiple worlds.
     {
         let saved = load_mobile_entities(save_path);
-        if let Ok(mut s) = entity_states.lock() {
-            *s = saved;
-            mobile_entity::ensure_states(&entity_defs, &mut s);
-            info!("Mobile entities runtime state: {} active", s.len());
+        if let Some(default) = bundles.get(adventure::DEFAULT_ADVENTURE_ID) {
+            if let Ok(mut s) = default.entity_states.lock() {
+                *s = saved;
+                mobile_entity::ensure_states(&default.entity_defs, &mut s);
+                info!("[{}] Mobile entities runtime state: {} active",
+                    adventure::DEFAULT_ADVENTURE_ID, s.len());
+            }
+        }
+        // Make sure other bundles have a fresh-init runtime state too.
+        for (id, bundle) in bundles.iter() {
+            if id == adventure::DEFAULT_ADVENTURE_ID { continue }
+            if let Ok(mut s) = bundle.entity_states.lock() {
+                mobile_entity::ensure_states(&bundle.entity_defs, &mut s);
+                info!("[{}] Mobile entities runtime state: {} active (fresh)", id, s.len());
+            }
         }
     }
 
     // Overlay saved per-event status flags onto the freshly-loaded
-    // events catalog so completed quests stay completed across
-    // restarts. The JSON definitions are still the source of truth
-    // for shop inventories, new events, trigger tweaks etc.
+    // events catalogs so completed quests stay completed across
+    // restarts. Saved events are keyed by event_id only (no adventure
+    // scope), so we apply them to whichever bundle's catalog contains
+    // a matching id — adventure-specific event_ids prevent collisions.
     {
         let saved_events = std::fs::read_to_string(save_path)
             .ok()
             .and_then(|json| serde_json::from_str::<SaveData>(&json).ok())
             .map(|s| s.events);
-        if let (Some(saved), Ok(mut catalog)) = (saved_events, shared_events.lock()) {
-            let mut carried = 0;
-            for event in catalog.events.iter_mut() {
-                if let Some(prev) = saved.events.iter().find(|e| e.id == event.id) {
-                    if prev.status != event.status {
-                        event.force_status(prev.status);
-                        carried += 1;
+        if let Some(saved) = saved_events {
+            for bundle in bundles.values() {
+                if let Ok(mut catalog) = bundle.events.lock() {
+                    let mut carried = 0;
+                    for event in catalog.events.iter_mut() {
+                        if let Some(prev) = saved.events.iter().find(|e| e.id == event.id) {
+                            if prev.status != event.status {
+                                event.force_status(prev.status);
+                                carried += 1;
+                            }
+                        }
+                    }
+                    if carried > 0 {
+                        info!("[{}] Merged {} event status flag(s) from saved state",
+                            bundle.preset.id, carried);
                     }
                 }
             }
-            info!("Merged {} status flags from saved state", carried);
         }
     }
+
+    // Legacy refs pointing at the default bundle's pieces, so the
+    // save-loading + devserver + Walker-bridge code below keeps
+    // compiling. The tick loop iterates ALL bundles (per-adventure).
+    // Endpoints will be refactored to look up by player.adventure_id
+    // in a follow-up chunk.
+    let default_bundle = bundles.get(adventure::DEFAULT_ADVENTURE_ID)
+        .expect("default adventure registered");
+    let world = default_bundle.world.clone();
+    let interiors = default_bundle.interiors.clone();
+    let entity_defs = default_bundle.entity_defs.clone();
+    let entity_states = default_bundle.entity_states.clone();
+    let shared_events = default_bundle.events.clone();
 
     // Initialize shared player state — load from disk or start empty
     let state: SharedState = Arc::new(Mutex::new({
@@ -307,7 +342,7 @@ async fn main() -> Result<()> {
     // Simple RNG for random encounter rolls. Seeded from the default
     // adventure's map_seed so the stream is deterministic across runs
     // on the same world.
-    let mut rng_state: u64 = bundle.preset.map_seed;
+    let mut rng_state: u64 = default_bundle.preset.map_seed;
     let mut save_counter: u32 = 0;
 
     // Shutdown signal — on SIGTERM (Render redeploy) or SIGINT (Ctrl-C),
@@ -320,69 +355,80 @@ async fn main() -> Result<()> {
                 rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
                 let rng_roll = (rng_state >> 33) as f32 / (u32::MAX as f32);
 
-                // Tick interior players first. Their overworld-tick counterpart
-                // is a no-op thanks to the `Location::Interior { .. }` guard
-                // added in tick.rs — so they're handled exactly once.
-                let interior_players: Vec<String> = {
-                    let lock = state.lock().unwrap();
-                    lock.iter()
-                        .filter_map(|(pid, p)| p.location.interior_id().map(|_| pid.clone()))
-                        .collect()
-                };
-                for pid in &interior_players {
-                    if let Err(e) = interior::run_interior_tick(
-                        &interiors,
-                        &state,
-                        &shared_notifs,
-                        &shared_combat,
-                        &mut player_last_distance,
-                        &mut interior_fogs,
-                        pid,
-                    ) {
-                        error!("Interior tick error for {}: {e:#}", pid);
-                    }
-                }
-
-                if let Err(e) = tick::run_tick_dev(
-                    &state,
-                    &world,
-                    &shared_events,
-                    &shared_notifs,
-                    &shared_combat,
-                    &interiors,
-                    &entity_defs,
-                    &entity_states,
-                    &mut player_fogs,
-                    &mut player_last_distance,
-                    &mut player_boss_wait_notified,
-                    rng_roll,
-                ) {
-                    error!("Tick error: {e:#}");
-                }
-
-                // Mobile entities advance after player ticks so the
-                // contact phase below sees the freshest positions on
-                // both sides. Independent rng stream so entity
-                // randomness doesn't drag against the player-tick rng.
                 let now_unix_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as u64)
                     .unwrap_or(0);
-                mobile_entity::tick_entities(
-                    &entity_defs,
-                    &entity_states,
-                    &world,
-                    now_unix_ms,
-                    &mut rng_state,
-                    &shared_combat,
-                );
-                mobile_entity::check_contacts(
-                    &entity_defs,
-                    &entity_states,
-                    &state,
-                    &shared_combat,
-                    &shared_notifs,
-                );
+
+                // Per-adventure tick: each bundle owns its own world,
+                // events, mobile entities, and interiors. Players are
+                // routed by their `adventure_id`. Interior players in
+                // an adventure are ticked first against that bundle's
+                // interiors; the overworld pass below short-circuits
+                // for them via the Location::Interior guard.
+                for (adv_id, bundle) in bundles.iter() {
+                    // Per-bundle interior tick.
+                    let interior_players: Vec<String> = {
+                        let lock = state.lock().unwrap();
+                        lock.iter()
+                            .filter_map(|(pid, p)| {
+                                (p.adventure_id == *adv_id
+                                    && p.location.interior_id().is_some())
+                                    .then(|| pid.clone())
+                            })
+                            .collect()
+                    };
+                    for pid in &interior_players {
+                        if let Err(e) = interior::run_interior_tick(
+                            &bundle.interiors,
+                            &state,
+                            &shared_notifs,
+                            &shared_combat,
+                            &mut player_last_distance,
+                            &mut interior_fogs,
+                            pid,
+                        ) {
+                            error!("[{adv_id}] Interior tick error for {pid}: {e:#}");
+                        }
+                    }
+
+                    if let Err(e) = tick::run_tick_dev(
+                        &state,
+                        &bundle.world,
+                        &bundle.events,
+                        &shared_notifs,
+                        &shared_combat,
+                        &bundle.interiors,
+                        &bundle.entity_defs,
+                        &bundle.entity_states,
+                        &mut player_fogs,
+                        &mut player_last_distance,
+                        &mut player_boss_wait_notified,
+                        rng_roll,
+                        adv_id,
+                    ) {
+                        error!("[{adv_id}] Tick error: {e:#}");
+                    }
+
+                    // Mobile entities advance after player ticks so the
+                    // contact phase below sees fresh positions both sides.
+                    mobile_entity::tick_entities(
+                        &bundle.entity_defs,
+                        &bundle.entity_states,
+                        &bundle.world,
+                        now_unix_ms,
+                        &mut rng_state,
+                        &shared_combat,
+                    );
+                    mobile_entity::check_contacts(
+                        &bundle.entity_defs,
+                        &bundle.entity_states,
+                        &state,
+                        &shared_combat,
+                        &shared_notifs,
+                        adv_id,
+                    );
+                }
 
                 // Wake all long-polling clients — they get fresh post-tick state
                 tick_signal.tick();
