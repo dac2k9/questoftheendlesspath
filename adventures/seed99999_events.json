@@ -18,7 +18,7 @@
       "outcomes": [],
       "status": "pending",
       "requires_browser": false,
-      "repeatable": true
+      "repeatable": false
     },
     {
       "id": "chaos_enter_via_east_gate",
@@ -38,7 +38,7 @@
       "outcomes": [],
       "status": "pending",
       "requires_browser": false,
-      "repeatable": true
+      "repeatable": false
     },
     {
       "id": "chaos_enter_via_south_gate",
@@ -58,7 +58,7 @@
       "outcomes": [],
       "status": "pending",
       "requires_browser": false,
-      "repeatable": true
+      "repeatable": false
     },
     {
       "id": "chaos_enter_via_west_gate",
@@ -78,7 +78,7 @@
       "outcomes": [],
       "status": "pending",
       "requires_browser": false,
-      "repeatable": true
+      "repeatable": false
     },
     {
       "id": "chaos_intro",
@@ -241,7 +241,7 @@
       ],
       "status": "pending",
       "requires_browser": true,
-      "repeatable": true
+      "repeatable": false
     },
     {
       "id": "chaos_east_gate_scout",
@@ -312,7 +312,7 @@
       ],
       "status": "pending",
       "requires_browser": true,
-      "repeatable": true
+      "repeatable": false
     },
     {
       "id": "chaos_lord_flame",
@@ -437,7 +437,7 @@
       ],
       "status": "pending",
       "requires_browser": true,
-      "repeatable": true
+      "repeatable": false
     },
     {
       "id": "chaos_hierophant_shadow",
@@ -562,7 +562,7 @@
       ],
       "status": "pending",
       "requires_browser": true,
-      "repeatable": true
+      "repeatable": false
     },
     {
       "id": "chaos_stormbinder",

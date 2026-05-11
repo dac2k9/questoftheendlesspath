@@ -281,9 +281,15 @@ impl WorldMap {
         ChestLoot { gold, items }
     }
 
-    /// Get POI at position (exact tile).
+    /// Get POI at position (exact tile). Iterates in reverse so
+    /// **authored** POIs (appended last by `load_authored_pois`)
+    /// take precedence over procedural ones placed at the same
+    /// tile by the seed — without this, a quest's authored Castle
+    /// of Flame at (85, 18) would be silently masked by whatever
+    /// procedural POI the generator dropped there first, and the
+    /// boss trigger (`at_poi: 1001`) would never fire.
     pub fn poi_at(&self, x: usize, y: usize) -> Option<&PointOfInterest> {
-        self.pois.iter().find(|p| p.x == x && p.y == y)
+        self.pois.iter().rev().find(|p| p.x == x && p.y == y)
     }
 
     /// Get all POI IDs within a given radius.

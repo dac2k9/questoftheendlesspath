@@ -184,7 +184,7 @@ impl TickSignal {
     }
 }
 
-pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal, bridged_players: crate::walker_bridge::BridgedPlayers, interiors: crate::interior::SharedInteriors, entity_defs: crate::mobile_entity::SharedEntityDefs, entity_states: crate::mobile_entity::SharedEntityStates) -> Result<()> {
+pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: SharedNotifs, world: Arc<questlib::mapgen::WorldMap>, combat: crate::combat::SharedCombat, tick_signal: SharedTickSignal, bridged_players: crate::walker_bridge::BridgedPlayers, interiors: crate::interior::SharedInteriors, entity_defs: crate::mobile_entity::SharedEntityDefs, entity_states: crate::mobile_entity::SharedEntityStates, bundles: Arc<std::collections::HashMap<String, crate::adventure::AdventureBundle>>) -> Result<()> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".to_string());
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!("Dev server listening on http://127.0.0.1:{}", port);
@@ -201,6 +201,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
         let interiors = interiors.clone();
         let entity_defs = entity_defs.clone();
         let entity_states = entity_states.clone();
+        let bundles = bundles.clone();
 
         tokio::spawn(async move {
             // Read headers + body (may arrive in separate TCP packets)
@@ -319,7 +320,7 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                     }
                 }
             } else {
-                handle_request(&request, &state, &events, &notifs, &world, &combat, &interiors, &entity_defs, &entity_states)
+                handle_request(&request, &state, &events, &notifs, &world, &combat, &interiors, &entity_defs, &entity_states, &bundles)
             };
 
             // Serve static files for the game client
@@ -561,7 +562,14 @@ async fn handle_join(
     ))
 }
 
-fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat, interiors: &crate::interior::SharedInteriors, entity_defs: &crate::mobile_entity::SharedEntityDefs, entity_states: &crate::mobile_entity::SharedEntityStates) -> (&'static str, String) {
+fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat, interiors: &crate::interior::SharedInteriors, entity_defs: &crate::mobile_entity::SharedEntityDefs, entity_states: &crate::mobile_entity::SharedEntityStates, bundles: &Arc<HashMap<String, crate::adventure::AdventureBundle>>) -> (&'static str, String) {
+    // Look up the calling player's bundle, falling back to the
+    // default. Used by per-adventure endpoint routing below.
+    let bundle_for_player = |pid: &str| -> Option<&crate::adventure::AdventureBundle> {
+        let adv_id = state.lock().ok()
+            .and_then(|s| s.get(pid).map(|p| p.adventure_id.clone()))?;
+        bundles.get(&adv_id)
+    };
     let first_line = request.lines().next().unwrap_or("");
 
     // CORS preflight
@@ -594,9 +602,15 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         } else {
             state.lock().ok().and_then(|s| s.get(player_id).map(|p| (p.map_tile_x, p.map_tile_y)))
         };
+        // Route to the player's bundle's entity defs / states so a
+        // chaos player doesn't see frost_quest's wolves (and vice
+        // versa).
+        let bundle = bundle_for_player(player_id);
+        let defs_ref   = bundle.map(|b| b.entity_defs.as_ref()).unwrap_or(entity_defs);
+        let states_ref = bundle.map(|b| &b.entity_states).unwrap_or(entity_states);
         let mut payload: Vec<serde_json::Value> = Vec::new();
-        if let (Some((px, py)), Ok(states_lock)) = (player_xy, entity_states.lock()) {
-            for (id, def) in entity_defs.iter() {
+        if let (Some((px, py)), Ok(states_lock)) = (player_xy, states_ref.lock()) {
+            for (id, def) in defs_ref.iter() {
                 let Some(s) = states_lock.get(id) else { continue };
                 if !s.alive { continue; }
                 let dx = (s.current.0 as i32 - px).abs();
@@ -639,11 +653,17 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             }
             if let Ok(req) = serde_json::from_str::<RouteReq>(body) {
                 let parsed = questlib::route::parse_route_json(&req.route).unwrap_or_default();
+                // Route to the player's bundle's world for tile-cost
+                // calculations — chaos and frost_quest now have
+                // different seeds so their terrain doesn't match.
+                let bundle = bundle_for_player(&req.player_id);
+                let world_ref = bundle.map(|b| b.world.as_ref()).unwrap_or(world);
+                let interiors_ref = bundle.map(|b| b.interiors.as_ref()).unwrap_or(interiors.as_ref());
                 let mut lock = state.lock().unwrap();
                 if let Some(player) = lock.get_mut(&req.player_id) {
                     let current = (player.map_tile_x as usize, player.map_tile_y as usize);
                     let interior_per_tile: Option<f64> = player.location.interior_id()
-                        .map(|id| interiors.get(id).map(|i| i.floor_cost_m).unwrap_or(40) as f64);
+                        .map(|id| interiors_ref.get(id).map(|i| i.floor_cost_m).unwrap_or(40) as f64);
                     // Sum tile costs from start of `route` up to (but not
                     // including) `idx`. Closure so we can call it for
                     // both the OLD route (to recover partial progress)
@@ -653,8 +673,8 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                             Some(per) => idx as f64 * per,
                             None => route[..idx].iter()
                                 .map(|&(x, y)| questlib::route::tile_cost(
-                                    world.biome_at(x, y),
-                                    world.has_road_at(x, y),
+                                    world_ref.biome_at(x, y),
+                                    world_ref.has_road_at(x, y),
                                 ) as f64)
                                 .sum(),
                         }
@@ -1069,7 +1089,12 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 .unwrap_or_default()
         } else { Vec::new() };
 
-        let lock = events.lock().unwrap();
+        // Route to the player's adventure bundle's events. Falls back
+        // to the default `events` arg (frost_quest) when the player
+        // can't be resolved.
+        let bundle = bundle_for_player(player_id);
+        let events_ref = bundle.map(|b| &b.events).unwrap_or(events);
+        let lock = events_ref.lock().unwrap();
         let mut result: Vec<_> = lock.active_events().into_iter()
             .filter(|e| !completed.contains(&e.id))
             .cloned().collect();
@@ -1138,7 +1163,11 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             .and_then(|s| s.get(player_id).map(|p| p.revealed_shops.clone()))
             .unwrap_or_default();
 
-        let lock = events.lock().unwrap();
+        // Route to the player's bundle's events.
+        let bundle = bundle_for_player(player_id);
+        let events_ref = bundle.map(|b| &b.events).unwrap_or(events);
+        let world_ref = bundle.map(|b| b.world.as_ref()).unwrap_or(world);
+        let lock = events_ref.lock().unwrap();
         #[derive(serde::Serialize)]
         struct ShopMarker<'a> {
             id: &'a str,
@@ -1161,7 +1190,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 let (x, y) = match &e.trigger {
                     TriggerCondition::AtTile { x, y } => (*x as i32, *y as i32),
                     TriggerCondition::AtPoi { poi_id } => {
-                        let p = world.pois.get(*poi_id)?;
+                        let p = world_ref.pois.iter().find(|p| p.id == *poi_id)?;
                         (p.x as i32, p.y as i32)
                     }
                     _ => return None,
@@ -1193,7 +1222,10 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             .and_then(|s| s.get(player_id).map(|p| p.completed_events.clone()))
             .unwrap_or_default();
 
-        let lock = events.lock().unwrap();
+        // Route to the player's bundle's events.
+        let bundle = bundle_for_player(player_id);
+        let events_ref = bundle.map(|b| &b.events).unwrap_or(events);
+        let lock = events_ref.lock().unwrap();
         #[derive(serde::Serialize)]
         struct JournalEntry<'a> {
             id: &'a str,
@@ -1257,7 +1289,13 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 // event-status flip and the player.completed_events write can't
                 // observe an inconsistent pair and re-trigger the quest. Lock order
                 // (events then state) matches run_tick_dev, so no deadlock.
-                let mut events_lock = events.lock().unwrap();
+                //
+                // Route to the player's bundle's events. Otherwise a chaos
+                // player completing a chaos event would mutate frost_quest's
+                // catalog (or vice versa).
+                let bundle = bundle_for_player(&body_player_id);
+                let events_ref = bundle.map(|b| &b.events).unwrap_or(events);
+                let mut events_lock = events_ref.lock().unwrap();
                 if let Some(event) = events_lock.get_mut(event_id) {
                     if event.transition(questlib::events::EventStatus::Completed).is_ok() {
                         let outcomes = event.outcomes.clone();
@@ -1633,6 +1671,11 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             p.map_tile_y = y as i32;
             p.planned_route = String::new();
             p.route_meters_walked = 0.0;
+            // Always teleport TO the overworld. CaveEntrance events
+            // would otherwise leave the player flagged as
+            // `Location::Interior` from a prior step and the next
+            // tick would short-circuit overworld trigger eval.
+            p.location = questlib::interior::Location::Overworld;
             tracing::info!("[admin] teleport {} to ({}, {})", p.name, x, y);
             return ("200 OK", format!(r#"{{"ok":true,"x":{},"y":{}}}"#, x, y));
         }
