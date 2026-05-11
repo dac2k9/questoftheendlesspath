@@ -202,6 +202,8 @@ fn poi_sprite_path(ty: questlib::mapgen::PoiType) -> Option<(&'static str, u32)>
         CastleShadow => Some(("generated/poi/castle_shadow.png", 3)),
         CastleStorm  => Some(("generated/poi/castle_storm.png", 3)),
         TravelGate   => Some(("generated/poi/travel_gate.png", 1)),
+        RefugeeCamp  => Some(("generated/poi/refugee_camp.png", 2)),
+        WizardsSpire => Some(("generated/poi/wizards_spire.png", 2)),
         // Port still has no custom art; falls back to the tile-atlas
         // overlay (Overlay::Village). Drop a PNG into assets/poi/ +
         // add a branch here when art arrives.

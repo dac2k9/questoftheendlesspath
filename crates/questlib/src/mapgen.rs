@@ -71,6 +71,12 @@ pub enum PoiType {
     CastleShadow,
     CastleStorm,
     TravelGate,
+    /// Sub-quest hubs for the chaos arc — small encampments and a
+    /// ruined wizard's tower. Distinct from the existing `Camp` /
+    /// `Tower` so they can use the chaos-specific sprites instead
+    /// of the frost-quest art.
+    RefugeeCamp,
+    WizardsSpire,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,3 +1,221 @@
 {
-  "events": []
+  "events": [
+    {
+      "id": "chaos_intro",
+      "name": "Survivors' Camp",
+      "description": "A handful of survivors huddle around a fire, clutching torn maps.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Elder Marwen",
+        "lines": [
+          "You walk these roads now? Brave. Or fool. The same, these days.",
+          "The Frost Lord was the lid on a kettle. You smashed it, and now the kettle boils.",
+          "Four castles. Four lords. Lords that should still be sleeping.",
+          "If you mean to set this right — and the only ones who can still walk are the ones who must — start with the cold one.",
+          "Castle of Frost, north along the road. But its gates are sealed.",
+          "Find Hael at the old spire, west of here. He owes me a favour and he likes a long walk."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1200
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 50
+        },
+        {
+          "effect": "item",
+          "name": "health_potion"
+        },
+        {
+          "effect": "notification",
+          "text": "Find Hael at the Spire of Hael, west of here."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_hael_quest",
+      "name": "Spire of Hael",
+      "description": "Smoke curls from the cracked window. A wiry old man peers down.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Hael the Hedge-Wizard",
+        "lines": [
+          "Marwen sent you. Of course she did. She's been sending everyone since the sky changed.",
+          "Listen — the Frost Castle's seal is keyed to Starstone fragments. I have one. It's yours.",
+          "But fashioning a key takes effort, and effort takes pacing. Walk the long road and come back. The further you wander, the truer the key cuts.",
+          "Bring me distance and I'll bring you a way in.",
+          "Walk two kilometers along the chaos roads. The corrupted will test you. Don't die.",
+          "Come back to me when you've earned the steps."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1201
+          },
+          {
+            "condition": "event_completed",
+            "event_id": "chaos_intro"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "notification",
+          "text": "Walk 2 km in the chaos lands, then return to Hael."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_hael_reward",
+      "name": "Hael's Promise Kept",
+      "description": "Hael holds out a pale-blue key, breath misting in the cold spire air.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Hael the Hedge-Wizard",
+        "lines": [
+          "You walked. You bled, by the look of those boots. Good.",
+          "Here. The Frostbound Key. It will open the outer gate of the cold one's castle.",
+          "Inside you'll find the Queen of Frost. She was the first of the four to wake.",
+          "She remembers her old name and resents the new world. Go gently if you can. Strike if you cannot.",
+          "Either way — walk back here when she's done. There are three more castles after this one."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1201
+          },
+          {
+            "condition": "event_completed",
+            "event_id": "chaos_hael_quest"
+          },
+          {
+            "condition": "distance_walked",
+            "meters_min": 2000
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "frostbound_key"
+        },
+        {
+          "effect": "notification",
+          "text": "Received: Frostbound Key. The Castle of Frost is to the north."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_castle_frost_locked",
+      "name": "Castle of Frost — Sealed",
+      "description": "The gate hums with old magic. It won't open without a key.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Voice from the Gate",
+        "lines": [
+          "Cold seeps from every joint of the stone.",
+          "The gate is sealed. A key shaped like a splinter of starlight would fit here.",
+          "You should find Hael at the old spire. He'll know what to do."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1000
+          },
+          {
+            "condition": "not",
+            "inner": {
+              "condition": "has_item",
+              "item": "frostbound_key"
+            }
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "notification",
+          "text": "The gate is sealed. Seek Hael at the Spire of Hael."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_frost_queen",
+      "name": "Queen of Frost",
+      "description": "She turns from the throne, crown of icicles gleaming. The temperature plummets.",
+      "kind": {
+        "type": "boss",
+        "boss_name": "Queen of Frost",
+        "max_hp": 220,
+        "dialogue_intro": [
+          "I was made to rule the cold places — and you woke me.",
+          "Tell me, walker — who sent you? Marwen? Hael? The Starstone itself?",
+          "It does not matter. The boundary is broken. I will be the cold that closes it."
+        ],
+        "dialogue_defeat": [
+          "Curious. You walked all the way here just to end me again.",
+          "Three remain. Walk well, traveler."
+        ],
+        "scales_with_player": true,
+        "requires_coop": false,
+        "hp_per_level": 22,
+        "atk_per_level": 3,
+        "def_per_level": 1,
+        "grants_boon": false
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1000
+          },
+          {
+            "condition": "has_item",
+            "item": "frostbound_key"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 300
+        },
+        {
+          "effect": "item",
+          "name": "frost_axe"
+        },
+        {
+          "effect": "notification",
+          "text": "Queen of Frost defeated! Dropped: Frost Axe. One castle quiet. Three remain."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    }
+  ]
 }

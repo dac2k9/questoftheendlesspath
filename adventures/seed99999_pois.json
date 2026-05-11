@@ -63,6 +63,22 @@
       "y": 58,
       "name": "West Gate",
       "description": "A weather-worn archway above a half-buried marker stone."
+    },
+    {
+      "id": 1200,
+      "poi_type": "refugee_camp",
+      "x": 50,
+      "y": 40,
+      "name": "Survivors' Camp",
+      "description": "A handful of tents around a smoky cooking fire. The refugees here saw the castles emerge from the earth."
+    },
+    {
+      "id": 1201,
+      "poi_type": "wizards_spire",
+      "x": 35,
+      "y": 25,
+      "name": "Spire of Hael",
+      "description": "A weather-cracked tower the old hedge-wizard Hael calls home. Smoke curls from the topmost window."
     }
   ]
 }

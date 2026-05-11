@@ -311,6 +311,12 @@
       "category": "key_item"
     },
     {
+      "id": "frostbound_key",
+      "display_name": "Frostbound Key",
+      "description": "Pale-blue rime-encrusted key. Hael fashioned it from a splinter of the shattered Starstone. Will open the Castle of Frost.",
+      "category": "key_item"
+    },
+    {
       "id": "tower_key",
       "display_name": "Tower Key",
       "description": "An ancient key from the Forgotten Crypt. Opens the outer gate of the Frozen Spire.",
