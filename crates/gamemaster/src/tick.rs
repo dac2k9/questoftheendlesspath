@@ -123,12 +123,13 @@ pub fn run_tick_dev(
             .map(|b| b.multiplier)
             .product();
         let session_meters = (player.total_distance_m - player.session_start_distance_m).max(0.0) as f32;
-        let boon_speed_mult = questlib::boons::speed_multiplier(&player.boons, session_meters);
+        let effective = player.effective_boons();
+        let boon_speed_mult = questlib::boons::speed_multiplier(&effective, session_meters);
         let cur_biome = world.biome_at(player.map_tile_x as usize, player.map_tile_y as usize);
         let cur_on_road = world.has_road_at(player.map_tile_x as usize, player.map_tile_y as usize);
-        let biome_cost_mult = questlib::boons::biome_cost_multiplier(&player.boons, cur_biome).max(0.01);
+        let biome_cost_mult = questlib::boons::biome_cost_multiplier(&effective, cur_biome).max(0.01);
         let road_cost_mult = if cur_on_road {
-            questlib::boons::road_cost_multiplier(&player.boons).max(0.01)
+            questlib::boons::road_cost_multiplier(&effective).max(0.01)
         } else {
             1.0
         };
@@ -228,7 +229,7 @@ pub fn run_tick_dev(
             }
             let tx = new_tile.map(|(x, _)| x as usize).unwrap_or(player.map_tile_x as usize);
             let ty = new_tile.map(|(_, y)| y as usize).unwrap_or(player.map_tile_y as usize);
-            let fog_radius = (5_i32 + questlib::boons::fog_radius_bonus(&player.boons)).max(1) as usize;
+            let fog_radius = (5_i32 + questlib::boons::fog_radius_bonus(&player.effective_boons())).max(1) as usize;
             if fog.reveal_radius(tx, ty, fog_radius) {
                 new_revealed = Some(fog.to_base64());
             }
@@ -290,7 +291,7 @@ pub fn run_tick_dev(
                 // rounding when boons are tiny).
                 let award_gold = |p: &mut crate::devserver::DevPlayerState, raw: i32| -> i32 {
                     if raw <= 0 { return 0; }
-                    let mult = questlib::boons::gold_multiplier(&p.boons);
+                    let mult = questlib::boons::gold_multiplier(&p.effective_boons());
                     let amount = ((raw as f32) * mult).round() as i32;
                     let amount = amount.max(if mult > 0.0 { 1 } else { 0 });
                     p.gold += amount;
@@ -681,7 +682,7 @@ pub fn run_tick_dev(
                 if let Some(pid) = fighter_pid.clone() {
                     if let Some(p) = lock.get_mut(&pid) {
                         let raw_gold = 30 + (difficulty as i32 * 20);
-                        let gold = ((raw_gold as f32) * questlib::boons::gold_multiplier(&p.boons)).round() as i32;
+                        let gold = ((raw_gold as f32) * questlib::boons::gold_multiplier(&p.effective_boons())).round() as i32;
                         p.gold += gold;
                         let catalog = Some(crate::item_catalog());
                         let drop = match difficulty {
@@ -714,7 +715,7 @@ pub fn run_tick_dev(
                     let difficulty = world.monsters.get(idx).map(|m| m.difficulty).unwrap_or(1);
                     let name = world.monsters.get(idx).map(|m| m.monster_type.display_name()).unwrap_or("Monster");
                     let raw_gold = 30 + (difficulty as i32 * 20);
-                    let gold = ((raw_gold as f32) * questlib::boons::gold_multiplier(&p.boons)).round() as i32;
+                    let gold = ((raw_gold as f32) * questlib::boons::gold_multiplier(&p.effective_boons())).round() as i32;
                     p.gold += gold;
                     // Item drop based on difficulty
                     let catalog = Some(crate::item_catalog());
@@ -749,7 +750,7 @@ pub fn run_tick_dev(
                         .map(|m| (m.difficulty, m.monster_type.display_name().to_string()))
                         .unwrap_or((1, "Monster".to_string()));
                     let raw_gold = 30 + (difficulty as i32 * 20);
-                    let gold = ((raw_gold as f32) * questlib::boons::gold_multiplier(&p.boons)).round() as i32;
+                    let gold = ((raw_gold as f32) * questlib::boons::gold_multiplier(&p.effective_boons())).round() as i32;
                     p.gold += gold;
                     let catalog = Some(crate::item_catalog());
                     let drop = match difficulty {

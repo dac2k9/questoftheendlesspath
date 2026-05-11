@@ -108,6 +108,15 @@ pub struct DevPlayerState {
     /// `POST /start_new_adventure`.
     #[serde(default = "default_adventure_id")]
     pub adventure_id: String,
+    /// Adventure-scoped boons: keyed by adventure_id, each value is
+    /// the list of boon ids earned IN that adventure that only apply
+    /// WHILE the player is in that adventure. Used by mid-tier boss
+    /// drops in the chaos arc — small power-ups (e.g. "Frostproof:
+    /// ice tiles -50%") that the player keeps for the rest of this
+    /// adventure but don't follow them back to frost_quest or the
+    /// next chapter. Permanent cross-adventure boons live in `boons`.
+    #[serde(default)]
+    pub adventure_boons: std::collections::HashMap<String, Vec<String>>,
     /// Pending boon choice from a recent climactic-quest victory.
     /// Cleared by `POST /select_boon`. The 3 IDs are deterministic per
     /// `(player_id, event_id)` so a refresh / re-poll won't re-roll
@@ -126,6 +135,22 @@ pub struct PendingBoonChoice {
     /// The 3 (or fewer) boon ids on offer. Empty would mean every
     /// boon already owned — server clears the pending in that case.
     pub choices: Vec<String>,
+}
+
+impl DevPlayerState {
+    /// All boon ids that apply RIGHT NOW for effect calculations:
+    /// permanent boons (cross-adventure) + adventure-scoped boons
+    /// from the player's current adventure. Adventure-scoped boons
+    /// from OTHER adventures the player has been in stay parked in
+    /// `adventure_boons` and only become active again when the
+    /// player switches back.
+    pub fn effective_boons(&self) -> Vec<String> {
+        let mut out = self.boons.clone();
+        if let Some(adv) = self.adventure_boons.get(&self.adventure_id) {
+            out.extend(adv.iter().cloned());
+        }
+        out
+    }
 }
 
 pub type SharedState = Arc<Mutex<HashMap<String, DevPlayerState>>>;
@@ -716,22 +741,25 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
             };
             // Reset to a fresh-start state, preserving meta-progression
-            // (boons) + identity (name, champion, walker_uuid).
+            // (permanent boons + per-adventure boon stashes) + identity
+            // (name, champion, walker_uuid). Adventure-scoped boons
+            // earned in past adventures stay parked under their
+            // adventure_id key — they re-activate if the player ever
+            // switches back to that adventure.
             let id = p.id.clone();
             let name = p.name.clone();
             let champion = p.champion.clone();
             let walker_uuid = p.walker_uuid.clone();
             let boons = p.boons.clone();
+            let adventure_boons = p.adventure_boons.clone();
             let prev_adv = p.adventure_id.clone();
-            // Reset by overwriting with a Default + the kept fields.
-            // Spawn tile picked later by client on next /join? Or here?
-            // Here is simpler: spawn at (50, 40) like a new join would.
             *p = DevPlayerState {
                 id,
                 name,
                 champion,
                 walker_uuid,
                 boons,
+                adventure_boons,
                 adventure_id: req.adventure_id.clone(),
                 map_tile_x: 50,
                 map_tile_y: 40,
@@ -777,7 +805,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             // applies here; round to nearest int and floor at 1 so the
             // upgrade still costs *something* even with deep discounts.
             let raw_cost = BASE_COST * (cur as i32 + 1);
-            let cost = ((raw_cost as f32) * questlib::boons::forge_cost_multiplier(&p.boons))
+            let cost = ((raw_cost as f32) * questlib::boons::forge_cost_multiplier(&p.effective_boons()))
                 .round()
                 .max(1.0) as i32;
             if p.gold < cost {

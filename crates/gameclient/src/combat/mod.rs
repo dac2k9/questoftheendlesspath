@@ -1,9 +1,11 @@
 pub mod poll;
 pub mod ui;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::states::AppState;
 
@@ -12,6 +14,8 @@ pub struct CombatPlugin;
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(CombatUiState::default())
+            .init_resource::<BossPortraits>()
+            .add_systems(OnEnter(AppState::InGame), load_boss_portraits)
             .add_systems(
                 Update,
                 (
@@ -24,6 +28,45 @@ impl Plugin for CombatPlugin {
                     .run_if(in_state(AppState::InGame)),
             );
     }
+}
+
+/// Boss portrait images keyed by theme tag ("frost" / "flame" /
+/// "shadow" / "storm"). `ui::match_boss_portrait` resolves an enemy
+/// name to one of these tags via substring matching, so authored
+/// boss names like "Frost Queen" or "Shadow Lich" land on the right
+/// portrait without per-name plumbing.
+#[derive(Resource, Default)]
+pub struct BossPortraits {
+    pub by_theme: HashMap<String, Handle<Image>>,
+}
+
+fn load_boss_portraits(
+    mut portraits: ResMut<BossPortraits>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let entries: &[(&str, &[u8])] = &[
+        ("frost",  include_bytes!("../../assets/generated/portraits/boss_frost.png")),
+        ("flame",  include_bytes!("../../assets/generated/portraits/boss_flame.png")),
+        ("shadow", include_bytes!("../../assets/generated/portraits/boss_shadow.png")),
+        ("storm",  include_bytes!("../../assets/generated/portraits/boss_storm.png")),
+    ];
+    for (tag, bytes) in entries {
+        let Ok(dyn_img) = image::load_from_memory(bytes) else {
+            log::warn!("[boss-portraits] failed to load {}", tag);
+            continue;
+        };
+        let rgba = dyn_img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let img = Image::new(
+            Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            TextureDimension::D2,
+            rgba.into_raw(),
+            TextureFormat::Rgba8UnormSrgb,
+            default(),
+        );
+        portraits.by_theme.insert(tag.to_string(), images.add(img));
+    }
+    log::info!("[boss-portraits] loaded {} portraits", portraits.by_theme.len());
 }
 
 /// Client-side combat state, updated from server polls.

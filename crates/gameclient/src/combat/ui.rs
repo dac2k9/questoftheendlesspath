@@ -2,8 +2,32 @@
 
 use bevy::prelude::*;
 
-use super::CombatUiState;
+use super::{BossPortraits, CombatUiState};
 use crate::GameFont;
+
+/// Map an enemy's display name to a boss portrait theme tag, or None
+/// for non-boss enemies. Substring + lower-case so authored boss
+/// names just need to mention the theme word.
+pub fn match_boss_portrait(name: &str) -> Option<&'static str> {
+    let lower = name.to_lowercase();
+    if lower.contains("frost") || lower.contains("ice") {
+        Some("frost")
+    } else if lower.contains("flame") || lower.contains("fire")
+        || lower.contains("ember") || lower.contains("lava")
+    {
+        Some("flame")
+    } else if lower.contains("shadow") || lower.contains("lich")
+        || lower.contains("void") || lower.contains("dark")
+    {
+        Some("shadow")
+    } else if lower.contains("storm") || lower.contains("tyrant")
+        || lower.contains("lightning") || lower.contains("thunder")
+    {
+        Some("storm")
+    } else {
+        None
+    }
+}
 
 // ── Marker Components ────────────────────────────────
 
@@ -66,13 +90,20 @@ const BTN_HOVER: Color = Color::srgb(0.4, 0.15, 0.15);
 pub fn manage_combat_overlay(
     mut commands: Commands,
     combat: Res<CombatUiState>,
+    portraits: Res<BossPortraits>,
     font: Res<GameFont>,
     existing: Query<Entity, With<CombatOverlay>>,
 ) {
     let should_show = combat.active && combat.state.is_some();
 
     if should_show && existing.is_empty() {
-        spawn_overlay(&mut commands, &font.0);
+        // Resolve a boss portrait if the enemy name reads as a boss
+        // (Frost Lord, Shadow Lich, Storm Tyrant, etc.).
+        let portrait = combat.state.as_ref()
+            .and_then(|s| match_boss_portrait(&s.enemy_name))
+            .and_then(|tag| portraits.by_theme.get(tag))
+            .cloned();
+        spawn_overlay(&mut commands, &font.0, portrait);
     } else if !should_show && !existing.is_empty() {
         for entity in &existing {
             commands.entity(entity).despawn_recursive();
@@ -80,7 +111,11 @@ pub fn manage_combat_overlay(
     }
 }
 
-fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
+fn spawn_overlay(
+    commands: &mut Commands,
+    font: &Handle<Font>,
+    portrait: Option<Handle<Image>>,
+) {
     let font_12 = TextFont { font: font.clone(), font_size: 12.0, ..default() };
     let font_10 = TextFont { font: font.clone(), font_size: 10.0, ..default() };
     let font_9 = TextFont { font: font.clone(), font_size: 9.0, ..default() };
@@ -164,6 +199,23 @@ fn spawn_overlay(commands: &mut Commands, font: &Handle<Font>) {
                 align_items: AlignItems::FlexEnd,
                 ..default()
             }).with_children(|enemy| {
+                // Boss portrait — shows above the enemy name when the
+                // enemy reads as a boss. Non-boss encounters skip this
+                // entirely, keeping the layout tight for regular mobs.
+                if let Some(handle) = &portrait {
+                    enemy.spawn((
+                        Node {
+                            width: Val::Px(72.0),
+                            height: Val::Px(72.0),
+                            border: UiRect::all(Val::Px(1.0)),
+                            margin: UiRect::bottom(Val::Px(4.0)),
+                            ..default()
+                        },
+                        BorderColor(Color::srgb(0.7, 0.2, 0.2)),
+                        BorderRadius::all(Val::Px(3.0)),
+                        ImageNode::new(handle.clone()),
+                    ));
+                }
                 enemy.spawn((
                     Text::new("Enemy"),
                     font_12.clone(),
