@@ -148,35 +148,117 @@ impl EntityFacing {
 
 // ── Sprite registry ─────────────────────────────────────
 
+/// Source of a monster sprite. Two shapes coexist:
+///   - `Atlas`: a single PNG laid out as a 16×16 grid where row 0..3
+///     is the walk-cycle for Down/Left/Right/Up. The existing
+///     hand-authored sprites use this.
+///   - `Directions`: four separate 92×92 PNGs straight out of
+///     pixellab's `/create-character-with-4-directions`. We stitch
+///     them into the same 16×16 atlas at load time by downsampling
+///     each direction and duplicating the static frame across the
+///     4 walk-cycle slots — animation cycles work without needing
+///     real anim frames per direction.
+enum SpriteSource {
+    Atlas(&'static [u8]),
+    Directions {
+        south: &'static [u8],
+        west: &'static [u8],
+        east: &'static [u8],
+        north: &'static [u8],
+    },
+}
+
+/// Stitch four direction PNGs into a single 64×64 atlas (4 cols × 4
+/// rows of 16×16). Each row repeats one direction's 16×16-downsampled
+/// frame four times — the walk-cycle modulo cycles within the row
+/// without changing facing.
+fn stitch_4dir_atlas(
+    south: &[u8],
+    west: &[u8],
+    east: &[u8],
+    north: &[u8],
+) -> Option<image::RgbaImage> {
+    let inputs = [south, west, east, north]; // matches atlas rows 0/1/2/3
+    let mut atlas = image::RgbaImage::new(64, 64);
+    for (row_idx, bytes) in inputs.iter().enumerate() {
+        let img = image::load_from_memory(bytes).ok()?;
+        let cell = img
+            .resize_exact(16, 16, image::imageops::FilterType::Nearest)
+            .to_rgba8();
+        for col in 0..4u32 {
+            for y in 0..16u32 {
+                for x in 0..16u32 {
+                    let p = *cell.get_pixel(x, y);
+                    atlas.put_pixel(col * 16 + x, row_idx as u32 * 16 + y, p);
+                }
+            }
+        }
+    }
+    Some(atlas)
+}
+
 fn build_sprite_registry(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut atlases: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    let entries: &[(&str, &[u8])] = &[
-        ("slime",            include_bytes!("../assets/sprites/monsters/Slime.png")),
-        ("club_goblin",      include_bytes!("../assets/sprites/monsters/ClubGoblin.png")),
-        ("archer_goblin",    include_bytes!("../assets/sprites/monsters/ArcherGoblin.png")),
-        ("giant_crab",       include_bytes!("../assets/sprites/monsters/GiantCrab.png")),
-        ("minotaur",         include_bytes!("../assets/sprites/monsters/Minotaur.png")),
-        ("yeti",             include_bytes!("../assets/sprites/monsters/Yeti.png")),
-        ("wendigo",          include_bytes!("../assets/sprites/monsters/Wendigo.png")),
-        ("purple_demon",     include_bytes!("../assets/sprites/monsters/PurpleDemon.png")),
-        ("necromancer",      include_bytes!("../assets/sprites/monsters/Necromancer.png")),
-        ("skeleton_soldier", include_bytes!("../assets/sprites/monsters/Skeleton-Soldier.png")),
+    let entries: &[(&str, SpriteSource)] = &[
+        ("slime",            SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/Slime.png"))),
+        ("club_goblin",      SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/ClubGoblin.png"))),
+        ("archer_goblin",    SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/ArcherGoblin.png"))),
+        ("giant_crab",       SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/GiantCrab.png"))),
+        ("minotaur",         SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/Minotaur.png"))),
+        ("yeti",             SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/Yeti.png"))),
+        ("wendigo",          SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/Wendigo.png"))),
+        ("purple_demon",     SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/PurpleDemon.png"))),
+        ("necromancer",      SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/Necromancer.png"))),
+        ("skeleton_soldier", SpriteSource::Atlas(include_bytes!("../assets/sprites/monsters/Skeleton-Soldier.png"))),
+        // Chaos-adventure monsters generated via pixellab. Each comes
+        // as four per-direction PNGs; `stitch_4dir_atlas` packs them
+        // into the same atlas layout as the legacy hand-authored ones.
+        ("corrupted_knight", SpriteSource::Directions {
+            south: include_bytes!("../assets/generated/monsters/CorruptedKnight_south.png"),
+            west:  include_bytes!("../assets/generated/monsters/CorruptedKnight_west.png"),
+            east:  include_bytes!("../assets/generated/monsters/CorruptedKnight_east.png"),
+            north: include_bytes!("../assets/generated/monsters/CorruptedKnight_north.png"),
+        }),
+        ("void_imp", SpriteSource::Directions {
+            south: include_bytes!("../assets/generated/monsters/VoidImp_south.png"),
+            west:  include_bytes!("../assets/generated/monsters/VoidImp_west.png"),
+            east:  include_bytes!("../assets/generated/monsters/VoidImp_east.png"),
+            north: include_bytes!("../assets/generated/monsters/VoidImp_north.png"),
+        }),
+        ("road_bandit", SpriteSource::Directions {
+            south: include_bytes!("../assets/generated/monsters/RoadBandit_south.png"),
+            west:  include_bytes!("../assets/generated/monsters/RoadBandit_west.png"),
+            east:  include_bytes!("../assets/generated/monsters/RoadBandit_east.png"),
+            north: include_bytes!("../assets/generated/monsters/RoadBandit_north.png"),
+        }),
     ];
 
     let mut sheets = HashMap::new();
     let mut fallback: Option<EntitySpriteSheet> = None;
-    for (name, bytes) in entries {
-        let dyn_img = match image::load_from_memory(bytes) {
-            Ok(i) => i,
-            Err(e) => {
-                log::warn!("[entities] failed to load sprite {}: {}", name, e);
-                continue;
+    for (name, src) in entries {
+        let rgba = match src {
+            SpriteSource::Atlas(bytes) => {
+                match image::load_from_memory(bytes) {
+                    Ok(i) => i.to_rgba8(),
+                    Err(e) => {
+                        log::warn!("[entities] failed to load sprite {}: {}", name, e);
+                        continue;
+                    }
+                }
+            }
+            SpriteSource::Directions { south, west, east, north } => {
+                match stitch_4dir_atlas(south, west, east, north) {
+                    Some(img) => img,
+                    None => {
+                        log::warn!("[entities] failed to stitch 4-dir atlas for {}", name);
+                        continue;
+                    }
+                }
             }
         };
-        let rgba = dyn_img.to_rgba8();
         let (w, h) = rgba.dimensions();
         let cols = (w / 16) as usize;
         let rows = (h / 16) as usize;
