@@ -12,7 +12,6 @@ mod hud;
 mod music;
 mod player_shadow;
 mod sfx;
-mod travel_menu;
 mod version;
 mod states;
 pub mod supabase;
@@ -85,7 +84,6 @@ pub fn start() {
         .add_plugins(entities::EntitiesPlugin)
         .add_plugins(boon_picker::BoonPickerPlugin)
         .add_plugins(adventure_menu::AdventureMenuPlugin)
-        .add_plugins(travel_menu::TravelMenuPlugin)
         .add_plugins(version::VersionPlugin)
         .insert_resource(UiHovered(false))
         .add_systems(Update, (detect_ui_hover, update_cursor))

@@ -1,0 +1,750 @@
+{
+  "id": "chaos_cavern",
+  "name": "The Hollow",
+  "width": 21,
+  "height": 11,
+  "tiles": [
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "floor"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    },
+    {
+      "kind": "wall"
+    }
+  ],
+  "portals": [
+    {
+      "x": 10,
+      "y": 0,
+      "destination": {
+        "kind": "overworld",
+        "x": 32,
+        "y": 25
+      },
+      "label": "North Gate",
+      "unlock_event_id": "chaos_enter_via_north_gate"
+    },
+    {
+      "x": 20,
+      "y": 5,
+      "destination": {
+        "kind": "overworld",
+        "x": 69,
+        "y": 28
+      },
+      "label": "East Gate",
+      "unlock_event_id": "chaos_enter_via_east_gate"
+    },
+    {
+      "x": 10,
+      "y": 10,
+      "destination": {
+        "kind": "overworld",
+        "x": 30,
+        "y": 59
+      },
+      "label": "South Gate",
+      "unlock_event_id": "chaos_enter_via_south_gate"
+    },
+    {
+      "x": 0,
+      "y": 5,
+      "destination": {
+        "kind": "overworld",
+        "x": 73,
+        "y": 58
+      },
+      "label": "West Gate",
+      "unlock_event_id": "chaos_enter_via_west_gate"
+    }
+  ],
+  "chests": [],
+  "monsters": [],
+  "floor_cost_m": 20
+}

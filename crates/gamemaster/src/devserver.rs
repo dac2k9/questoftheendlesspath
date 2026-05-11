@@ -108,13 +108,6 @@ pub struct DevPlayerState {
     /// `POST /start_new_adventure`.
     #[serde(default = "default_adventure_id")]
     pub adventure_id: String,
-    /// Fast-travel gates this player has unlocked (POI ids). Set
-    /// when the tick sees them walk onto a TravelGate POI. The
-    /// client's travel menu lists these so the player can pick
-    /// a destination; teleporting to one is handled by
-    /// `POST /travel_to_gate`.
-    #[serde(default)]
-    pub unlocked_travel_gates: Vec<usize>,
     /// Adventure-scoped boons: keyed by adventure_id, each value is
     /// the list of boon ids earned IN that adventure that only apply
     /// WHILE the player is in that adventure. Used by mid-tier boss
@@ -341,8 +334,6 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                 && !path.starts_with("/notifications")
                 && !path.starts_with("/interior")
                 && !path.starts_with("/entities")
-                && !path.starts_with("/travel_gates")
-                && !path.starts_with("/travel_to_gate")
                 && status == "404 Not Found"
             {
                 let clean_path = path.split('?').next().unwrap_or(path);
@@ -732,73 +723,6 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             p.pending_boon_choice = None;
             tracing::info!("[boons] {} selected '{}' (now owns {})", p.name, req.boon_id, p.boons.len());
             return ("200 OK", format!(r#"{{"ok":true,"selected":"{}"}}"#, req.boon_id));
-        }
-        return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
-    }
-
-    // GET /travel_gates?player_id=X — list the gates this player has
-    // unlocked, with each gate's name + coords. Client renders this
-    // as the travel menu. Returns [] if the player isn't in an
-    // adventure that has any gates (e.g. frost_quest currently).
-    if first_line.starts_with("GET /travel_gates") {
-        let pid = first_line.split('?').nth(1)
-            .and_then(|qs| qs.split('&').find(|p| p.starts_with("player_id=")))
-            .and_then(|p| p.strip_prefix("player_id="))
-            .unwrap_or("")
-            .to_string();
-        let lock = state.lock().unwrap();
-        let Some(p) = lock.get(&pid) else {
-            return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
-        };
-        let mut out: Vec<serde_json::Value> = Vec::new();
-        for gate_id in &p.unlocked_travel_gates {
-            // Resolve the POI from the world. Authored POI ids start
-            // at 1000; procedural at 0..N. The world we look up is the
-            // bundle's `world` — we only have the default in scope
-            // for now (TODO: route by adventure_id when chaos uses a
-            // different world). For v1 with shared seed this is fine.
-            if let Some(poi) = world.pois.iter().find(|p| p.id == *gate_id) {
-                out.push(serde_json::json!({
-                    "id": gate_id,
-                    "name": poi.name,
-                    "x": poi.x,
-                    "y": poi.y,
-                }));
-            }
-        }
-        return ("200 OK", serde_json::to_string(&out).unwrap_or_else(|_| "[]".into()));
-    }
-
-    // POST /travel_to_gate — body: {"player_id": "...", "gate_id": 1100}.
-    // Teleports the player to the gate's tile if (and only if) they've
-    // already unlocked that gate. Clears any planned route. Doesn't
-    // charge anything in v1.
-    if first_line.starts_with("POST /travel_to_gate") {
-        if let Some(body_start) = request.find("\r\n\r\n") {
-            #[derive(Deserialize)]
-            struct Req { player_id: String, gate_id: usize }
-            let Ok(req) = serde_json::from_str::<Req>(&request[body_start + 4..]) else {
-                return ("400 Bad Request", r#"{"error":"bad body"}"#.to_string());
-            };
-            let mut lock = state.lock().unwrap();
-            let Some(p) = lock.get_mut(&req.player_id) else {
-                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
-            };
-            if !p.unlocked_travel_gates.contains(&req.gate_id) {
-                return ("403 Forbidden", r#"{"error":"gate not unlocked"}"#.to_string());
-            }
-            let Some(poi) = world.pois.iter().find(|p| p.id == req.gate_id) else {
-                return ("404 Not Found", r#"{"error":"gate not found in world"}"#.to_string());
-            };
-            p.prev_tile = Some((p.map_tile_x, p.map_tile_y));
-            p.map_tile_x = poi.x as i32;
-            p.map_tile_y = poi.y as i32;
-            p.planned_route = String::new();
-            p.route_meters_walked = 0.0;
-            tracing::info!("[travel] {} → gate '{}' at ({},{})", p.name, poi.name, poi.x, poi.y);
-            return ("200 OK", format!(
-                r#"{{"ok":true,"x":{},"y":{}}}"#, poi.x, poi.y
-            ));
         }
         return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
     }

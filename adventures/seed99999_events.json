@@ -1,6 +1,86 @@
 {
   "events": [
     {
+      "id": "chaos_enter_via_north_gate",
+      "name": "Into the Hollow — north mouth",
+      "description": "The rune-stones flare; the gate is a doorway.",
+      "kind": {
+        "type": "cave_entrance",
+        "interior_id": "chaos_cavern",
+        "spawn_x": 10,
+        "spawn_y": 1,
+        "flavor": "You step through the North Gate into a cavern of pale rock."
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1100
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": false,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_enter_via_east_gate",
+      "name": "Into the Hollow — east mouth",
+      "description": "The rune-stones hum as you cross the threshold.",
+      "kind": {
+        "type": "cave_entrance",
+        "interior_id": "chaos_cavern",
+        "spawn_x": 19,
+        "spawn_y": 5,
+        "flavor": "You step through the East Gate. The Hollow opens before you."
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1101
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": false,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_enter_via_south_gate",
+      "name": "Into the Hollow — south mouth",
+      "description": "The arch shudders, then stills.",
+      "kind": {
+        "type": "cave_entrance",
+        "interior_id": "chaos_cavern",
+        "spawn_x": 10,
+        "spawn_y": 9,
+        "flavor": "You step through the South Gate. The air thickens, dust and old breath."
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1102
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": false,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_enter_via_west_gate",
+      "name": "Into the Hollow — west mouth",
+      "description": "The weathered arch parts at your touch.",
+      "kind": {
+        "type": "cave_entrance",
+        "interior_id": "chaos_cavern",
+        "spawn_x": 1,
+        "spawn_y": 5,
+        "flavor": "You step through the West Gate. The Hollow stretches east and south."
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1103
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": false,
+      "repeatable": true
+    },
+    {
       "id": "chaos_intro",
       "name": "Survivors' Camp",
       "description": "A handful of survivors huddle around a fire, clutching torn maps.",
