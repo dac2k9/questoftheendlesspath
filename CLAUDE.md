@@ -320,6 +320,20 @@ preserved** (the whole point of the meta-progression system), along
 with id / name / champion / walker_uuid. The in-game adventure menu
 button (top-right) posts to this endpoint and then reloads the page.
 
+**One-way trip.** Each `AdventurePreset` declares a
+`completion_event_id` (frost_quest: `tower_20`, chaos: `chaos_starstone_avatar`).
+`GET /adventures?player_id=X` returns
+`{ current, current_completed, available[] }`. The `available` list is
+empty until the player's current adventure's `completion_event_id` is
+in their `completed_events` — so the in-game switcher button only
+appears once they've earned the right to advance. After the switch,
+the new adventure's button immediately hides again (current changed
+to chaos, which they haven't completed). Adventures the player has
+already finished are filtered out, so you never see a "go back to
+frost_quest" option. Client polls `/adventures` every 5 s; the button
+itself is always spawned but `Visibility::Hidden` flips based on
+`available.is_empty()`.
+
 **Per-adventure world size.** Each `AdventurePreset` carries
 `map_width` / `map_height` (frost_quest: 100×80, chaos: 200×160 —
 4× area). `/join` and `/start_new_adventure` return these alongside

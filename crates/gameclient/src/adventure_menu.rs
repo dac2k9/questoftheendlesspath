@@ -1,17 +1,24 @@
 //! Adventure switcher — a small button in the top-right of the HUD
-//! that lets a player jump to another adventure. Clicking opens a
-//! list of registered adventures (fetched from `/adventures`),
-//! confirming the switch via `window.confirm` and then reloading the
-//! page so the world rebuilds from scratch under the new id.
+//! that lets a player advance to their next adventure. **One-way
+//! trip:** the button only appears once the player has completed
+//! their current adventure's `completion_event_id` and there's a
+//! not-yet-completed adventure waiting. Otherwise the button is
+//! hidden — you can't shortcut back to an easier arc or restart
+//! one you haven't finished.
+//!
+//! Source of truth is `GET /adventures?player_id=X`, polled every
+//! 5 s. The endpoint returns the list of adventures the player is
+//! eligible to advance INTO (already filters by completion); the
+//! client just renders that list.
 //!
 //! Boons survive the switch; level / gold / inventory reset (the
 //! server side of that lives in `POST /start_new_adventure`).
 
 use bevy::prelude::*;
+use std::sync::{Arc, Mutex};
 use wasm_bindgen::JsValue;
 
 use crate::states::AppState;
-use crate::terrain::tilemap::MyPlayerState;
 use crate::{api_url, GameFont, GameSession};
 
 pub struct AdventureMenuPlugin;
@@ -22,15 +29,39 @@ impl Plugin for AdventureMenuPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn_button)
             .add_systems(
                 Update,
-                (handle_button_click, handle_choice_click)
+                (
+                    tick_availability_poll,
+                    apply_availability,
+                    sync_button_visibility,
+                    handle_button_click,
+                    handle_choice_click,
+                )
                     .run_if(in_state(AppState::InGame)),
             );
     }
 }
 
+#[derive(Clone)]
+struct AvailableAdventure {
+    id: String,
+    display_name: String,
+}
+
 #[derive(Resource, Default)]
 struct AdventureMenuState {
     panel_open: bool,
+    available: Vec<AvailableAdventure>,
+    /// Mutex slot the async fetcher fills with the most recent
+    /// response. The Update system drains it into `available`.
+    fetch_slot: Arc<Mutex<Option<Vec<AvailableAdventure>>>>,
+    poll_timer: f32,
+    /// Render visibility tracks `available.is_empty()` so we can
+    /// react when the list flips from empty → non-empty (e.g. the
+    /// player just completed the final boss).
+    button_visible: bool,
+    /// Wait one poll before showing the button on enter-game so we
+    /// don't flash it before /adventures has answered.
+    initial_poll_done: bool,
 }
 
 #[derive(Component)]
@@ -42,7 +73,10 @@ struct AdventureMenuPanel;
 #[derive(Component)]
 struct AdventureChoiceButton(String); // adventure_id to switch to
 
-fn spawn_button(mut commands: Commands, font: Res<GameFont>) {
+fn spawn_button(mut commands: Commands, mut state: ResMut<AdventureMenuState>, font: Res<GameFont>) {
+    // Always spawn the button entity; `sync_button_visibility`
+    // flips its Visibility based on `available.is_empty()`. Cheaper
+    // than spawning/despawning on every poll.
     commands
         .spawn((
             Button,
@@ -58,11 +92,12 @@ fn spawn_button(mut commands: Commands, font: Res<GameFont>) {
             BorderColor(Color::srgb(0.85, 0.65, 0.20)),
             BorderRadius::all(Val::Px(3.0)),
             ZIndex(15),
+            Visibility::Hidden,
             AdventureMenuButton,
         ))
         .with_children(|btn| {
             btn.spawn((
-                Text::new("Adventure"),
+                Text::new("Next Adventure"),
                 TextFont {
                     font: font.0.clone(),
                     font_size: 9.0,
@@ -71,12 +106,98 @@ fn spawn_button(mut commands: Commands, font: Res<GameFont>) {
                 TextColor(Color::srgb(1.0, 0.92, 0.55)),
             ));
         });
+    // Fire the first poll immediately on enter-game; don't wait the
+    // 5 s tick.
+    state.poll_timer = 100.0;
+}
+
+/// Tick a 5 s poll timer and kick off a fetch when it elapses.
+fn tick_availability_poll(
+    time: Res<Time>,
+    session: Res<GameSession>,
+    mut state: ResMut<AdventureMenuState>,
+) {
+    if session.player_id.is_empty() {
+        return;
+    }
+    state.poll_timer += time.delta_secs();
+    if state.poll_timer < 5.0 {
+        return;
+    }
+    state.poll_timer = 0.0;
+    kick_off_fetch(session.player_id.clone(), state.fetch_slot.clone());
+}
+
+fn kick_off_fetch(player_id: String, slot: Arc<Mutex<Option<Vec<AvailableAdventure>>>>) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let url = api_url(&format!("/adventures?player_id={}", player_id));
+        let Ok(resp) = reqwest::Client::new().get(&url).send().await else { return };
+        let Ok(text) = resp.text().await else { return };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return };
+        let mut parsed = Vec::new();
+        if let Some(arr) = json.get("available").and_then(|v| v.as_array()) {
+            for entry in arr {
+                let id = entry.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let name = entry.get("display_name").and_then(|v| v.as_str()).unwrap_or("");
+                if !id.is_empty() && !name.is_empty() {
+                    parsed.push(AvailableAdventure {
+                        id: id.to_string(),
+                        display_name: name.to_string(),
+                    });
+                }
+            }
+        }
+        if let Ok(mut g) = slot.lock() {
+            *g = Some(parsed);
+        }
+    });
+}
+
+/// Drain the async fetch's result into the resource so the
+/// rendering systems can read it from a regular Bevy `Res`.
+fn apply_availability(mut state: ResMut<AdventureMenuState>) {
+    let new_list = {
+        let Ok(mut g) = state.fetch_slot.lock() else { return };
+        g.take()
+    };
+    if let Some(list) = new_list {
+        state.available = list;
+        state.initial_poll_done = true;
+    }
+}
+
+/// Show the button only when `available` is non-empty AND we've
+/// already received at least one poll response (avoids a
+/// one-frame flash of the button before /adventures replies on
+/// game enter).
+fn sync_button_visibility(
+    mut state: ResMut<AdventureMenuState>,
+    mut button_q: Query<&mut Visibility, With<AdventureMenuButton>>,
+    mut commands: Commands,
+    panel_q: Query<Entity, With<AdventureMenuPanel>>,
+) {
+    let want_visible = state.initial_poll_done && !state.available.is_empty();
+    if want_visible == state.button_visible {
+        return;
+    }
+    state.button_visible = want_visible;
+    for mut vis in &mut button_q {
+        *vis = if want_visible { Visibility::Visible } else { Visibility::Hidden };
+    }
+    // Also close the panel if the button just vanished — happens
+    // when the player started the listed adventure (next poll
+    // returns empty because they're now in it).
+    if !want_visible && state.panel_open {
+        for e in &panel_q {
+            commands.entity(e).despawn_recursive();
+        }
+        state.panel_open = false;
+    }
 }
 
 fn handle_button_click(
     mut commands: Commands,
     mut state: ResMut<AdventureMenuState>,
-    player: Res<MyPlayerState>,
     font: Res<GameFont>,
     button_q: Query<&Interaction, (Changed<Interaction>, With<AdventureMenuButton>)>,
     panel_q: Query<Entity, With<AdventureMenuPanel>>,
@@ -85,7 +206,6 @@ fn handle_button_click(
         if !matches!(interaction, Interaction::Pressed) {
             continue;
         }
-        // Toggle.
         if state.panel_open {
             for e in &panel_q {
                 commands.entity(e).despawn_recursive();
@@ -94,10 +214,7 @@ fn handle_button_click(
             return;
         }
         state.panel_open = true;
-        // Panel listing the two registered adventures. Hard-coded
-        // to match `gamemaster::adventure::presets()` for now —
-        // fetching from `/adventures` is a small future task once
-        // we want to author more chapters from JSON.
+        let available = state.available.clone();
         commands
             .spawn((
                 Node {
@@ -119,7 +236,7 @@ fn handle_button_click(
             ))
             .with_children(|panel| {
                 panel.spawn((
-                    Text::new("Switch Adventure"),
+                    Text::new("Begin Next Adventure"),
                     TextFont {
                         font: font.0.clone(),
                         font_size: 10.0,
@@ -128,7 +245,7 @@ fn handle_button_click(
                     TextColor(Color::srgb(1.0, 0.92, 0.55)),
                 ));
                 panel.spawn((
-                    Text::new("Warning: resets your character. Boons are kept."),
+                    Text::new("Resets level / gold / inventory. Boons are kept."),
                     TextFont {
                         font: font.0.clone(),
                         font_size: 8.0,
@@ -136,23 +253,8 @@ fn handle_button_click(
                     },
                     TextColor(Color::srgb(0.85, 0.55, 0.55)),
                 ));
-                let entries: &[(&str, &str)] = &[
-                    ("frost_quest", "The Frost Lord"),
-                    ("chaos", "Chaos Unleashed"),
-                ];
-                let current = player_current_adventure(&player).to_string();
-                for (id, name) in entries {
-                    let is_current = *id == current;
-                    let label = if is_current {
-                        format!("• {} (current)", name)
-                    } else {
-                        format!("Start: {}", name)
-                    };
-                    let bg = if is_current {
-                        Color::srgba(0.15, 0.13, 0.08, 0.7)
-                    } else {
-                        Color::srgba(0.10, 0.18, 0.08, 0.9)
-                    };
+                for entry in &available {
+                    let label = format!("Begin: {}", entry.display_name);
                     panel
                         .spawn((
                             Button,
@@ -161,10 +263,10 @@ fn handle_button_click(
                                 border: UiRect::all(Val::Px(1.0)),
                                 ..default()
                             },
-                            BackgroundColor(bg),
+                            BackgroundColor(Color::srgba(0.10, 0.18, 0.08, 0.9)),
                             BorderColor(Color::srgb(0.65, 0.55, 0.20)),
                             BorderRadius::all(Val::Px(3.0)),
-                            AdventureChoiceButton((*id).to_string()),
+                            AdventureChoiceButton(entry.id.clone()),
                         ))
                         .with_children(|btn| {
                             btn.spawn((
@@ -182,17 +284,6 @@ fn handle_button_click(
     }
 }
 
-/// Pulls the player's current adventure_id (mirrored from server via
-/// polling). Falls back to "frost_quest" if it hasn't propagated yet
-/// — first frame after enter-game.
-fn player_current_adventure(player: &MyPlayerState) -> &str {
-    if player.adventure_id.is_empty() {
-        "frost_quest"
-    } else {
-        &player.adventure_id
-    }
-}
-
 fn handle_choice_click(
     session: Res<GameSession>,
     interactions: Query<(&Interaction, &AdventureChoiceButton), Changed<Interaction>>,
@@ -201,15 +292,12 @@ fn handle_choice_click(
         if !matches!(interaction, Interaction::Pressed) {
             continue;
         }
-        // Browser confirm — slightly intrusive, but it makes the
-        // "resets your character" warning hard to miss. Acceptable
-        // for an MVP; a custom in-game confirm dialog is a polish task.
         let window = match web_sys::window() {
             Some(w) => w,
             None => continue,
         };
         let prompt = format!(
-            "Switch to '{}'?\nYour current character will be reset (boons are kept).",
+            "Begin '{}'?\nYour current character resets (level, gold, inventory). Boons are kept.\nThis is one-way — you can't go back until you complete the new adventure.",
             choice.0
         );
         let confirmed = window.confirm_with_message(&prompt).unwrap_or(false);

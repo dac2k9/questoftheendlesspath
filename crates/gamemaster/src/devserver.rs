@@ -1153,6 +1153,66 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         );
     }
 
+    // GET /adventures?player_id=X — list adventures the player can
+    // advance INTO from their current one. One-way trip: the switch
+    // button only offers an adventure once the player has completed
+    // their current adventure's `completion_event_id`. Returns
+    // `{ current, current_completed, available: [{id, display_name}] }`.
+    if first_line.starts_with("GET /adventures") {
+        let pid = first_line.split("player_id=").nth(1)
+            .and_then(|s| s.split(|c: char| c == ' ' || c == '&').next())
+            .unwrap_or("");
+        let (current_id, current_completed) = {
+            let lock = state.lock().unwrap();
+            let Some(p) = lock.get(pid) else {
+                return ("404 Not Found", r#"{"error":"player not found"}"#.to_string());
+            };
+            let current = if p.adventure_id.is_empty() {
+                crate::adventure::DEFAULT_ADVENTURE_ID.to_string()
+            } else {
+                p.adventure_id.clone()
+            };
+            let presets = crate::adventure::presets();
+            let completed = presets.iter()
+                .find(|preset| preset.id == current)
+                .and_then(|preset| preset.completion_event_id.as_ref())
+                .map(|eid| p.completed_events.contains(eid))
+                .unwrap_or(false);
+            (current, completed)
+        };
+        // Build the list of available adventures: anything that isn't
+        // the player's current adventure AND that they haven't already
+        // completed. Filtering by current_completed = false collapses
+        // the list to empty so the client hides the switcher entirely
+        // until the player earns the right to advance.
+        let mut available_entries = Vec::new();
+        if current_completed {
+            let lock = state.lock().unwrap();
+            let p = lock.get(pid).unwrap();
+            let already_completed: std::collections::HashSet<String> = crate::adventure::presets()
+                .into_iter()
+                .filter(|preset| {
+                    preset.completion_event_id.as_ref()
+                        .map(|eid| p.completed_events.contains(eid))
+                        .unwrap_or(false)
+                })
+                .map(|preset| preset.id)
+                .collect();
+            for preset in crate::adventure::presets() {
+                if preset.id == current_id { continue; }
+                if already_completed.contains(&preset.id) { continue; }
+                available_entries.push(format!(
+                    r#"{{"id":"{}","display_name":"{}"}}"#,
+                    preset.id, preset.display_name
+                ));
+            }
+        }
+        return ("200 OK", format!(
+            r#"{{"current":"{}","current_completed":{},"available":[{}]}}"#,
+            current_id, current_completed, available_entries.join(",")
+        ));
+    }
+
     // GET /shops?player_id=X — shops the player has already discovered
     // (i.e. in their revealed_shops list). Phase A: a shop lands here
     // after the player visits it once. Phase B (future): NPCs can also

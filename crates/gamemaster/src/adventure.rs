@@ -51,6 +51,13 @@ pub struct AdventurePreset {
     /// quest's coords don't depend on whatever the seed happened
     /// to place.
     pub pois_path: String,
+    /// Event id whose completion marks the adventure as finished.
+    /// Used by `/adventures` to gate the in-game switcher: a player
+    /// only sees other adventures listed as available once their
+    /// CURRENT adventure's completion event is in `completed_events`.
+    /// `None` = no climactic event (e.g. an open-ended adventure);
+    /// the switcher treats it as never-completed.
+    pub completion_event_id: Option<String>,
 }
 
 /// The default registry. First entry is the "current" adventure that
@@ -75,6 +82,7 @@ pub fn presets() -> Vec<AdventurePreset> {
         interiors_dir: std::env::var("INTERIORS_DIR")
             .unwrap_or_else(|_| "adventures/interiors".into()),
         pois_path: "adventures/seed12345_pois.json".into(),
+        completion_event_id: Some("tower_20".into()),
     };
     let chaos = AdventurePreset {
         id: "chaos".into(),
@@ -99,6 +107,7 @@ pub fn presets() -> Vec<AdventurePreset> {
         // castle interiors will land later under a separate dir.
         interiors_dir: "adventures/interiors".into(),
         pois_path: "adventures/seed99999_pois.json".into(),
+        completion_event_id: Some("chaos_starstone_avatar".into()),
     };
     vec![frost_quest, chaos]
 }
