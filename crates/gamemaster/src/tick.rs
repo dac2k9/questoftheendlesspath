@@ -277,6 +277,18 @@ pub fn run_tick_dev(
             }
         }
 
+        // Detect a travel-gate unlock at the player's current /
+        // about-to-be-current tile. Computed here (before the
+        // write-back lock) so the mutation below has both pieces
+        // it needs: the gate id + name (for the notification) AND
+        // the player ref to push into.
+        let unlock_tile_x = new_tile.map(|(x, _)| x as usize).unwrap_or(player.map_tile_x as usize);
+        let unlock_tile_y = new_tile.map(|(_, y)| y as usize).unwrap_or(player.map_tile_y as usize);
+        let unlock_gate: Option<(usize, String)> = world.poi_at(unlock_tile_x, unlock_tile_y)
+            .filter(|poi| matches!(poi.poi_type, questlib::mapgen::PoiType::TravelGate))
+            .filter(|poi| !player.unlocked_travel_gates.contains(&poi.id))
+            .map(|poi| (poi.id, poi.name.clone()));
+
         // Write changes back (re-acquire lock briefly)
         {
             let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -347,6 +359,24 @@ pub fn run_tick_dev(
                 if clear_route {
                     p.planned_route = String::new();
                     p.route_meters_walked = 0.0;
+                }
+
+                // Travel-gate auto-unlock: detected before the
+                // borrow of `p`, applied here. First-time unlock
+                // also pushes a notification so the player knows
+                // the gate is now selectable from the travel menu.
+                if let Some((gate_id, gate_name)) = unlock_gate.as_ref() {
+                    if !p.unlocked_travel_gates.contains(gate_id) {
+                        p.unlocked_travel_gates.push(*gate_id);
+                        if let Ok(mut notifs) = shared_notifs.lock() {
+                            crate::push_notif(
+                                &mut notifs,
+                                &p.id,
+                                format!("Travel gate unlocked: {}", gate_name),
+                            );
+                        }
+                        info!("[{}] Unlocked travel gate '{}' (id {})", p.name, gate_name, gate_id);
+                    }
                 }
 
                 // Compute interpolation envelope for smooth client animation.

@@ -12,6 +12,7 @@ mod hud;
 mod music;
 mod player_shadow;
 mod sfx;
+mod travel_menu;
 mod version;
 mod states;
 pub mod supabase;
@@ -84,6 +85,7 @@ pub fn start() {
         .add_plugins(entities::EntitiesPlugin)
         .add_plugins(boon_picker::BoonPickerPlugin)
         .add_plugins(adventure_menu::AdventureMenuPlugin)
+        .add_plugins(travel_menu::TravelMenuPlugin)
         .add_plugins(version::VersionPlugin)
         .insert_resource(UiHovered(false))
         .add_systems(Update, (detect_ui_hover, update_cursor))
@@ -143,6 +145,11 @@ pub struct GameSession {
     pub join_code: String,
     /// Character sprite chosen on title screen (e.g. "Katan"). See CHAMPIONS.
     pub champion: String,
+    /// World seed for the player's current adventure, set from the
+    /// /join response. spawn_world uses this when building the
+    /// terrain — defaults to 12345 (frost_quest) if the server
+    /// didn't send it.
+    pub map_seed: u64,
 }
 
 /// Available player characters — must match asset filenames in assets/sprites/.

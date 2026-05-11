@@ -50,6 +50,7 @@ impl Biome {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PoiType {
     Village,
     Town,
@@ -61,6 +62,15 @@ pub enum PoiType {
     Tower,
     Camp,
     Port,
+    // Authored-only types — never placed procedurally. Adventure
+    // JSON injects these at specific tiles via the authored-POI
+    // loader so quests can guarantee a landmark sits where they
+    // need it (procedural placement gives no such control).
+    CastleFrost,
+    CastleFlame,
+    CastleShadow,
+    CastleStorm,
+    TravelGate,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

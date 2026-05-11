@@ -18,7 +18,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use questlib::events::EventCatalog;
-use questlib::mapgen::WorldMap;
+use questlib::mapgen::{PointOfInterest, PoiType, WorldMap};
+use serde::Deserialize;
 
 use crate::interior;
 use crate::mobile_entity;
@@ -37,6 +38,13 @@ pub struct AdventurePreset {
     pub events_path: String,
     pub entities_path: String,
     pub interiors_dir: String,
+    /// Authored POIs injected on top of the procedural placement.
+    /// Empty (or missing file) is fine — adventure runs with just
+    /// procedural POIs. Adventures with required-location quests
+    /// (castles, travel gates) author their landmarks here so the
+    /// quest's coords don't depend on whatever the seed happened
+    /// to place.
+    pub pois_path: String,
 }
 
 /// The default registry. First entry is the "current" adventure that
@@ -58,23 +66,24 @@ pub fn presets() -> Vec<AdventurePreset> {
             .unwrap_or_else(|_| "adventures/seed12345_entities.json".into()),
         interiors_dir: std::env::var("INTERIORS_DIR")
             .unwrap_or_else(|_| "adventures/interiors".into()),
+        pois_path: "adventures/seed12345_pois.json".into(),
     };
     let chaos = AdventurePreset {
         id: "chaos".into(),
         display_name: "Chaos Unleashed".into(),
-        // v1 caveat: the client hardcodes the world seed (12345) in
-        // its WorldGrid::from_seed call, so the chaos bundle uses the
-        // same seed for now — same terrain, but its own (currently
-        // empty) events and entities. Once we plumb the player's seed
-        // back through `/join`, this will switch to a distinct
-        // chaos-themed seed and the client will rebuild the world
-        // on adventure transition.
-        map_seed: 12345,
+        // Distinct seed from frost_quest so the chaos world is
+        // visibly different terrain. The client picks this up via
+        // `GameSession.map_seed` (set from /join response) and
+        // rebuilds WorldGrid on enter-game. Authored POI positions
+        // in seed99999_pois.json are tuned for this seed's terrain;
+        // change the seed = re-tune those coordinates.
+        map_seed: 99999,
         events_path: "adventures/seed99999_events.json".into(),
         entities_path: "adventures/seed99999_entities.json".into(),
         // Shares the same interiors set for now. Authored chaos
         // castle interiors will land later under a separate dir.
         interiors_dir: "adventures/interiors".into(),
+        pois_path: "adventures/seed99999_pois.json".into(),
     };
     vec![frost_quest, chaos]
 }
@@ -82,6 +91,52 @@ pub fn presets() -> Vec<AdventurePreset> {
 /// The id every existing save points at by serde default. Don't
 /// change unless you're prepared to migrate save files.
 pub const DEFAULT_ADVENTURE_ID: &str = "frost_quest";
+
+/// JSON shape for an authored POI: only the gameplay-relevant bits.
+/// Biome / has_road get auto-filled from the world's tile at the
+/// coords so JSON edits can't drift from the actual terrain.
+#[derive(Debug, Clone, Deserialize)]
+struct AuthoredPoi {
+    pub id: usize,
+    pub poi_type: PoiType,
+    pub x: usize,
+    pub y: usize,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct AuthoredPoisFile {
+    pub pois: Vec<AuthoredPoi>,
+}
+
+/// Load extra POIs from JSON and append them to `world.pois`. Biome
+/// + has_road are sampled from the existing world (the file just
+/// declares coords + type + label). Returns the number appended.
+fn load_authored_pois(path: &str, world: &mut WorldMap) -> Result<usize> {
+    let json = std::fs::read_to_string(path)
+        .with_context(|| format!("read {}", path))?;
+    let parsed: AuthoredPoisFile = serde_json::from_str(&json)
+        .with_context(|| format!("parse {}", path))?;
+    let count = parsed.pois.len();
+    for a in parsed.pois {
+        let biome = world.biome_at(a.x, a.y);
+        let has_road = world.has_road_at(a.x, a.y);
+        world.pois.push(PointOfInterest {
+            id: a.id,
+            poi_type: a.poi_type,
+            x: a.x,
+            y: a.y,
+            biome,
+            has_road,
+            name: a.name,
+            description: a.description,
+        });
+    }
+    Ok(count)
+}
 
 /// All per-adventure runtime state bundled together. Multiple bundles
 /// coexist at runtime; the tick loop iterates them, and endpoints
@@ -101,10 +156,21 @@ pub struct AdventureBundle {
 pub fn load_bundle(preset: AdventurePreset) -> Result<AdventureBundle> {
     tracing::info!("[adv] loading '{}' (seed {})", preset.id, preset.map_seed);
 
-    let world = Arc::new(WorldMap::generate(preset.map_seed));
+    let mut world = WorldMap::generate(preset.map_seed);
+    let procedural_pois = world.pois.len();
+    if std::path::Path::new(&preset.pois_path).exists() {
+        let added = load_authored_pois(&preset.pois_path, &mut world)
+            .with_context(|| format!("load authored POIs from {}", preset.pois_path))?;
+        tracing::info!(
+            "[adv:{}] +{} authored POI(s) from {}",
+            preset.id, added, preset.pois_path,
+        );
+    }
+    let world = Arc::new(world);
     tracing::info!(
-        "[adv:{}] world: {}×{} tiles, {} POIs, {} roads",
-        preset.id, world.width, world.height, world.pois.len(), world.roads.len()
+        "[adv:{}] world: {}×{} tiles, {} POIs ({} procedural + {} authored), {} roads",
+        preset.id, world.width, world.height, world.pois.len(),
+        procedural_pois, world.pois.len() - procedural_pois, world.roads.len()
     );
 
     let interiors: interior::SharedInteriors =

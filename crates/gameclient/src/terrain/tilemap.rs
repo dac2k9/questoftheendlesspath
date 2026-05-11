@@ -194,11 +194,17 @@ fn poi_sprite_path(ty: questlib::mapgen::PoiType) -> Option<(&'static str, u32)>
         Dungeon => Some(("poi/dungeon.png", 1)),
         Camp    => Some(("poi/camp.png", 1)),
         Tower   => Some(("poi/tower.png", 1)),
+        // Authored chaos-adventure landmarks. Castles render 3×3
+        // (iconic boss locations); travel gates render 1×1 since
+        // they slot in alongside other small POIs.
+        CastleFrost  => Some(("generated/poi/castle_frost.png", 3)),
+        CastleFlame  => Some(("generated/poi/castle_flame.png", 3)),
+        CastleShadow => Some(("generated/poi/castle_shadow.png", 3)),
+        CastleStorm  => Some(("generated/poi/castle_storm.png", 3)),
+        TravelGate   => Some(("generated/poi/travel_gate.png", 1)),
         // Port still has no custom art; falls back to the tile-atlas
         // overlay (Overlay::Village). Drop a PNG into assets/poi/ +
         // add a branch here when art arrives.
-        // Example for a future castle.png at 3×3 tiles:
-        //   Dungeon => Some(("poi/castle.png", 3)),
         _       => None,
     }
 }
@@ -537,7 +543,11 @@ fn spawn_world(
     mut materials_fog: ResMut<Assets<super::fog_shader::FogMaterial>>,
     session: Res<GameSession>,
 ) {
-    let world = WorldGrid::from_seed(12345);
+    // Seed comes from the server's /join response (the player's
+    // current adventure's map_seed). Defaults to 12345 for sessions
+    // that joined before this plumb-through was wired.
+    let seed = if session.map_seed != 0 { session.map_seed } else { 12345 };
+    let world = WorldGrid::from_seed(seed);
 
     let tileset_bytes = include_bytes!("../../assets/tilesets/miniworld.png");
     let tileset_dyn = image::load_from_memory(tileset_bytes).expect("tileset");

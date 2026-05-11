@@ -43,6 +43,11 @@ struct LoginResult {
     /// Carried through so we can stash it in localStorage for
     /// auto-rejoin on the next page load.
     walker_uuid: String,
+    /// World seed for the player's current adventure, returned by
+    /// the server. Stored in `GameSession.map_seed` so `spawn_world`
+    /// uses the right seed (chaos vs. frost_quest). Defaults to
+    /// 12345 if the server didn't include it.
+    map_seed: u64,
 }
 
 // ── localStorage session persistence ────────────────
@@ -104,12 +109,14 @@ fn kick_off_auto_login(
         let Some(pid) = data.get("player_id").and_then(|v| v.as_str()) else { return };
         let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
         let champ = data.get("champion").and_then(|v| v.as_str()).unwrap_or(&champion);
+        let map_seed = data.get("map_seed").and_then(|v| v.as_u64()).unwrap_or(12345);
         if let Ok(mut lock) = result_ref.lock() {
             *lock = Some(LoginResult {
                 player_id: pid.to_string(),
                 name: pname.to_string(),
                 champion: champ.to_string(),
                 walker_uuid: walker_uuid.clone(),
+                map_seed,
             });
         }
     });
@@ -568,12 +575,14 @@ fn handle_champion_click(
                             if let Some(pid) = data.get("player_id").and_then(|v| v.as_str()) {
                                 let pname = data.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
                                 let champ = data.get("champion").and_then(|v| v.as_str()).unwrap_or(&champion);
+                                let map_seed = data.get("map_seed").and_then(|v| v.as_u64()).unwrap_or(12345);
                                 if let Ok(mut lock) = result_ref.lock() {
                                     *lock = Some(LoginResult {
                                         player_id: pid.to_string(),
                                         name: pname.to_string(),
                                         champion: champ.to_string(),
                                         walker_uuid: walker_id.clone(),
+                                        map_seed,
                                     });
                                 }
                                 return;
@@ -609,6 +618,7 @@ fn check_login_result(
         session.player_id = r.player_id;
         session.player_name = r.name;
         session.champion = r.champion;
+        session.map_seed = r.map_seed;
         next_state.set(AppState::InGame);
     }
 }
