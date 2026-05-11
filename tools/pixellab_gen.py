@@ -116,7 +116,7 @@ def extract_credits(resp: dict) -> Optional[float]:
     return None
 
 
-def poll_job(job_id: str, token: str, max_wait_s: int = 300, debug: bool = False) -> dict:
+def poll_job(job_id: str, token: str, max_wait_s: int = 600, debug: bool = False) -> dict:
     """Poll /background-jobs/{id} until terminal status. Returns the
     last response (whether success or failure). Pixellab's POST endpoints
     return `{background_job_id, status: "processing"}` and do the actual

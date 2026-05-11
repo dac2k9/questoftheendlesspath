@@ -150,3 +150,98 @@ assets:
     description: "small glass potion bottle with swirling glowing green liquid, fantasy pixel art, transparent background"
     size: [32, 32]
     out: buffs/speed_potion.png
+
+  # ═══════════════════════════════════════════════════════════════
+  # CHAOS UNLEASHED adventure — POIs, monsters, boss portraits.
+  # The 4 castles each carry a distinct elemental theme so the player
+  # reads the dungeon's flavor before they even enter.
+  # ═══════════════════════════════════════════════════════════════
+
+  # ── Boss castles (top-down POI illustrations, 48×48) ───
+  - id: poi_castle_frost
+    type: image
+    description: "ice-spire castle with frozen battlements and blue-white snow, top-down fantasy pixel art"
+    size: [48, 48]
+    out: poi/castle_frost.png
+
+  - id: poi_castle_flame
+    type: image
+    description: "basalt castle with lava cracks and ember glow, dark stone, top-down fantasy pixel art"
+    size: [48, 48]
+    out: poi/castle_flame.png
+
+  - id: poi_castle_shadow
+    type: image
+    description: "twisted black-stone castle with thorny spires and purple void mist, top-down fantasy pixel art"
+    size: [48, 48]
+    out: poi/castle_shadow.png
+
+  - id: poi_castle_storm
+    type: image
+    description: "windswept castle on high cliffs with dark storm clouds and lightning, top-down fantasy pixel art"
+    size: [48, 48]
+    out: poi/castle_storm.png
+
+  # ── Travel-gate POI (reused at every gate location) ───
+  - id: poi_travel_gate
+    type: image
+    description: "stone archway portal with glowing blue rune-stones, top-down fantasy pixel art"
+    size: [48, 48]
+    out: poi/travel_gate.png
+
+  # ── Refugee camp + Wizard's spire (sub-quest hubs) ────
+  - id: poi_refugee_camp
+    type: image
+    description: "small tents around a cooking fire with a broken cart, top-down fantasy pixel art"
+    size: [48, 48]
+    out: poi/refugee_camp.png
+
+  - id: poi_wizards_spire
+    type: image
+    description: "single tall ruined wizard tower with cracked window and weather-worn stone, top-down fantasy pixel art"
+    size: [48, 48]
+    out: poi/wizards_spire.png
+
+  # ── Chaos monster sprites (character_4dir, 16×16 atlas) ───
+  - id: chaos_corrupted_knight
+    type: character_4dir
+    description: "corrupted knight in tarnished armor with glowing purple eyes, fantasy pixel art"
+    size: 64
+    out: monsters/CorruptedKnight.png
+
+  - id: chaos_void_imp
+    type: character_4dir
+    description: "small purple void imp with glowing eyes and tattered wings, fantasy pixel art"
+    size: 64
+    out: monsters/VoidImp.png
+
+  - id: chaos_road_bandit
+    type: character_4dir
+    description: "ragged road bandit with leather hood and curved dagger, fantasy pixel art"
+    size: 64
+    out: monsters/RoadBandit.png
+
+  # ── Boss portraits (large single images for combat header) ──
+  - id: boss_portrait_frost
+    type: image
+    description: "intimidating frost queen portrait, icy crown and glowing blue eyes, fantasy pixel art"
+    size: [96, 96]
+    out: portraits/boss_frost.png
+
+  - id: boss_portrait_flame
+    type: image
+    description: "intimidating flame lord portrait, molten crown and burning eyes, fantasy pixel art"
+    size: [96, 96]
+    out: portraits/boss_flame.png
+
+  - id: boss_portrait_shadow
+    type: image
+    description: "intimidating shadow lich portrait, hooded skull and purple flame eyes, fantasy pixel art"
+    size: [96, 96]
+    out: portraits/boss_shadow.png
+
+  - id: boss_portrait_storm
+    type: image
+    description: "intimidating storm tyrant portrait, lightning crown and steel-grey eyes, fantasy pixel art"
+    size: [96, 96]
+    out: portraits/boss_storm.png
