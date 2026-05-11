@@ -164,6 +164,131 @@
       "repeatable": true
     },
     {
+      "id": "chaos_east_gate_scout",
+      "name": "East Gate Scout",
+      "description": "A weathered scout warming her hands at the rune-stones.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Scout Lirien",
+        "lines": [
+          "You walked all the way out here? Then you've seen what's wrong with the world.",
+          "I've been watching the Castle of Flame from this gate. The forge inside is melted shut — fused itself like a wound trying to scar.",
+          "Found this in the ash-line near the keep. Copper, but it stays warm. The Lord of Flame fears it, I think.",
+          "Take it. Crack that door. Bring me back the Lord's quiet, if you can."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 1101
+      },
+      "outcomes": [
+        {
+          "effect": "item",
+          "name": "ember_talisman"
+        },
+        {
+          "effect": "notification",
+          "text": "Received: Ember Talisman. The Castle of Flame is to the north."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_castle_flame_locked",
+      "name": "Castle of Flame — Sealed",
+      "description": "The basalt gate has welded itself shut. Heat shimmers off the stone.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Voice from the Forge",
+        "lines": [
+          "The door is one continuous molten weld. No pry-bar will open it.",
+          "Scouts at the East Gate have been watching this place. One of them might have something that could crack it."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1001
+          },
+          {
+            "condition": "not",
+            "inner": {
+              "condition": "has_item",
+              "item": "ember_talisman"
+            }
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "notification",
+          "text": "The gate is forge-sealed. Visit the East Gate scout."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_lord_flame",
+      "name": "Lord of Flame",
+      "description": "The talisman flares against the door — it splits with a crack like a struck anvil. Heat washes out.",
+      "kind": {
+        "type": "boss",
+        "boss_name": "Lord of Flame",
+        "max_hp": 240,
+        "dialogue_intro": [
+          "Mortal. You felt the rim of the talisman and thought yourself ready.",
+          "I have been Lord of every forge that ever cooled. Each pause between hammer-strokes — that was me, gathering.",
+          "And now you give me an excuse to wake the iron in your blood."
+        ],
+        "dialogue_defeat": [
+          "The forge banks itself. The iron cools.",
+          "Walk well, mortal. Two remain — and one of them does not burn."
+        ],
+        "scales_with_player": true,
+        "requires_coop": false,
+        "hp_per_level": 22,
+        "atk_per_level": 3,
+        "def_per_level": 1,
+        "grants_boon": false
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          {
+            "condition": "at_poi",
+            "poi_id": 1001
+          },
+          {
+            "condition": "has_item",
+            "item": "ember_talisman"
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 350
+        },
+        {
+          "effect": "item",
+          "name": "fire_blade"
+        },
+        {
+          "effect": "notification",
+          "text": "Lord of Flame defeated! Dropped: Fire Blade. Two castles quiet. Two remain."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
       "id": "chaos_frost_queen",
       "name": "Queen of Frost",
       "description": "She turns from the throne, crown of icicles gleaming. The temperature plummets.",

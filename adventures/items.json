@@ -317,6 +317,12 @@
       "category": "key_item"
     },
     {
+      "id": "ember_talisman",
+      "display_name": "Ember Talisman",
+      "description": "A copper amulet still warm to the touch. The East Gate scout said it would crack the forge-sealed door of the Castle of Flame.",
+      "category": "key_item"
+    },
+    {
       "id": "tower_key",
       "display_name": "Tower Key",
       "description": "An ancient key from the Forgotten Crypt. Opens the outer gate of the Frozen Spire.",
