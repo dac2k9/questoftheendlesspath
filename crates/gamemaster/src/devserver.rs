@@ -10,6 +10,13 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
+/// serde default for `DevPlayerState.adventure_id` — matches
+/// `adventure::DEFAULT_ADVENTURE_ID`. Existing save files without the
+/// field will land on this adventure (the original Frost Lord story).
+fn default_adventure_id() -> String {
+    crate::adventure::DEFAULT_ADVENTURE_ID.to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DevPlayerState {
     pub id: String,
@@ -94,6 +101,13 @@ pub struct DevPlayerState {
     /// detect "long idle" → resume transitions for `session_start_distance_m`.
     #[serde(default)]
     pub last_walking_unix: u64,
+    /// Which adventure this player is currently in. The server has
+    /// multiple AdventureBundles loaded; tick + endpoints route by
+    /// this id. Existing saves default to "frost_quest" via the
+    /// serde-default so no migration is needed. Switched by
+    /// `POST /start_new_adventure`.
+    #[serde(default = "default_adventure_id")]
+    pub adventure_id: String,
     /// Pending boon choice from a recent climactic-quest victory.
     /// Cleared by `POST /select_boon`. The 3 IDs are deterministic per
     /// `(player_id, event_id)` so a refresh / re-poll won't re-roll
@@ -481,6 +495,10 @@ async fn handle_join(
                     map_tile_y: start.1,
                     walker_uuid: walker_uuid.clone(),
                     champion: chosen_champion.clone(),
+                    // Start every new player on the default adventure
+                    // (frost_quest). They can switch later via the
+                    // title screen's "New Adventure" button.
+                    adventure_id: default_adventure_id(),
                     ..Default::default()
                 });
                 tracing::info!("New player joined: {} ({}) as {}", name, player_id, chosen_champion);

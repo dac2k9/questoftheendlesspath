@@ -1,3 +1,4 @@
+mod adventure;
 mod combat;
 mod devserver;
 mod interior;
@@ -11,7 +12,6 @@ use std::time::Duration;
 
 use anyhow::Result;
 use questlib::events::EventCatalog;
-use questlib::mapgen::WorldMap;
 use tracing::{error, info};
 
 use devserver::{DevPlayerState, SharedState};
@@ -173,33 +173,12 @@ async fn main() -> Result<()> {
 
     dotenvy::dotenv().ok();
 
-    let seed: u64 = std::env::var("MAP_SEED")
-        .unwrap_or_else(|_| "12345".to_string())
-        .parse()
-        .unwrap_or(12345);
-
-    info!("Generating world map from seed {seed}");
-    let world = Arc::new(WorldMap::generate(seed));
-    info!(
-        "World: {}x{} tiles, {} POIs, {} roads",
-        world.width, world.height, world.pois.len(), world.roads.len()
-    );
-
-    // Interior spaces (caves, dungeons, castles) — loaded from JSON at
-    // startup and then treated as read-only reference data. Per-player
-    // interior state (position, fog, opened chests) lives on DevPlayerState.
-    let interiors_dir = std::env::var("INTERIORS_DIR").unwrap_or_else(|_| "adventures/interiors".to_string());
-    let interiors: interior::SharedInteriors = Arc::new(interior::load_interiors(&interiors_dir)?);
-    info!("Loaded {} interior(s) from {}", interiors.len(), interiors_dir);
-
     // Save path is configurable via SAVE_PATH. On Render, set this to a path
     // inside a mounted persistent disk (e.g. "/data/dev_state.json") so state
     // survives redeploys. Locally, defaults to the working directory.
     let save_path_string = std::env::var("SAVE_PATH")
         .unwrap_or_else(|_| "dev_state.json".to_string());
     let save_path = save_path_string.as_str();
-    // Ensure the parent directory exists (create if needed). Silent on failure;
-    // the first save will log the actual I/O error.
     if let Some(parent) = std::path::Path::new(save_path).parent() {
         if !parent.as_os_str().is_empty() {
             let _ = std::fs::create_dir_all(parent);
@@ -207,51 +186,47 @@ async fn main() -> Result<()> {
     }
     info!("Save path: {}", save_path);
 
-    // Mobile entities (wandering NPCs / monsters / animals). Authored
-    // defs are read-only; runtime state is mutable per tick. See
-    // adventures/MOBILE_ENTITIES.md for the design.
-    let entities_path = std::env::var("ENTITIES_PATH")
-        .unwrap_or_else(|_| "adventures/seed12345_entities.json".to_string());
-    let entity_defs: mobile_entity::SharedEntityDefs =
-        Arc::new(mobile_entity::load_entities(&entities_path)?);
-    info!("Loaded {} mobile entit{} from {}",
-        entity_defs.len(),
-        if entity_defs.len() == 1 { "y" } else { "ies" },
-        entities_path,
-    );
-    // Seed runtime state from the save file (positions, alive/dead,
-    // respawn timers); ensure_states then fills in fresh state for
-    // any newly-authored entity and prunes saved entries whose def
-    // disappeared from JSON.
-    let saved_entities = load_mobile_entities(save_path);
-    let entity_states: mobile_entity::SharedEntityStates =
-        Arc::new(Mutex::new(saved_entities));
-    if let Ok(mut s) = entity_states.lock() {
-        mobile_entity::ensure_states(&entity_defs, &mut s);
-        info!("Mobile entities runtime state: {} active", s.len());
+    // Load the default adventure's bundle (world + events + interiors
+    // + mobile entities). The chaos adventure stays unloaded for now;
+    // the next refactor step adds per-adventure routing so both can
+    // be live at once.
+    let bundle = adventure::load_bundle(
+        adventure::presets()
+            .into_iter()
+            .find(|p| p.id == adventure::DEFAULT_ADVENTURE_ID)
+            .expect("default adventure preset present"),
+    )?;
+    let world = bundle.world.clone();
+    let interiors = bundle.interiors.clone();
+    let entity_defs = bundle.entity_defs.clone();
+    let entity_states = bundle.entity_states.clone();
+    let shared_events = bundle.events.clone();
+
+    // Seed mobile-entity runtime state from the save file (positions,
+    // alive/dead, respawn timers). ensure_states fills in fresh state
+    // for any newly-authored entity and prunes saved entries whose
+    // def disappeared from JSON.
+    {
+        let saved = load_mobile_entities(save_path);
+        if let Ok(mut s) = entity_states.lock() {
+            *s = saved;
+            mobile_entity::ensure_states(&entity_defs, &mut s);
+            info!("Mobile entities runtime state: {} active", s.len());
+        }
     }
 
-    // Load events. Always start from the JSON definitions so shop inventories,
-    // new events, trigger tweaks etc. take effect across restarts. Then overlay
-    // the per-event `status` from the saved state so completed quests stay
-    // completed. Per-player completion lives on DevPlayerState.completed_events,
-    // which is unaffected by this refresh.
-    let events_path = std::env::var("EVENTS_PATH")
-        .unwrap_or_else(|_| "adventures/seed12345_events.json".to_string());
-
-    let saved_events = std::fs::read_to_string(save_path)
-        .ok()
-        .and_then(|json| serde_json::from_str::<SaveData>(&json).ok())
-        .map(|s| s.events);
-
-    let catalog = if std::path::Path::new(&events_path).exists() {
-        let json = std::fs::read_to_string(&events_path)?;
-        let mut fresh = EventCatalog::from_json(&json)?;
-        info!("Loaded {} events from {}", fresh.events.len(), events_path);
-
-        if let Some(saved) = saved_events.as_ref() {
+    // Overlay saved per-event status flags onto the freshly-loaded
+    // events catalog so completed quests stay completed across
+    // restarts. The JSON definitions are still the source of truth
+    // for shop inventories, new events, trigger tweaks etc.
+    {
+        let saved_events = std::fs::read_to_string(save_path)
+            .ok()
+            .and_then(|json| serde_json::from_str::<SaveData>(&json).ok())
+            .map(|s| s.events);
+        if let (Some(saved), Ok(mut catalog)) = (saved_events, shared_events.lock()) {
             let mut carried = 0;
-            for event in fresh.events.iter_mut() {
+            for event in catalog.events.iter_mut() {
                 if let Some(prev) = saved.events.iter().find(|e| e.id == event.id) {
                     if prev.status != event.status {
                         event.force_status(prev.status);
@@ -261,16 +236,7 @@ async fn main() -> Result<()> {
             }
             info!("Merged {} status flags from saved state", carried);
         }
-        fresh
-    } else if let Some(events) = saved_events {
-        info!("No events JSON at {}; using saved catalog ({} events)", events_path, events.events.len());
-        events
-    } else {
-        info!("No events found, starting empty");
-        EventCatalog::default()
-    };
-
-    let shared_events: SharedEvents = Arc::new(Mutex::new(catalog));
+    }
 
     // Initialize shared player state — load from disk or start empty
     let state: SharedState = Arc::new(Mutex::new({
@@ -338,8 +304,10 @@ async fn main() -> Result<()> {
     info!("Game Master running (dev mode). Tick interval: 3s. Dev server on :3001");
     let mut interval = tokio::time::interval(Duration::from_secs(1));
 
-    // Simple RNG for random encounter rolls
-    let mut rng_state: u64 = seed;
+    // Simple RNG for random encounter rolls. Seeded from the default
+    // adventure's map_seed so the stream is deterministic across runs
+    // on the same world.
+    let mut rng_state: u64 = bundle.preset.map_seed;
     let mut save_counter: u32 = 0;
 
     // Shutdown signal — on SIGTERM (Render redeploy) or SIGINT (Ctrl-C),
