@@ -56,6 +56,15 @@ pub fn run_tick_dev(
             continue;
         }
 
+        // Drop the in-memory fog mirror when revealed_tiles is empty
+        // — happens after /start_new_adventure resets the player.
+        // Without this, the player_fogs HashMap keeps the previous
+        // adventure's fog around, and the next tick writes it back
+        // into the (now-different) world's revealed_tiles.
+        if player.revealed_tiles.is_empty() {
+            player_fogs.remove(player_id);
+        }
+
         // Init fog
         if !player_fogs.contains_key(player_id) {
             let fog = if !player.revealed_tiles.is_empty() {
@@ -936,6 +945,18 @@ fn apply_outcome(outcome: &EventOutcome, player: &mut DevPlayerState, fog: &mut 
                 player.revealed_shops.push(shop_event_id.clone());
             }
             info!("  Reveal shop: {}", shop_event_id);
+        }
+        EventOutcome::AdventureBoon { boon_id } => {
+            if questlib::boons::lookup(boon_id).is_some() {
+                let adv = player.adventure_id.clone();
+                let bucket = player.adventure_boons.entry(adv).or_default();
+                if !bucket.contains(boon_id) {
+                    bucket.push(boon_id.clone());
+                    info!("  +adventure-boon: {}", boon_id);
+                }
+            } else {
+                tracing::warn!("apply_outcome: unknown boon '{}'", boon_id);
+            }
         }
     }
 }

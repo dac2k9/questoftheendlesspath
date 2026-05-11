@@ -361,8 +361,12 @@
           "name": "fire_blade"
         },
         {
+          "effect": "adventure_boon",
+          "boon_id": "forge_tempered"
+        },
+        {
           "effect": "notification",
-          "text": "Lord of Flame defeated! Dropped: Fire Blade. Two castles quiet. Two remain."
+          "text": "Lord of Flame defeated! Dropped: Fire Blade. Boon: Forge-Tempered. Two castles quiet. Two remain."
         }
       ],
       "status": "pending",
@@ -486,8 +490,12 @@
           "name": "dragonslayer"
         },
         {
+          "effect": "adventure_boon",
+          "boon_id": "voidsight"
+        },
+        {
           "effect": "notification",
-          "text": "Hierophant of Shadow defeated! Dropped: Dragonslayer. Three castles quiet. One remains."
+          "text": "Hierophant of Shadow defeated! Dropped: Dragonslayer. Boon: Voidsight. Three castles quiet. One remains."
         }
       ],
       "status": "pending",
@@ -611,8 +619,12 @@
           "name": "stormbringer"
         },
         {
+          "effect": "adventure_boon",
+          "boon_id": "lightning_footed"
+        },
+        {
           "effect": "notification",
-          "text": "Stormbinder defeated! Dropped: Stormbringer. Four castles quiet. The Starstone awaits."
+          "text": "Stormbinder defeated! Dropped: Stormbringer. Boon: Lightning-Footed. Four castles quiet. The Starstone awaits."
         }
       ],
       "status": "pending",
@@ -665,12 +677,106 @@
           "name": "frost_axe"
         },
         {
+          "effect": "adventure_boon",
+          "boon_id": "frostproof"
+        },
+        {
           "effect": "notification",
-          "text": "Queen of Frost defeated! Dropped: Frost Axe. One castle quiet. Three remain."
+          "text": "Queen of Frost defeated! Dropped: Frost Axe. Boon: Frostproof. One castle quiet. Three remain."
         }
       ],
       "status": "pending",
       "requires_browser": true
+    },
+    {
+      "id": "chaos_starstone_revealed",
+      "name": "The Starstone Reveals Itself",
+      "description": "The campfire stills. Above it, between the tents, a wound in the air opens — and through it, light.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "Four castles quiet. Four lords ended.",
+          "The wound is yours to close, walker. The Starstone is here — it has always been here — but it would not show its face until the lords were silent.",
+          "Bring the four blades to this fire. The second cut waits for you."
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1200 },
+          { "condition": "event_completed", "event_id": "chaos_frost_queen" },
+          { "condition": "event_completed", "event_id": "chaos_lord_flame" },
+          { "condition": "event_completed", "event_id": "chaos_hierophant_shadow" },
+          { "condition": "event_completed", "event_id": "chaos_stormbinder" }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "notification",
+          "text": "Bring all four boss weapons to the Survivors' Camp."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_starstone_avatar",
+      "name": "Echo of the First Cut",
+      "description": "You lay the four blades at the fire's edge. They shake. The light above the camp coalesces into a figure — your own shape, but older, wearier, holding the same four weapons.",
+      "kind": {
+        "type": "boss",
+        "boss_name": "Echo of the First Cut",
+        "max_hp": 400,
+        "dialogue_intro": [
+          "Walker. You think the second cut is a kindness?",
+          "I made the first one. I sealed the boundary. I have been the wound ever since.",
+          "Strike me and I am undone. The wound closes. The world quiets.",
+          "Or do not — and walk away, and let the next four lords rise.",
+          "Choose."
+        ],
+        "dialogue_defeat": [
+          "Good.",
+          "The wound is sewn. Walk back into the loud world, traveler. You earned the noise."
+        ],
+        "scales_with_player": true,
+        "requires_coop": false,
+        "hp_per_level": 30,
+        "atk_per_level": 4,
+        "def_per_level": 1,
+        "grants_boon": false
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1200 },
+          { "condition": "event_completed", "event_id": "chaos_starstone_revealed" },
+          { "condition": "has_item", "item": "frost_axe" },
+          { "condition": "has_item", "item": "fire_blade" },
+          { "condition": "has_item", "item": "dragonslayer" },
+          { "condition": "has_item", "item": "stormbringer" }
+        ]
+      },
+      "outcomes": [
+        {
+          "effect": "gold",
+          "amount": 2000
+        },
+        {
+          "effect": "item",
+          "name": "starstone_shard"
+        },
+        {
+          "effect": "adventure_boon",
+          "boon_id": "starstone_awakened"
+        },
+        {
+          "effect": "notification",
+          "text": "Echo of the First Cut severed. The chaos lands quiet. You receive the Starstone Shard and the Starstone Awakened boon."
+        }
+      ],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": false
     }
   ]
 }

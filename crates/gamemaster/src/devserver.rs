@@ -1342,6 +1342,30 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                             player.revealed_shops.push(shop_event_id.clone());
                                         }
                                     }
+                                    questlib::events::EventOutcome::AdventureBoon { boon_id } => {
+                                        // Validate the boon exists; silently drop
+                                        // typos rather than letting bad ids creep
+                                        // into save state. Push to the player's
+                                        // CURRENT adventure bucket — these boons
+                                        // only apply while in this adventure.
+                                        if questlib::boons::lookup(boon_id).is_some() {
+                                            let adv = player.adventure_id.clone();
+                                            let bucket = player.adventure_boons
+                                                .entry(adv)
+                                                .or_default();
+                                            if !bucket.contains(boon_id) {
+                                                bucket.push(boon_id.clone());
+                                                tracing::info!(
+                                                    "[boons] {} earned adventure-boon '{}' in '{}'",
+                                                    player.name, boon_id, player.adventure_id,
+                                                );
+                                            }
+                                        } else {
+                                            tracing::warn!(
+                                                "[boons] event-outcome references unknown boon '{}'", boon_id
+                                            );
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -1579,10 +1603,16 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             return ("200 OK", r#"{"ok":true}"#.to_string());
         }
 
-        // POST /admin/reset_event — { event_id, status } — sets global event status
+        // POST /admin/reset_event — { event_id, status, player_id? }
+        // Sets the global (bundle-scoped) event status. When `player_id`
+        // is provided, routes to that player's adventure bundle so
+        // chaos-only events can be reset without touching the
+        // frost_quest catalog. Without it, falls back to the default
+        // catalog for backward compatibility.
         if first_line.starts_with("POST /admin/reset_event") {
             let event_id = data.get("event_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let status_str = data.get("status").and_then(|v| v.as_str()).unwrap_or("pending");
+            let pid = data.get("player_id").and_then(|v| v.as_str()).map(|s| s.to_string());
             if event_id.is_empty() {
                 return ("400 Bad Request", r#"{"error":"event_id required"}"#.to_string());
             }
@@ -1593,7 +1623,12 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 "dismissed" => questlib::events::EventStatus::Dismissed,
                 _ => return ("400 Bad Request", r#"{"error":"status must be pending|active|completed|dismissed"}"#.to_string()),
             };
-            let mut events_lock = events.lock().unwrap();
+            let events_ref = pid
+                .as_deref()
+                .and_then(|p| bundle_for_player(p))
+                .map(|b| &b.events)
+                .unwrap_or(events);
+            let mut events_lock = events_ref.lock().unwrap();
             let Some(event) = events_lock.get_mut(&event_id) else {
                 return ("404 Not Found", r#"{"error":"event not found"}"#.to_string());
             };

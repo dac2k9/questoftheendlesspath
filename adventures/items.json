@@ -386,6 +386,30 @@
       ]
     },
     {
+      "id": "starstone_shard",
+      "display_name": "Starstone Shard",
+      "description": "A sliver of the wound itself, cold and clear. ATK +3, DEF +3, HP +20",
+      "category": "equipment",
+      "slot": "accessory",
+      "effects": [
+        {
+          "type": "stat_bonus",
+          "stat": "attack",
+          "amount": 3
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "defense",
+          "amount": 3
+        },
+        {
+          "type": "stat_bonus",
+          "stat": "max_hp",
+          "amount": 20
+        }
+      ]
+    },
+    {
       "id": "mythril_plate",
       "display_name": "Mythril Plate",
       "description": "Lighter than steel, stronger than iron. DEF +9, HP +40",

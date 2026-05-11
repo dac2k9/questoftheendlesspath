@@ -356,6 +356,28 @@ Start (+500 gold per adventure), Treasure Sense (chests on minimap
 within 10 tiles through fog — wired client-side later), Forge
 Discount (−25% upgrade cost), Cartographer (+1 fog reveal radius).
 
+**Adventure-scoped boons.** `EventOutcome::AdventureBoon { boon_id }`
+appends to `player.adventure_boons[adventure_id]` (a
+`HashMap<String, Vec<String>>`) instead of the permanent `player.boons`.
+They only apply while the player is in that adventure — switching away
+and coming back resumes them. Used by the chaos arc to attach
+themed bonuses to each boss drop without inflating the permanent
+catalogue. Chaos boons currently:
+- Frost Queen → Frostproof (Snow tiles −50%)
+- Lord of Flame → Forge-Tempered (forge cost −50%)
+- Hierophant of Shadow → Voidsight (fog reveal +2)
+- Stormbinder → Lightning-Footed (roads −50%)
+- Echo of the First Cut (climax) → Starstone Awakened (+50% gold, fog reveal +3)
+
+**Chaos arc final act.** After all four castle bosses are defeated,
+returning to the Survivors' Camp (POI 1200) triggers a story beat
+`chaos_starstone_revealed` — Marwen tells the player to bring the four
+boss weapons to the camp. Completing it gates the climactic boss
+`chaos_starstone_avatar` ("Echo of the First Cut"), which triggers at
+the same POI when the player has frost_axe + fire_blade + dragonslayer +
+stormbringer in inventory. Reward: 2000 gold, the Starstone Shard
+accessory (ATK+3 / DEF+3 / HP+20), and the Starstone Awakened boon.
+
 Sprint's "first 1 km of session" anchors on
 `session_start_distance_m`, which resets when the player resumes
 walking after a >60 s idle gap. So between play sessions the boost
@@ -659,6 +681,12 @@ curl -s -X POST $BASE/admin/give_item \
 curl -s -X POST $BASE/admin/reset_event \
   -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
   -d '{"event_id":"find_traveler","status":"pending"}'
+# Pass player_id to route to that player's adventure bundle. Without
+# it, the default catalog (frost_quest) is targeted, which is wrong
+# for chaos events.
+curl -s -X POST $BASE/admin/reset_event \
+  -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
+  -d '{"event_id":"chaos_frost_queen","status":"completed","player_id":"<uuid>"}'
 curl -s -X POST $BASE/admin/revoke_completion \
   -H 'Content-Type: application/json' -H "X-Admin-Token: $TOKEN" \
   -d '{"player_id":"<uuid>","event_id":"find_traveler"}'

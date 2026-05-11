@@ -120,6 +120,48 @@ const CATALOG: &[Boon] = &[
         description: "You see further. Fog reveals 1 extra tile around you.",
         effects: &[BoonEffect::FogRevealRadiusBonus(1)],
     },
+    // ── Chaos arc boss drops (adventure-scoped: only apply while the
+    // player is in the chaos adventure). Each is a stronger version
+    // of an existing permanent boon, on the theory that "the boss's
+    // gift only echoes through the world you slew them in."
+    Boon {
+        id: "frostproof",
+        name: "Frostproof",
+        description: "The Queen's last gift. Snow tiles cost 50% less while chaos endures.",
+        effects: &[BoonEffect::BiomeCostMultiplier { biome: Biome::Snow, mult: 0.5 }],
+    },
+    Boon {
+        id: "forge_tempered",
+        name: "Forge-Tempered",
+        description: "The Lord's anvil sang for you. Forge upgrades cost 50% less while chaos endures.",
+        effects: &[BoonEffect::ForgeCostMultiplier(0.5)],
+    },
+    Boon {
+        id: "voidsight",
+        name: "Voidsight",
+        description: "You learned to see through the shroud. Fog reveals 2 extra tiles while chaos endures.",
+        effects: &[BoonEffect::FogRevealRadiusBonus(2)],
+    },
+    Boon {
+        id: "lightning_footed",
+        name: "Lightning-Footed",
+        description: "The Stormbinder's lesson. Roads cost 50% less while chaos endures.",
+        effects: &[BoonEffect::RoadCostMultiplier(0.5)],
+    },
+    // Climax of the chaos arc — only awarded after all four lords fall
+    // AND the Starstone Avatar is severed. Compound effect: a gold
+    // bump big enough to feel like a victory lap, plus the strongest
+    // fog-radius in the game so any post-victory wandering reveals
+    // wide swathes of the chaos lands.
+    Boon {
+        id: "starstone_awakened",
+        name: "Starstone Awakened",
+        description: "The second cut is yours. +50% gold and fog reveals 3 extra tiles while chaos endures.",
+        effects: &[
+            BoonEffect::GoldMultiplier(1.5),
+            BoonEffect::FogRevealRadiusBonus(3),
+        ],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static Boon> {
@@ -297,8 +339,9 @@ mod tests {
         for id in &ids {
             assert!(seen.insert(*id), "duplicate boon id: {}", id);
         }
-        // Sanity: we expect 9 boons in v1.
-        assert_eq!(ids.len(), 9, "catalog size changed; update this test");
+        // Sanity: 9 permanent boons + 4 chaos boss-drop boons +
+        // 1 chaos climax boon. Bump when adding more.
+        assert_eq!(ids.len(), 14, "catalog size changed; update this test");
     }
 
     #[test]
@@ -365,8 +408,9 @@ mod tests {
     #[test]
     fn pick_choices_excludes_owned() {
         let seed = choice_seed("player-xyz", "boss_two");
+        // Own all but the last 2 — picker should return only those.
         let owned: Vec<String> = catalog().iter()
-            .take(7)
+            .take(catalog().len() - 2)
             .map(|b| b.id.to_string())
             .collect();
         let picks = pick_choices(seed, 3, &owned);

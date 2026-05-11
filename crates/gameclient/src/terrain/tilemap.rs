@@ -829,8 +829,18 @@ fn apply_server_state(
     state.boons = me.boons.clone();
     state.pending_boon_choice = me.pending_boon_choice.clone();
     state.active_buffs = me.active_buffs.clone();
+    // Detect adventure switch — clear local fog so we don't carry
+    // stale reveals from the previous world. The server has already
+    // reset its per-player fog; without this, the client keeps the
+    // old bitfield forever and the player wonders why they "remember"
+    // a world they've never visited.
+    let prev_adv = state.adventure_id.clone();
     if !me.adventure_id.is_empty() {
         state.adventure_id = me.adventure_id.clone();
+    }
+    if !prev_adv.is_empty() && prev_adv != state.adventure_id {
+        for cell in fog.revealed.iter_mut() { *cell = false; }
+        fog.dirty = true;
     }
 
     // Parse route from server — check if server has caught up to local changes.
@@ -1385,15 +1395,20 @@ fn update_other_players(
     let Some(world) = world else { return; };
     let Ok(lock) = polled.players.lock() else { return; };
 
-    // Get other players (not us) AND in the same location as us. Overworld
-    // and interior share world-space coords, so a player in a different
-    // cave must not be drawn over our overworld position.
-    let my_loc = {
-        // We can read our location via the polled row for ourselves.
-        lock.iter().find(|p| p.id == session.player_id).and_then(|p| p.location.clone())
-    };
+    // Get other players (not us) AND in the same location as us AND
+    // in the same adventure. Overworld and interior share world-space
+    // coords, so a player in a different cave must not be drawn over
+    // our overworld position. Separate adventures share the same
+    // world-space coords too — without the adventure filter, a player
+    // in frost_quest would render on top of our chaos overworld at
+    // the same (tile_x, tile_y).
+    let me_row = lock.iter().find(|p| p.id == session.player_id);
+    let my_loc = me_row.and_then(|p| p.location.clone());
+    let my_adv = me_row.map(|p| p.adventure_id.clone()).unwrap_or_default();
     let others: Vec<_> = lock.iter()
-        .filter(|p| p.id != session.player_id && p.location == my_loc)
+        .filter(|p| p.id != session.player_id
+            && p.location == my_loc
+            && (my_adv.is_empty() || p.adventure_id == my_adv))
         .collect();
 
     // Hide sprites for players that are no longer co-located with us. The

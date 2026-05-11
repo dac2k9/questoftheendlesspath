@@ -245,6 +245,42 @@ boss_pairs.each do |event_id, (x, y), required_item, expected_have|
   puts
 end
 
+# Step Finale: combat events get Dismissed within a tick if the player
+# has no planned route (see tick.rs "Combat dismissed (no route)"), so
+# the boss events end up Dismissed by the time we want to mark them
+# completed. Flip the global catalog status via admin/reset_event
+# (bundle-routed via player_id) AND the per-player completion via
+# admin/grant_completion — chaos_starstone_revealed's `event_completed`
+# triggers read the global catalog status.
+puts "Step Finale: Echo of the First Cut at Survivors' Camp"
+%w[chaos_frost_queen chaos_lord_flame chaos_hierophant_shadow chaos_stormbinder].each do |evt|
+  post_json('/admin/reset_event',
+    { event_id: evt, status: 'completed', player_id: pid }, admin: true)
+  post_json('/admin/grant_completion',
+    { player_id: pid, event_id: evt }, admin: true)
+end
+%w[frost_axe fire_blade dragonslayer stormbringer].each do |item|
+  post_json('/admin/give_item', { player_id: pid, item_id: item, quantity: 1 }, admin: true)
+end
+post_json('/admin/teleport', { player_id: pid, x: 50, y: 40 }, admin: true)
+sleep 3
+post_json('/events/chaos_starstone_revealed/complete', { player_id: pid })
+sleep 2
+s = state_for(pid)
+check("4 boss completions recorded",
+  %w[chaos_frost_queen chaos_lord_flame chaos_hierophant_shadow chaos_stormbinder].all? { |e| s[:completed].include?(e) },
+  s[:completed].select { |e| e.start_with?('chaos_') }.inspect)
+check("all 4 boss weapons in inventory",
+  %w[frost_axe fire_blade dragonslayer stormbringer].all? { |i| s[:items].include?(i) },
+  s[:items].grep(/frost_axe|fire_blade|dragonslayer|stormbringer/).inspect)
+check("chaos_starstone_revealed completed", s[:completed].include?('chaos_starstone_revealed'))
+# chaos_starstone_avatar is a Boss event — same caveat as the four
+# castle bosses, it Dismisses without a planned route. We can only
+# verify the trigger prereqs landed (above) and that the player is
+# at the camp; the actual combat resolution needs a browser session.
+check("at Survivors' Camp tile", s[:tile] == [50, 40], s[:tile].inspect)
+puts
+
 puts "──────────────────────────────────────"
 puts "Result: \e[32m#{$passes} passed\e[0m, \e[31m#{$fails} failed\e[0m"
 exit($fails > 0 ? 1 : 0)

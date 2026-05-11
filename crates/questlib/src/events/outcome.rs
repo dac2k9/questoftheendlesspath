@@ -20,6 +20,14 @@ pub enum EventOutcome {
     /// about a merchant they've heard of. Target is the shop event's id.
     /// No-op if the player has already discovered that shop.
     RevealShop { shop_event_id: String },
+    /// Grant an adventure-scoped boon to the player. The boon's effects
+    /// apply WHILE the player is in this adventure; they're stored on
+    /// `DevPlayerState.adventure_boons[adventure_id]` so switching to
+    /// a different adventure deactivates them (and switching back
+    /// re-activates). Used by chaos boss drops to layer small,
+    /// per-arc power-ups on top of the permanent cross-adventure
+    /// boon catalog.
+    AdventureBoon { boon_id: String },
 }
 
 #[cfg(test)]

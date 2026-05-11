@@ -135,11 +135,15 @@ fn regenerate_if_dirty(
             let (mut r, mut g, mut b) = ground_color(terrain.ground);
             let revealed = fog.revealed.get(y * WORLD_W + x).copied().unwrap_or(false);
             if !revealed {
-                // Darken heavily — 15% of the original color preserves a
-                // faint silhouette while still clearly reading as "unknown".
-                r = (r as f32 * 0.15) as u8;
-                g = (g as f32 * 0.15) as u8;
-                b = (b as f32 * 0.15) as u8;
+                // Pure-dark fog cell. Earlier we kept a 15 % silhouette of
+                // the ground color so the map shape was hinted; that
+                // leaked terrain (roads / water shapes) the player
+                // hadn't actually discovered yet. Make unrevealed
+                // tiles a uniform near-black so the minimap obeys the
+                // same fog-of-war rules as the overworld view.
+                r = 12;
+                g = 12;
+                b = 20;
             }
             let idx = (y * WORLD_W + x) * 4;
             bytes[idx]     = r;
