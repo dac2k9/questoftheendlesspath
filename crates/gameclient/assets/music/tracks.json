@@ -193,19 +193,67 @@
       "loop": true
     },
     {
-      "id": "chaos_camp",
-      "file": "chaos_camp.mp3",
+      "id": "chaos_camp_0",
+      "file": "chaos_camp_0.mp3",
       "context": "chaos_camp",
       "recommended_kmh": 0.0,
       "volume": 0.6,
       "loop": true
     },
     {
-      "id": "chaos_overworld",
-      "file": "chaos_overworld.mp3",
+      "id": "chaos_camp_1",
+      "file": "chaos_camp_1.mp3",
+      "context": "chaos_camp",
+      "recommended_kmh": 0.0,
+      "volume": 0.6,
+      "loop": true
+    },
+    {
+      "id": "chaos_camp_3",
+      "file": "chaos_camp_3.mp3",
+      "context": "chaos_camp",
+      "recommended_kmh": 0.0,
+      "volume": 0.6,
+      "loop": true
+    },
+    {
+      "id": "chaos_camp_night_2",
+      "file": "chaos_camp_night_2.mp3",
+      "context": "chaos_camp_night",
+      "recommended_kmh": 0.0,
+      "volume": 0.6,
+      "loop": true
+    },
+    {
+      "id": "chaos_overworld_1",
+      "file": "chaos_overworld_1.mp3",
       "context": "chaos_overworld",
       "recommended_kmh": 3.0,
       "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "chaos_overworld_2",
+      "file": "chaos_overworld_2.mp3",
+      "context": "chaos_overworld",
+      "recommended_kmh": 3.5,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "chaos_night_overworld_1",
+      "file": "chaos_night_overworld_1.mp3",
+      "context": "chaos_overworld_night",
+      "recommended_kmh": 3.0,
+      "volume": 0.7,
+      "loop": true
+    },
+    {
+      "id": "chaos_boss_1",
+      "file": "chaos_boss_1.mp3",
+      "context": "chaos_boss",
+      "recommended_kmh": 3.5,
+      "volume": 0.85,
       "loop": true
     }
   ]

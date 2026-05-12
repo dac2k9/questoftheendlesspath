@@ -67,14 +67,20 @@ enum MusicContext {
     Combat,
     Boss,
     Victory,
-    /// Chaos adventure — Survivors' Camp / Spire of Hael. Calm, with
-    /// a note of dread under the surface. Overrides the biome context
-    /// so the camp doesn't play grassland music.
+    /// Chaos adventure — Survivors' Camp / Spire of Hael, day. Calm
+    /// with a note of dread.
     ChaosCamp,
-    /// Chaos adventure — overworld between the camp and the castles.
-    /// Tense, building. Overrides the biome context unless the player
-    /// is in combat / boss / interior / village.
+    /// Chaos adventure — Survivors' Camp / Spire of Hael, night.
+    /// Same vibe darker; uses chaos_camp_night_* tracks.
+    ChaosCampNight,
+    /// Chaos adventure — overworld between the camp and the castles,
+    /// day. Tense, building.
     ChaosOverworld,
+    /// Chaos adventure — overworld, night. Darker / more uneasy.
+    ChaosOverworldNight,
+    /// Chaos boss combat. Overrides the generic Boss context with
+    /// chaos-themed boss music when the encounter is in chaos.
+    ChaosBoss,
     Silent,
 }
 
@@ -92,7 +98,10 @@ impl MusicContext {
             Self::Boss => "boss",
             Self::Victory => "victory",
             Self::ChaosCamp => "chaos_camp",
+            Self::ChaosCampNight => "chaos_camp_night",
             Self::ChaosOverworld => "chaos_overworld",
+            Self::ChaosOverworldNight => "chaos_overworld_night",
+            Self::ChaosBoss => "chaos_boss",
             Self::Silent => "",
         }
     }
@@ -213,6 +222,7 @@ fn update_music(
     player: Option<Res<MyPlayerState>>,
     world: Option<Res<WorldGrid>>,
     combat: Option<Res<crate::combat::CombatUiState>>,
+    cycle: Option<Res<crate::daynight::DayNightCycle>>,
     catalog: Res<MusicCatalog>,
     mut music: ResMut<MusicState>,
 ) {
@@ -242,7 +252,7 @@ fn update_music(
     }
 
     // Determine desired context
-    let desired_context = determine_context(&state, &player, &world, &combat);
+    let desired_context = determine_context(&state, &player, &world, &combat, &cycle);
     let speed = player.as_ref().map(|p| p.speed_kmh).unwrap_or(0.0);
 
     // Track how long we've been in this context; force a re-roll every
@@ -448,16 +458,23 @@ fn determine_context(
     player: &Option<Res<MyPlayerState>>,
     world: &Option<Res<WorldGrid>>,
     combat: &Option<Res<crate::combat::CombatUiState>>,
+    cycle: &Option<Res<crate::daynight::DayNightCycle>>,
 ) -> MusicContext {
     if **app_state == AppState::Title {
         return MusicContext::Title;
     }
 
-    // Combat overrides everything
+    // Combat overrides everything. In chaos, boss combats get
+    // chaos-specific music; difficulty < 6 in chaos still uses the
+    // generic Combat tracks (no chaos minor-encounter tracks yet).
     if let Some(combat) = combat {
         if combat.active && combat.state.is_some() {
             let difficulty = combat.state.as_ref().map(|s| s.difficulty).unwrap_or(0);
-            return if difficulty >= 6 { MusicContext::Boss } else { MusicContext::Combat };
+            let in_chaos = player.as_ref().map(|p| p.adventure_id == "chaos").unwrap_or(false);
+            if difficulty >= 6 {
+                return if in_chaos { MusicContext::ChaosBoss } else { MusicContext::Boss };
+            }
+            return MusicContext::Combat;
         }
     }
 
@@ -471,18 +488,21 @@ fn determine_context(
 
     let Some(world) = world else { return MusicContext::Silent };
 
-    // Chaos adventure has its own atmosphere. Camp / Spire of Hael
-    // get the calm theme; everywhere else gets the dread/build theme.
-    // Falls through to biome music if no chaos tracks are authored
-    // (catalog lookup returns nothing → silent → biome wins next
-    // iteration).
+    // Chaos adventure has its own atmosphere — split day vs. night
+    // since the chaos audio set authored both. `is_day()` is the day
+    // half of the cycle; outside chaos the day/night split is purely
+    // visual (no separate music yet).
+    let is_night = cycle.as_ref().map(|c| !c.is_day()).unwrap_or(false);
     if player.adventure_id == "chaos" {
-        if let Some(poi) = world.map.poi_at(player.tile_x as usize, player.tile_y as usize) {
-            if matches!(poi.poi_type, questlib::mapgen::PoiType::RefugeeCamp | questlib::mapgen::PoiType::WizardsSpire) {
-                return MusicContext::ChaosCamp;
-            }
-        }
-        return MusicContext::ChaosOverworld;
+        let at_camp = world.map.poi_at(player.tile_x as usize, player.tile_y as usize)
+            .map(|p| matches!(p.poi_type, questlib::mapgen::PoiType::RefugeeCamp | questlib::mapgen::PoiType::WizardsSpire))
+            .unwrap_or(false);
+        return match (at_camp, is_night) {
+            (true,  false) => MusicContext::ChaosCamp,
+            (true,  true)  => MusicContext::ChaosCampNight,
+            (false, false) => MusicContext::ChaosOverworld,
+            (false, true)  => MusicContext::ChaosOverworldNight,
+        };
     }
 
     // Check if at a village/town POI
