@@ -107,12 +107,23 @@ pub fn run_interior_tick(
         return Ok(());
     }
 
-    // Compute delta from total_distance_m, same as overworld.
+    // Compute delta from total_distance_m, same as overworld. For
+    // debug_walking players the overworld tick is what normally
+    // simulates distance growth from current_speed_kmh — but the
+    // overworld tick short-circuits for any player whose
+    // `location.interior_id().is_some()`, so distance would never
+    // grow while inside a cavern. Mirror the overworld's
+    // speed→delta formula here so debug_walk(speed=3) inside an
+    // interior advances at the same 0.83 m/s.
     if !player_last_distance.contains_key(player_id) {
         player_last_distance.insert(player_id.to_string(), player.total_distance_m);
     }
-    let last_dist = *player_last_distance.get(player_id).unwrap_or(&player.total_distance_m);
-    let raw_delta = (player.total_distance_m - last_dist).max(0.0).min(20.0);
+    let raw_delta = if player.debug_walking {
+        (player.current_speed_kmh as f64 / 3.6).min(20.0)
+    } else {
+        let last_dist = *player_last_distance.get(player_id).unwrap_or(&player.total_distance_m);
+        (player.total_distance_m - last_dist).max(0.0).min(20.0)
+    };
     player_last_distance.insert(player_id.to_string(), player.total_distance_m);
 
     // Apply speed multipliers (boots + potions) — interiors are just as much

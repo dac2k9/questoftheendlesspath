@@ -921,8 +921,16 @@ fn promote_pending_triggers(
     for event in events_lock.events.iter_mut() {
         if event.status != EventStatus::Pending { continue; }
         if event.repeatable { continue; }
-        let is_cave_entrance = matches!(event.kind, questlib::events::kind::EventKind::CaveEntrance { .. });
-        if !is_cave_entrance && player.completed_events.contains(&event.id) { continue; }
+        // CaveEntrance events MUST be handled in the walking branch
+        // (it has the `enter_interior` call + torch consumption +
+        // per-player completion tracking). If we flip them to Active
+        // from this stationary path, the walking-branch filter skips
+        // them (it only re-considers Pending events), and the player
+        // is stuck standing on a cave mouth that never opens.
+        if matches!(event.kind, questlib::events::kind::EventKind::CaveEntrance { .. }) {
+            continue;
+        }
+        if player.completed_events.contains(&event.id) { continue; }
         if event.trigger.evaluate(&ctx) {
             if event.transition(EventStatus::Active).is_ok() {
                 info!(
