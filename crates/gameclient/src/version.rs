@@ -20,7 +20,7 @@ fn log(s: &str) {
 
 /// Must match the `?v=NNN` number in crates/gameclient/index.html.
 /// Bumped together by hand on every WASM rebuild.
-pub const CLIENT_VERSION: u32 = 338;
+pub const CLIENT_VERSION: u32 = 339;
 
 /// How often to poll the server for version. 60s is frequent enough that
 /// players notice a deploy within a minute without hammering the server.

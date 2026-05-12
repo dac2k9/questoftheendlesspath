@@ -88,6 +88,12 @@ pub fn run_tick_dev(
         // accumulated distance between ticks (e.g. during WS connect/buffering).
         if !player.is_walking {
             player_last_distance.remove(player_id);
+            // Still evaluate triggers so a teleport-spawn or stationary
+            // player on a quest POI sees the intro dialogue fire without
+            // having to walk first. /start_new_adventure lands a chaos
+            // player on the Survivors' Camp (100, 80); chaos_intro must
+            // become Active here even though they haven't taken a step.
+            promote_pending_triggers(player, world, &mut events_lock);
             continue;
         }
 
@@ -153,6 +159,10 @@ pub fn run_tick_dev(
         info!("[{}] delta={:.2}m (speed={:.1}km/h)", player.name, delta, player.current_speed_kmh);
 
         if delta < 0.01 {
+            // Same as the !is_walking branch: keep triggers responsive
+            // when the bridge hasn't pushed new distance this tick but
+            // the player is still on a quest tile.
+            promote_pending_triggers(player, world, &mut events_lock);
             continue;
         }
 
@@ -859,6 +869,69 @@ pub fn run_tick_dev(
     }
 
     Ok(())
+}
+
+/// Minimal "trigger pass" for stationary players: walks the catalog
+/// and flips any matching Pending events to Active for *this* player's
+/// current tile. Skips outcome application — the client's
+/// `/events/<id>/complete` path handles that once the player dismisses
+/// the dialogue / modal. Skips events the player has already
+/// completed personally. Random / RNG-driven triggers are evaluated
+/// with a fixed roll of 1.0 (i.e. never fire) since the stationary
+/// pass runs every tick and would otherwise re-roll constantly.
+///
+/// Without this, /start_new_adventure teleporting a player to the
+/// Survivors' Camp would skip the intro dialogue until they started
+/// walking — leaving the player "in the middle of nowhere, no
+/// instructions" on first chaos enter.
+fn promote_pending_triggers(
+    player: &DevPlayerState,
+    world: &WorldMap,
+    events_lock: &mut EventCatalog,
+) {
+    let tile_x = player.map_tile_x as usize;
+    let tile_y = player.map_tile_y as usize;
+    let poi_id = world.poi_at(tile_x, tile_y).map(|p| p.id);
+    let nearby = world.pois_near(tile_x, tile_y, 5);
+    let biome = world.biome_at(tile_x, tile_y);
+    let inventory: Vec<String> = {
+        let mut ids: Vec<String> = player.inventory.iter().map(|s| s.item_id.clone()).collect();
+        for slot in questlib::items::EquipmentLoadout::all_slots() {
+            if let Some(id) = player.equipment.get_slot(slot) {
+                ids.push(id.to_string());
+            }
+        }
+        ids
+    };
+    let completed_global = events_lock.completed_ids();
+    let ctx = TriggerContext {
+        player_tile: (tile_x, tile_y),
+        player_poi: poi_id,
+        nearby_poi_ids: nearby,
+        player_biome: biome,
+        total_distance_m: player.total_distance_m as u32,
+        inventory,
+        completed_events: completed_global,
+        // Never fires Random triggers from this path — they're meant
+        // to be sampled while moving, not as long as the player stands
+        // still. The walking branch will pick them up on the first
+        // tick the player resumes.
+        rng_roll: 1.0,
+    };
+    for event in events_lock.events.iter_mut() {
+        if event.status != EventStatus::Pending { continue; }
+        if event.repeatable { continue; }
+        let is_cave_entrance = matches!(event.kind, questlib::events::kind::EventKind::CaveEntrance { .. });
+        if !is_cave_entrance && player.completed_events.contains(&event.id) { continue; }
+        if event.trigger.evaluate(&ctx) {
+            if event.transition(EventStatus::Active).is_ok() {
+                info!(
+                    "[{}] stationary-trigger: {} ({})",
+                    player.name, event.name, event.id
+                );
+            }
+        }
+    }
 }
 
 /// Create a test player with the given parameters.
