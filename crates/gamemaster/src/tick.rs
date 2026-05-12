@@ -71,19 +71,31 @@ pub fn run_tick_dev(
         // (99, 79). Symptom: chaos player's SE 3/4 of the world stays
         // unrevealed regardless of how far they walk.
         if !player_fogs.contains_key(player_id) {
-            let fog = if !player.revealed_tiles.is_empty() {
+            // Try to restore from the saved bitfield. None comes back
+            // both when the saved string is empty AND when it's the
+            // wrong size for this adventure's world (e.g. a 100×80
+            // bitfield being loaded against the 200×160 chaos world —
+            // the old fallback `unwrap_or_else(new_sized)` returned an
+            // EMPTY fog with no initial reveal, which is what the user
+            // saw as "I see nothing around me on enter-game").
+            let restored = if !player.revealed_tiles.is_empty() {
                 FogBitfield::from_base64_sized(&player.revealed_tiles, world.width, world.height)
-                    .unwrap_or_else(|| FogBitfield::new_sized(world.width, world.height))
             } else {
+                None
+            };
+            let fog = restored.unwrap_or_else(|| {
                 let mut f = FogBitfield::new_sized(world.width, world.height);
                 f.reveal_radius(player.map_tile_x as usize, player.map_tile_y as usize, 8);
-                // Write initial fog to player state so client can see it
-                let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-                if let Some(p) = lock.get_mut(player_id) {
-                    p.revealed_tiles = f.to_base64();
+                // Write the initial reveal back to player state so the
+                // client sees it on the next poll (otherwise the player
+                // would have to take a step before anything was revealed).
+                if let Ok(mut lock) = state.lock() {
+                    if let Some(p) = lock.get_mut(player_id) {
+                        p.revealed_tiles = f.to_base64();
+                    }
                 }
                 f
-            };
+            });
             player_fogs.insert(player_id.clone(), fog);
         }
 
