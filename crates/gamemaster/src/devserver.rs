@@ -996,12 +996,20 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                 // lock, returned early, and never actually revealed
                                 // anything (Explorer's Map looked silent to the
                                 // user).
+                                // Size the bitfield to the player's bundle's world
+                                // dims so chaos players' SE-quadrant reveals
+                                // actually land (the 100×80 default cap silently
+                                // dropped anything past tile (99, 79)).
+                                let (bw, bh) = bundles.get(&player.adventure_id)
+                                    .map(|b| (b.world.width, b.world.height))
+                                    .unwrap_or((questlib::mapgen::MAP_W, questlib::mapgen::MAP_H));
                                 let px = player.map_tile_x as usize;
                                 let py = player.map_tile_y as usize;
                                 let mut fog = if !player.revealed_tiles.is_empty() {
-                                    questlib::fog::FogBitfield::from_base64(&player.revealed_tiles).unwrap_or_default()
+                                    questlib::fog::FogBitfield::from_base64_sized(&player.revealed_tiles, bw, bh)
+                                        .unwrap_or_else(|| questlib::fog::FogBitfield::new_sized(bw, bh))
                                 } else {
-                                    questlib::fog::FogBitfield::new()
+                                    questlib::fog::FogBitfield::new_sized(bw, bh)
                                 };
                                 fog.reveal_radius(px, py, *radius as usize);
                                 player.revealed_tiles = fog.to_base64();
@@ -1420,10 +1428,16 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                                         questlib::items::add_item(&mut player.inventory, name, cat);
                                     }
                                     questlib::events::EventOutcome::RevealFog { x, y, radius } => {
+                                        // Size to bundle world dims — see /use_item
+                                        // for the same fix rationale.
+                                        let (bw, bh) = bundles.get(&player.adventure_id)
+                                            .map(|b| (b.world.width, b.world.height))
+                                            .unwrap_or((questlib::mapgen::MAP_W, questlib::mapgen::MAP_H));
                                         let mut fog = if !player.revealed_tiles.is_empty() {
-                                            questlib::fog::FogBitfield::from_base64(&player.revealed_tiles).unwrap_or_default()
+                                            questlib::fog::FogBitfield::from_base64_sized(&player.revealed_tiles, bw, bh)
+                                                .unwrap_or_else(|| questlib::fog::FogBitfield::new_sized(bw, bh))
                                         } else {
-                                            questlib::fog::FogBitfield::new()
+                                            questlib::fog::FogBitfield::new_sized(bw, bh)
                                         };
                                         fog.reveal_radius(*x, *y, *radius);
                                         player.revealed_tiles = fog.to_base64();

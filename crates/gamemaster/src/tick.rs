@@ -65,12 +65,17 @@ pub fn run_tick_dev(
             player_fogs.remove(player_id);
         }
 
-        // Init fog
+        // Init fog. Use `_sized` variants — the default new()/from_base64()
+        // bake in MAP_W=100, MAP_H=80 (the frost_quest default), so chaos
+        // bitfields would silently refuse to store reveals past tile
+        // (99, 79). Symptom: chaos player's SE 3/4 of the world stays
+        // unrevealed regardless of how far they walk.
         if !player_fogs.contains_key(player_id) {
             let fog = if !player.revealed_tiles.is_empty() {
-                FogBitfield::from_base64(&player.revealed_tiles).unwrap_or_default()
+                FogBitfield::from_base64_sized(&player.revealed_tiles, world.width, world.height)
+                    .unwrap_or_else(|| FogBitfield::new_sized(world.width, world.height))
             } else {
-                let mut f = FogBitfield::new();
+                let mut f = FogBitfield::new_sized(world.width, world.height);
                 f.reveal_radius(player.map_tile_x as usize, player.map_tile_y as usize, 8);
                 // Write initial fog to player state so client can see it
                 let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -242,7 +247,7 @@ pub fn run_tick_dev(
             let Some(fog) = player_fogs.get_mut(player_id) else { continue };
             // Merge any fog reveals from event completions (applied to player state directly)
             if !player.revealed_tiles.is_empty() {
-                if let Some(state_fog) = FogBitfield::from_base64(&player.revealed_tiles) {
+                if let Some(state_fog) = FogBitfield::from_base64_sized(&player.revealed_tiles, world.width, world.height) {
                     fog.merge(&state_fog);
                 }
             }
