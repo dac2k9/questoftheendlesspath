@@ -305,8 +305,12 @@ fn biome_height_factor(world: &WorldGrid, x: usize, y: usize) -> f32 {
 /// UVs run 0..1 across the world rectangle (matching the previous
 /// single-quad mesh) so the autotile fragment shader is unchanged.
 fn build_tile_mesh(world: &WorldGrid, z_factor: f32) -> Mesh {
-    let w = world_w();
-    let h = world_h();
+    // Source dims from the WorldGrid — atomics can lag and would
+    // result in a mesh that only covers the NW quadrant of a 200×160
+    // world, leaving the rest of the world rendered with the raw
+    // bake_map_texture under the partial procedural overlay.
+    let w = world.width;
+    let h = world.height;
     let nx = w + 1; // 101 vertices wide
     let ny = h + 1; // 81 vertices tall
 
@@ -380,8 +384,8 @@ fn build_tile_mesh(world: &WorldGrid, z_factor: f32) -> Mesh {
 /// Sampler is NEAREST so the shader never sees fractional IDs.
 fn generate_biome_texture(world: &WorldGrid) -> Image {
     use questlib::mapgen::Biome::*;
-    let w = world_w();
-    let h = world_h();
+    let w = world.width;
+    let h = world.height;
     let mut data = Vec::with_capacity(w * h);
     for y in 0..h {
         for x in 0..w {
@@ -679,8 +683,8 @@ fn box_blur_3x3(input: &[f32], w: usize, h: usize) -> Vec<f32> {
 
 /// Bake a 100×80 R8 heightmap (3× blurred) for the Phong pass.
 fn generate_heightmap(world: &WorldGrid) -> Image {
-    let w = world_w();
-    let h = world_h();
+    let w = world.width;
+    let h = world.height;
     let mut height = vec![0.0_f32; w * h];
     for y in 0..h {
         for x in 0..w {
@@ -720,8 +724,10 @@ fn generate_heightmap(world: &WorldGrid) -> Image {
 /// Bake a per-pixel distance-to-water R8 texture (1600×1280).
 fn generate_water_distance(world: &WorldGrid) -> Image {
     use questlib::mapgen::Biome::*;
-    let pw = world_w() * TILE_PX as usize;
-    let ph = world_h() * TILE_PX as usize;
+    let ww = world.width;
+    let wh = world.height;
+    let pw = ww * TILE_PX as usize;
+    let ph = wh * TILE_PX as usize;
     let mut data = Vec::with_capacity(pw * ph);
     for py in 0..ph {
         for px in 0..pw {
@@ -730,7 +736,7 @@ fn generate_water_distance(world: &WorldGrid) -> Image {
             let tile_x = (fx / TILE_PX).floor() as i32;
             let tile_y = (fy / TILE_PX).floor() as i32;
             let in_world = tile_x >= 0 && tile_y >= 0
-                && tile_x < world_w() as i32 && tile_y < world_h() as i32;
+                && tile_x < ww as i32 && tile_y < wh as i32;
             let own_is_water = in_world && matches!(
                 world.map.biome_at(tile_x as usize, tile_y as usize),
                 Water | DeepWater
@@ -745,7 +751,7 @@ fn generate_water_distance(world: &WorldGrid) -> Image {
                     if nx == 0 && ny == 0 { continue; }
                     let bx = tile_x + nx;
                     let by = tile_y + ny;
-                    if bx < 0 || by < 0 || bx >= world_w() as i32 || by >= world_h() as i32 {
+                    if bx < 0 || by < 0 || bx >= ww as i32 || by >= wh as i32 {
                         continue;
                     }
                     if !matches!(
