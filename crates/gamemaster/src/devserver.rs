@@ -335,6 +335,12 @@ pub async fn start_dev_server(state: SharedState, events: SharedEvents, notifs: 
                 && !path.starts_with("/notifications")
                 && !path.starts_with("/interior")
                 && !path.starts_with("/entities")
+                && !path.starts_with("/world")
+                && !path.starts_with("/adventures")
+                && !path.starts_with("/shops")
+                && !path.starts_with("/journal")
+                && !path.starts_with("/daynight")
+                && !path.starts_with("/version")
                 && status == "404 Not Found"
             {
                 let clean_path = path.split('?').next().unwrap_or(path);
@@ -1151,6 +1157,29 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             "200 OK",
             format!(r#"{{"time_s":{:.3},"cycle_seconds":{}}}"#, time_s, CYCLE_SECONDS),
         );
+    }
+
+    // GET /world/pois?adventure_id=X — full POI list (procedural + authored)
+    // for the named adventure. Client uses this to overlay the authored
+    // chaos POIs (castles, gates, camp, spire) on top of its local
+    // procedural world — without this the chaos players see only the
+    // 23 procedural POIs, not the 10 authored landmarks the quest
+    // chain pivots around.
+    if first_line.starts_with("GET /world/pois") {
+        let adv_id = first_line.split("adventure_id=").nth(1)
+            .and_then(|s| s.split(|c: char| c == ' ' || c == '&').next())
+            .unwrap_or("frost_quest");
+        let Some(bundle) = bundles.get(adv_id) else {
+            return ("404 Not Found", format!(
+                r#"{{"error":"unknown adventure_id '{}'"}}"#, adv_id
+            ));
+        };
+        // Serialize the POI list. Each POI is small (id, type, x, y,
+        // biome, has_road, name, description); even 33 of them comes
+        // in under a few KB.
+        let body = serde_json::to_string(&bundle.world.pois)
+            .unwrap_or_else(|_| "[]".to_string());
+        return ("200 OK", body);
     }
 
     // GET /adventures?player_id=X — list adventures the player can

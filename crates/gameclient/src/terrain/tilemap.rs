@@ -1618,6 +1618,8 @@ fn handle_debug_menu(
     mut commands: Commands,
     font: Res<GameFont>,
     time: Res<Time>,
+    session: Res<GameSession>,
+    world: Option<Res<WorldGrid>>,
     existing: Query<Entity, With<DebugMenuUi>>,
     mut poi_labels: Query<&mut Visibility, With<PoiLabel>>,
 ) {
@@ -1628,8 +1630,18 @@ fn handle_debug_menu(
     for mut vis in &mut poi_labels { *vis = if debug.show_pois { Visibility::Visible } else { Visibility::Hidden }; }
     for e in &existing { commands.entity(e).despawn_recursive(); }
     let fps = (1.0 / time.delta_secs()).round() as u32;
+    // World dims surface alongside the version so a stale-build /
+    // wrong-world bug shows up here without diving into the console.
+    let (ww, wh) = world
+        .as_ref()
+        .map(|w| (w.width, w.height))
+        .unwrap_or((0, 0));
     let text = format!(
-        "=== DEBUG (F3) ===\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF4: Procedural ground [{}]\nF6: Lighting [{}]\nF7: Water shader [{}]\nF8: Debug sun [{}] ({:.1}, {:.1}, {:.1})\nF9: Show normals (water + shoreline bevel) [{}]\nF10: Show heightmap [{}]\nPgUp/PgDn: Tile Z factor [{:.2}]",
+        "=== DEBUG (F3) ===\nClient v{} · seed {} · {}×{} · adv {}\nFPS: {}\n1: Fog [{}]\n2: POIs [{}]\nF4: Procedural ground [{}]\nF6: Lighting [{}]\nF7: Water shader [{}]\nF8: Debug sun [{}] ({:.1}, {:.1}, {:.1})\nF9: Show normals (water + shoreline bevel) [{}]\nF10: Show heightmap [{}]\nPgUp/PgDn: Tile Z factor [{:.2}]",
+        crate::version::CLIENT_VERSION,
+        session.map_seed,
+        ww, wh,
+        if session.player_id.is_empty() { "?" } else { "loaded" },
         fps,
         if debug.fog_disabled { "OFF" } else { "ON" },
         if debug.show_pois { "ON" } else { "OFF" },
