@@ -157,6 +157,31 @@ fn migrate_to_bundle_dims(
             p.map_tile_x = (w / 2) as i32;
             p.map_tile_y = (h / 2) as i32;
         }
+        // Pre-refactor save migration: chaos players whose save predates
+        // the 200×160 world were last seen at (50, 40) — the old centre,
+        // and 50 tiles off the new Survivors' Camp at (100, 80). They
+        // also won't have completed chaos_intro yet (or any chaos quest
+        // event), so they're stranded in grassland with no NPC contact.
+        // If we see that shape — chaos adventure, no completed chaos
+        // events, position in the top-left quadrant of the new world —
+        // snap them to the new camp so the intro fires on enter-game.
+        if p.adventure_id == "chaos"
+            && !p.completed_events.iter().any(|e| e.starts_with("chaos_"))
+            && p.map_tile_x < (w / 2) as i32
+            && p.map_tile_y < (h / 2) as i32
+            && (p.map_tile_x, p.map_tile_y) != ((w / 2) as i32, (h / 2) as i32)
+        {
+            info!(
+                "[{}] pre-refactor chaos save: snapping from ({},{}) → ({},{}) (camp)",
+                p.name, p.map_tile_x, p.map_tile_y, w / 2, h / 2,
+            );
+            p.map_tile_x = (w / 2) as i32;
+            p.map_tile_y = (h / 2) as i32;
+            // Also wipe stale fog so the camp area shows revealed once
+            // the player arrives — they shouldn't be staring through
+            // fog at coords they walked over in a different-shaped world.
+            p.revealed_tiles.clear();
+        }
     }
 }
 
