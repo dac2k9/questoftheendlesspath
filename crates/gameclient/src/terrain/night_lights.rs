@@ -33,10 +33,15 @@ impl Plugin for NightLightsPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(Material2dPlugin::<NightMaterial>::default())
             .init_resource::<SceneLights>()
-            .add_systems(OnEnter(AppState::InGame), spawn_night_overlay)
+            // spawn_night_overlay moved to Update so it can read from
+            // the WorldGrid Resource (which spawn_world inserts in
+            // OnEnter — system order between OnEnter callbacks is
+            // undefined, so reading on InGame entry could race the
+            // resource insertion). Guarded by an `existing.is_empty()`
+            // check so it only spawns once.
             .add_systems(
                 Update,
-                (gather_scene_lights, update_night_material)
+                (spawn_night_overlay, gather_scene_lights, update_night_material)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -104,9 +109,21 @@ fn spawn_night_overlay(
     mut commands: Commands,
     mut materials: ResMut<Assets<NightMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    world: Option<Res<WorldGrid>>,
+    existing: Query<Entity, With<NightOverlaySprite>>,
 ) {
-    let w = world_w() as f32 * TILE_PX;
-    let h = world_h() as f32 * TILE_PX;
+    // Spawn lazily once the WorldGrid Resource is live. spawn_world
+    // inserts it at the end of its own OnEnter run, but the order
+    // between OnEnter systems is undefined; if night_lights ran
+    // first, the world_w()/world_h() atomics would still be at the
+    // 100×80 default and the mesh would only cover the NW quadrant
+    // of a 200×160 chaos world (visible as a dark rectangle with the
+    // player at its SE corner). Reading dims off the WorldGrid
+    // directly side-steps the race.
+    if !existing.is_empty() { return; }
+    let Some(world) = world else { return };
+    let w = world.width as f32 * TILE_PX;
+    let h = world.height as f32 * TILE_PX;
     let cx = w / 2.0 - TILE_PX / 2.0;
     let cy = -h / 2.0 + TILE_PX / 2.0;
     let mesh = meshes.add(Rectangle::new(w, h));
@@ -169,7 +186,10 @@ fn gather_scene_lights(
             // toggle overrides this gate so the debug view still shows
             // every light everywhere.
             if !debug.fog_disabled {
-                let idx = poi.y as usize * world_w() + poi.x as usize;
+                // Index into the per-player fog bitfield using the
+                // WorldGrid's dims, NOT the world_w() atomic (could
+                // be stale).
+                let idx = poi.y as usize * world.width + poi.x as usize;
                 if fog.revealed.get(idx).copied() != Some(true) {
                     continue;
                 }

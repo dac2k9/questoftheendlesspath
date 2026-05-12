@@ -925,14 +925,22 @@ fn apply_server_state(
     }
 
 
-    // Update fog from server
+    // Update fog from server. Use `from_base64_sized` with the actual
+    // world dims — the un-sized variant hardcodes the bitfield to
+    // MAP_W × MAP_H (100 × 80), so a 4000-byte chaos bitfield got
+    // decoded as a 100×80 region and `is_revealed(x, y)` returned
+    // false for every tile past (99, 79). Symptom: server-side fog
+    // reveals across the chaos world got silently dropped by the
+    // client.
     if let Some(ref encoded) = me.revealed_tiles {
         if !encoded.is_empty() {
-            if let Some(server_fog) = questlib::fog::FogBitfield::from_base64(encoded) {
-                for y in 0..world_h() {
-                    for x in 0..world_w() {
+            let w = world.as_ref().map(|w| w.width).unwrap_or(world_w());
+            let h = world.as_ref().map(|w| w.height).unwrap_or(world_h());
+            if let Some(server_fog) = questlib::fog::FogBitfield::from_base64_sized(encoded, w, h) {
+                for y in 0..h {
+                    for x in 0..w {
                         if server_fog.is_revealed(x, y) && !fog.is_revealed(x, y) {
-                            fog.revealed[y * world_w() + x] = true;
+                            fog.revealed[y * w + x] = true;
                             fog.dirty = true;
                         }
                     }
