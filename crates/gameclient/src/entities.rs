@@ -181,10 +181,14 @@ fn stitch_4dir_atlas(
     let inputs = [south, west, east, north]; // matches atlas rows 0/1/2/3
     let mut atlas = image::RgbaImage::new(64, 64);
     for (row_idx, bytes) in inputs.iter().enumerate() {
-        let img = image::load_from_memory(bytes).ok()?;
-        let cell = img
-            .resize_exact(16, 16, image::imageops::FilterType::Nearest)
-            .to_rgba8();
+        let img = image::load_from_memory(bytes).ok()?.to_rgba8();
+        // Pixellab outputs come at ~92×92 with the character occupying
+        // only the middle ~40 px — the rest is transparent padding.
+        // Resizing the full 92×92 to 16×16 leaves the character ~7 px
+        // tall, an unrecognizable blob. Tight-crop to the
+        // non-transparent bounding box first so the character fills
+        // (and gets centered in) the 16×16 cell.
+        let cell = downsample_tight(&img, 16, 16);
         for col in 0..4u32 {
             for y in 0..16u32 {
                 for x in 0..16u32 {
@@ -195,6 +199,49 @@ fn stitch_4dir_atlas(
         }
     }
     Some(atlas)
+}
+
+/// Crop to the bounding box of pixels with alpha > 8, expanded to a
+/// square so the character keeps its aspect ratio when downsampled,
+/// then resize with Nearest to (target_w, target_h). Pure-transparent
+/// input falls back to a blank cell.
+fn downsample_tight(src: &image::RgbaImage, target_w: u32, target_h: u32) -> image::RgbaImage {
+    let (sw, sh) = src.dimensions();
+    let mut min_x = sw;
+    let mut min_y = sh;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+    let mut any = false;
+    for y in 0..sh {
+        for x in 0..sw {
+            let a = src.get_pixel(x, y)[3];
+            if a > 8 {
+                any = true;
+                if x < min_x { min_x = x; }
+                if y < min_y { min_y = y; }
+                if x > max_x { max_x = x; }
+                if y > max_y { max_y = y; }
+            }
+        }
+    }
+    if !any {
+        return image::RgbaImage::new(target_w, target_h);
+    }
+    // Square the crop around the character's center so aspect ratio
+    // survives the downsample (otherwise tall thin sprites get
+    // squashed horizontally and short wide ones get stretched).
+    let cx = (min_x + max_x) / 2;
+    let cy = (min_y + max_y) / 2;
+    let w = max_x - min_x + 1;
+    let h = max_y - min_y + 1;
+    let side = w.max(h);
+    let half = side / 2;
+    let x0 = cx.saturating_sub(half);
+    let y0 = cy.saturating_sub(half);
+    let crop_w = side.min(sw - x0);
+    let crop_h = side.min(sh - y0);
+    let cropped = image::imageops::crop_imm(src, x0, y0, crop_w, crop_h).to_image();
+    image::imageops::resize(&cropped, target_w, target_h, image::imageops::FilterType::Nearest)
 }
 
 fn build_sprite_registry(
