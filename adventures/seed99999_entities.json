@@ -48,7 +48,7 @@
       "id": "chaos_flame_imp_1",
       "kind": "monster",
       "name": "Flame Imp",
-      "sprite": "void_imp",
+      "sprite": "flame_imp",
       "spawn": [130, 25],
       "behavior": { "type": "wander", "radius": 4 },
       "movement": { "speed_tiles_per_min": 11 },
@@ -96,7 +96,7 @@
       "id": "chaos_shadow_imp_1",
       "kind": "monster",
       "name": "Shadow Stalker",
-      "sprite": "void_imp",
+      "sprite": "shadow_stalker",
       "spawn": [50, 130],
       "behavior": { "type": "wander", "radius": 5 },
       "movement": { "speed_tiles_per_min": 12 },
@@ -140,7 +140,7 @@
       "id": "chaos_storm_imp_1",
       "kind": "monster",
       "name": "Stormwight",
-      "sprite": "void_imp",
+      "sprite": "stormwight",
       "spawn": [180, 110],
       "behavior": { "type": "wander", "radius": 4 },
       "movement": { "speed_tiles_per_min": 13 },
@@ -231,6 +231,61 @@
       "movement": { "speed_tiles_per_min": 8 },
       "on_contact": { "type": "combat", "difficulty": 3 },
       "respawn_after_secs": 480
+    },
+    {
+      "id": "chaos_wolf_1",
+      "kind": "monster",
+      "name": "Corrupted Wolf",
+      "sprite": "chaos_wolf",
+      "spawn": [85, 65],
+      "behavior": { "type": "wander", "radius": 6 },
+      "movement": { "speed_tiles_per_min": 11 },
+      "on_contact": { "type": "combat", "difficulty": 3 },
+      "respawn_after_secs": 360
+    },
+    {
+      "id": "chaos_wolf_2",
+      "kind": "monster",
+      "name": "Corrupted Wolf",
+      "sprite": "chaos_wolf",
+      "spawn": [125, 75],
+      "behavior": { "type": "wander", "radius": 6 },
+      "movement": { "speed_tiles_per_min": 11 },
+      "on_contact": { "type": "combat", "difficulty": 3 },
+      "respawn_after_secs": 360
+    },
+    {
+      "id": "chaos_wolf_3",
+      "kind": "monster",
+      "name": "Corrupted Wolf",
+      "sprite": "chaos_wolf",
+      "spawn": [110, 120],
+      "behavior": { "type": "wander", "radius": 7 },
+      "movement": { "speed_tiles_per_min": 11 },
+      "on_contact": { "type": "combat", "difficulty": 4 },
+      "respawn_after_secs": 360
+    },
+    {
+      "id": "chaos_refugee_1",
+      "kind": "npc",
+      "name": "Refugee on the road",
+      "sprite": "refugee",
+      "spawn": [85, 78],
+      "behavior": { "type": "wander", "radius": 4 },
+      "movement": { "speed_tiles_per_min": 4 },
+      "on_contact": { "type": "dialogue" },
+      "respawn_after_secs": 0
+    },
+    {
+      "id": "chaos_refugee_2",
+      "kind": "npc",
+      "name": "Refugee on the road",
+      "sprite": "refugee",
+      "spawn": [105, 90],
+      "behavior": { "type": "wander", "radius": 3 },
+      "movement": { "speed_tiles_per_min": 4 },
+      "on_contact": { "type": "dialogue" },
+      "respawn_after_secs": 0
     }
   ]
 }

@@ -281,6 +281,38 @@ fn build_sprite_registry(
             east:  include_bytes!("../assets/generated/monsters/RoadBandit_east.png"),
             north: include_bytes!("../assets/generated/monsters/RoadBandit_north.png"),
         }),
+        // Phase 2 chaos sprites — themed entities for each castle's
+        // approach + civilian refugees on the roads.
+        ("refugee", SpriteSource::Directions {
+            south: include_bytes!("../assets/generated/monsters/Refugee_south.png"),
+            west:  include_bytes!("../assets/generated/monsters/Refugee_west.png"),
+            east:  include_bytes!("../assets/generated/monsters/Refugee_east.png"),
+            north: include_bytes!("../assets/generated/monsters/Refugee_north.png"),
+        }),
+        ("shadow_stalker", SpriteSource::Directions {
+            south: include_bytes!("../assets/generated/monsters/ShadowStalker_south.png"),
+            west:  include_bytes!("../assets/generated/monsters/ShadowStalker_west.png"),
+            east:  include_bytes!("../assets/generated/monsters/ShadowStalker_east.png"),
+            north: include_bytes!("../assets/generated/monsters/ShadowStalker_north.png"),
+        }),
+        ("flame_imp", SpriteSource::Directions {
+            south: include_bytes!("../assets/generated/monsters/FlameImp_south.png"),
+            west:  include_bytes!("../assets/generated/monsters/FlameImp_west.png"),
+            east:  include_bytes!("../assets/generated/monsters/FlameImp_east.png"),
+            north: include_bytes!("../assets/generated/monsters/FlameImp_north.png"),
+        }),
+        ("chaos_wolf", SpriteSource::Directions {
+            south: include_bytes!("../assets/generated/monsters/ChaosWolf_south.png"),
+            west:  include_bytes!("../assets/generated/monsters/ChaosWolf_west.png"),
+            east:  include_bytes!("../assets/generated/monsters/ChaosWolf_east.png"),
+            north: include_bytes!("../assets/generated/monsters/ChaosWolf_north.png"),
+        }),
+        ("stormwight", SpriteSource::Directions {
+            south: include_bytes!("../assets/generated/monsters/Stormwight_south.png"),
+            west:  include_bytes!("../assets/generated/monsters/Stormwight_west.png"),
+            east:  include_bytes!("../assets/generated/monsters/Stormwight_east.png"),
+            north: include_bytes!("../assets/generated/monsters/Stormwight_north.png"),
+        }),
     ];
 
     let mut sheets = HashMap::new();

@@ -62,9 +62,59 @@ struct DialogueText;
 #[derive(Component)]
 struct DialogueContinue;
 
+/// Map a dialogue speaker name to a 64×64 portrait PNG. Returns the
+/// asset path or None if no portrait exists for this NPC — callers
+/// should fall through to the name-only layout in that case.
+///
+/// Match is by *substring*, lower-cased, so minor spelling drift in
+/// the events JSON ("Elder Marwen" vs. "Marwen the Elder") still
+/// finds the right art. Order matters: more-specific matches go first
+/// so a generic "scholar" doesn't shadow a future "scholar maren".
+fn portrait_for_speaker(speaker: &str) -> Option<&'static str> {
+    let s = speaker.to_lowercase();
+    let entries: &[(&str, &str)] = &[
+        // Named chaos NPCs — these drive the main quest chain.
+        ("marwen",         "generated/portraits/npc_marwen.png"),
+        ("hael",           "generated/portraits/npc_hael.png"),
+        ("lirien",         "generated/portraits/npc_scout_lirien.png"),
+        ("sora",           "generated/portraits/npc_hermit_sora.png"),
+        ("cael",           "generated/portraits/npc_wanderer_cael.png"),
+        // Procedural-POI dialogue heads.
+        ("carver",         "generated/portraits/npc_carver.png"),
+        ("liso",           "generated/portraits/npc_carver.png"),
+        ("pilgrim",        "generated/portraits/npc_pilgrim.png"),
+        ("aren",           "generated/portraits/npc_pilgrim.png"),
+        ("prospector",     "generated/portraits/npc_prospector.png"),
+        ("halby",          "generated/portraits/npc_prospector.png"),
+        ("scholar",        "generated/portraits/npc_scholar.png"),
+        ("maren",          "generated/portraits/npc_scholar.png"),
+        ("tessa",          "generated/portraits/npc_scholar.png"),
+        ("hunter",         "generated/portraits/npc_hunter.png"),
+        ("vex",            "generated/portraits/npc_hunter.png"),
+        ("quartermaster",  "generated/portraits/npc_quartermaster.png"),
+        ("bera",           "generated/portraits/npc_quartermaster.png"),
+        ("forgemaster",    "generated/portraits/npc_forgemaster.png"),
+        ("vorn",           "generated/portraits/npc_forgemaster.png"),
+        ("apothecary",     "generated/portraits/npc_apothecary.png"),
+        ("veska",          "generated/portraits/npc_apothecary.png"),
+        ("hooded",         "generated/portraits/npc_black_market.png"),
+        // Boss portraits — climactic combat speakers double-render the
+        // boss face in their dialogue intro/defeat panels too.
+        ("queen of frost", "generated/portraits/boss_frost.png"),
+        ("lord of flame",  "generated/portraits/boss_flame.png"),
+        ("hierophant",     "generated/portraits/boss_shadow.png"),
+        ("stormbinder",    "generated/portraits/boss_storm.png"),
+    ];
+    for (needle, path) in entries {
+        if s.contains(needle) { return Some(path); }
+    }
+    None
+}
+
 fn update_dialogue(
     mut commands: Commands,
     font: Res<GameFont>,
+    asset_server: Res<AssetServer>,
     mut state: ResMut<DialogueState>,
     time: Res<Time>,
     existing: Query<Entity, With<DialogueBox>>,
@@ -112,7 +162,10 @@ fn update_dialogue(
         String::new()
     };
 
-    // Container centered on screen — narrower and taller
+    // Container centered on screen — narrower and taller.
+    // Layout is a row when a portrait is available (portrait | text)
+    // and a single column otherwise.
+    let portrait_path = portrait_for_speaker(&speaker);
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -130,13 +183,35 @@ fn update_dialogue(
         BorderRadius::all(Val::Px(6.0)),
         DialogueBox,
     )).with_children(|parent| {
-        // Speaker name
+        // Header row: optional portrait + speaker name.
         parent.spawn((
-            Text::new(speaker),
-            TextFont { font: font.0.clone(), font_size: 14.0, ..default() },
-            TextColor(Color::srgb(1.0, 0.85, 0.3)),
-            DialogueSpeaker,
-        ));
+            Node {
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(12.0),
+                ..default()
+            },
+        )).with_children(|header| {
+            if let Some(path) = portrait_path {
+                header.spawn((
+                    Node {
+                        width: Val::Px(72.0),
+                        height: Val::Px(72.0),
+                        border: UiRect::all(Val::Px(2.0)),
+                        ..default()
+                    },
+                    BorderColor(Color::srgb(0.5, 0.4, 0.15)),
+                    BorderRadius::all(Val::Px(4.0)),
+                    ImageNode::new(asset_server.load(path)),
+                ));
+            }
+            header.spawn((
+                Text::new(speaker),
+                TextFont { font: font.0.clone(), font_size: 14.0, ..default() },
+                TextColor(Color::srgb(1.0, 0.85, 0.3)),
+                DialogueSpeaker,
+            ));
+        });
 
         // Dialogue text
         parent.spawn((
