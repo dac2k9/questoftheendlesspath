@@ -401,7 +401,13 @@ pub struct FogOfWar {
 }
 
 impl FogOfWar {
-    fn new() -> Self { Self { revealed: vec![false; world_w() * world_h()], dirty: true } }
+    fn new() -> Self { Self::new_sized(world_w(), world_h()) }
+    /// Allocate fog for an explicit world size. Use this from
+    /// `spawn_world` to bypass any atomic-staleness race on the
+    /// `world_w()/world_h()` getters.
+    fn new_sized(w: usize, h: usize) -> Self {
+        Self { revealed: vec![false; w * h], dirty: true }
+    }
     fn reveal_around(&mut self, cx: usize, cy: usize, radius: usize) {
         let r = radius as i32;
         for dy in -r..=r {
@@ -508,8 +514,15 @@ fn blit_tile_alpha(dst: &mut [u8], dst_w: usize, dx: usize, dy: usize, src: &[u8
 /// GPU so the boundary between fogged and revealed becomes a soft
 /// half-tile fade on each side instead of a hard pixel edge.
 fn create_fog_mask(fog: &FogOfWar, debug: &DebugOptions) -> Image {
-    let w = world_w();
-    let h = world_h();
+    create_fog_mask_sized(fog, debug, world_w(), world_h())
+}
+
+/// Same as `create_fog_mask` but with explicit dims — used at spawn
+/// time to avoid the atomic-getter race that pinned the fog texture
+/// to 100×80 on chaos worlds. The update_fog_texture loop keeps using
+/// the atomic-getter version since by that point spawn_world has
+/// already pushed correct values.
+fn create_fog_mask_sized(fog: &FogOfWar, debug: &DebugOptions, w: usize, h: usize) -> Image {
     let mut data = vec![0u8; w * h];
     for ty in 0..h { for tx in 0..w {
         let revealed = debug.fog_disabled || fog.is_revealed(tx, ty);
@@ -571,8 +584,10 @@ fn spawn_world(
 
     let map_img = bake_map_texture(&world, &tileset_img, 16);
     let map_handle = images.add(map_img);
-    let map_cx = (world_w() as f32 * TILE_PX) / 2.0 - TILE_PX / 2.0;
-    let map_cy = -(world_h() as f32 * TILE_PX) / 2.0 + TILE_PX / 2.0;
+    // Use local dims (set above to drive from_seed_with_dims) so the
+    // map sprite + fog mesh are never sized against stale atomics.
+    let map_cx = (width as f32 * TILE_PX) / 2.0 - TILE_PX / 2.0;
+    let map_cy = -(height as f32 * TILE_PX) / 2.0 + TILE_PX / 2.0;
 
     commands.spawn((Sprite { image: map_handle, ..default() }, Transform::from_xyz(map_cx, map_cy, 0.0), Visibility::Hidden, MapSprite));
     // Expose ground-only and overlays-only textures so procedural_ground
@@ -584,15 +599,21 @@ fn spawn_world(
     commands.insert_resource(super::procedural_ground::BakedGroundTexture(ground_only_handle));
     commands.insert_resource(super::procedural_ground::BakedOverlaysTexture(overlays_only_handle));
 
-    let fog = FogOfWar::new();
+    let fog = FogOfWar::new_sized(width, height);
     let debug = DebugOptions::default();
-    let fog_mask_handle = images.add(create_fog_mask(&fog, &debug));
+    let fog_mask_handle = images.add(create_fog_mask_sized(&fog, &debug, width, height));
     // Spawning fog as Mesh2d + FogMaterial replaces the 1600×1280
     // baked-pixel sprite with a tiny 100×80 mask sampled by the GPU
     // with linear filter — soft half-tile fade at every
     // revealed/unrevealed boundary.
-    let w_world = world_w() as f32 * TILE_PX;
-    let h_world = world_h() as f32 * TILE_PX;
+    //
+    // Source dims from the local `width` / `height` (which drove
+    // `from_seed_with_dims` 30 lines up) rather than the
+    // world_w()/world_h() atomics — when atomics were stale the fog
+    // mesh only covered the NW quadrant of a 200×160 world, leaving
+    // the SE 3/4 effectively unfogged regardless of mask state.
+    let w_world = width as f32 * TILE_PX;
+    let h_world = height as f32 * TILE_PX;
     // Make the fog mesh much bigger than the world so when the camera
     // zooms out beyond the world rectangle the fog still covers the
     // area (otherwise the camera's ClearColor would show through).
