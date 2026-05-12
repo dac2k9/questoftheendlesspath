@@ -222,8 +222,16 @@ fn toggle_and_manage(
     let water_dist = images.add(generate_water_distance(&world));
     let material = materials.add(GroundMaterial {
         params: GroundParams {
-            world_w: world_w() as f32,
-            world_h: world_h() as f32,
+            // Read dims off the WorldGrid Resource (authoritative)
+            // rather than the world_w()/world_h() atomics — the
+            // material's world_w/world_h are baked in at creation and
+            // never re-uploaded, so a stale-atomic read here pinned
+            // the shader to 100×80 for the whole session. Symptom:
+            // the 200×160 chaos world rendered with a hard lighting
+            // boundary halfway across (the sun position + biome
+            // sampling both clamp on these uniforms).
+            world_w: world.width as f32,
+            world_h: world.height as f32,
             tile_px: TILE_PX,
             test_mode: if debug.procedural_test_mode { 1.0 } else { 0.0 },
             // Lighting fields filled in each frame by `update_lighting`;
@@ -580,14 +588,21 @@ fn generate_test_biome_texture() -> Image {
 fn update_lighting(
     debug: Res<super::tilemap::DebugOptions>,
     cycle: Res<crate::daynight::DayNightCycle>,
+    world: Option<Res<WorldGrid>>,
     q: Query<&MeshMaterial2d<GroundMaterial>>,
     mut materials: ResMut<Assets<GroundMaterial>>,
 ) {
     let sun_pos = if debug.debug_sun_enabled {
         Vec4::new(debug.debug_sun_x, debug.debug_sun_y, debug.debug_sun_z, 0.0)
     } else {
-        let w = world_w() as f32 * TILE_PX;
-        let h = world_h() as f32 * TILE_PX;
+        // Center the sun arc on the actual world centre. Pull dims
+        // from the WorldGrid Resource instead of the atomic getters
+        // so a stale-atomic frame doesn't fling the sun to the
+        // upper-left quadrant of the chaos world.
+        let (w, h) = world
+            .as_ref()
+            .map(|wg| (wg.width as f32 * TILE_PX, wg.height as f32 * TILE_PX))
+            .unwrap_or((world_w() as f32 * TILE_PX, world_h() as f32 * TILE_PX));
         let center = Vec2::new(w / 2.0, -h / 2.0);
         let p = cycle.light_pos(center);
         Vec4::new(p.x, p.y, p.z, 0.0)
