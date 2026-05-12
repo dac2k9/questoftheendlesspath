@@ -245,3 +245,130 @@ assets:
     description: "intimidating storm tyrant portrait, lightning crown and steel-grey eyes, fantasy pixel art"
     size: [96, 96]
     out: portraits/boss_storm.png
+
+  # ── Chaos worldbuilding entities (Phase 2 — fill the 200×160 map) ──
+  # 4-dir character sprites for the new mobile entities that get
+  # spread across all 4 quadrants of the chaos world. Each set is
+  # 4 PNGs (north/south/east/west) under monsters/. Combat-style:
+  # entities use these for the patrol/wander loops; on-contact
+  # behavior decided per-entity in seed99999_entities.json.
+  - id: chaos_refugee
+    type: character_4dir
+    description: "ragged human refugee in a brown cloak with a walking staff, civilian, fantasy pixel art"
+    size: 64
+    out: monsters/Refugee.png
+
+  - id: chaos_shadow_stalker
+    type: character_4dir
+    description: "dark wraith with tattered black robes and glowing violet eye-slits, ghostly forest hunter, fantasy pixel art"
+    size: 64
+    out: monsters/ShadowStalker.png
+
+  - id: chaos_flame_imp
+    type: character_4dir
+    description: "small red flame imp wreathed in orange fire, sharp horns and burning eyes, fantasy pixel art"
+    size: 64
+    out: monsters/FlameImp.png
+
+  - id: chaos_wolf
+    type: character_4dir
+    description: "corrupted dire wolf with matted black fur and glowing purple eyes, fantasy pixel art"
+    size: 64
+    out: monsters/ChaosWolf.png
+
+  - id: chaos_stormwight
+    type: character_4dir
+    description: "lightning-tinted spectral phantom with crackling blue energy and a flowing white shroud, fantasy pixel art"
+    size: 64
+    out: monsters/Stormwight.png
+
+  # ── Major NPC portraits (64×64 — shown in dialogue panel) ───
+  # Named characters that drive the chaos arc. Smaller than the
+  # 96×96 boss portraits since they're for talking heads, not
+  # combat headers.
+  - id: npc_portrait_marwen
+    type: image
+    description: "elderly village elder woman with grey braids and a wool shawl, kind weathered face, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_marwen.png
+
+  - id: npc_portrait_hael
+    type: image
+    description: "wiry old hedge-wizard with white beard and a patched purple robe, sly smile, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_hael.png
+
+  - id: npc_portrait_scout_lirien
+    type: image
+    description: "young female scout with short auburn hair and a leather jerkin, charcoal smudges on face, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_scout_lirien.png
+
+  - id: npc_portrait_hermit_sora
+    type: image
+    description: "wild-haired hermit in tattered grey robes clutching a glowing lantern, sunken eyes, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_hermit_sora.png
+
+  - id: npc_portrait_wanderer_cael
+    type: image
+    description: "weather-beaten fisherman in salt-stained oilskin with a copper bracelet, lined face, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_wanderer_cael.png
+
+  # ── Procedural-POI dialogue NPCs (used by the world-fill events) ──
+  # These speak from random villages / shrines / cabins so the world
+  # feels populated. Same 64×64 portrait size as the main NPCs.
+  - id: npc_portrait_carver
+    type: image
+    description: "middle-aged wood-carver with a leather apron and chisel-scarred hands, kind eyes, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_carver.png
+
+  - id: npc_portrait_pilgrim
+    type: image
+    description: "robed pilgrim with shaved head and prayer beads, serene expression, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_pilgrim.png
+
+  - id: npc_portrait_prospector
+    type: image
+    description: "grizzled mountain prospector with battered hat and pickaxe over shoulder, manic grin, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_prospector.png
+
+  - id: npc_portrait_scholar
+    type: image
+    description: "young scholar in indigo robes with ink-stained fingers and round spectacles, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_scholar.png
+
+  - id: npc_portrait_hunter
+    type: image
+    description: "forest hunter in green leathers with a longbow on the back, watchful expression, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_hunter.png
+
+  - id: npc_portrait_quartermaster
+    type: image
+    description: "stout middle-aged shopkeeper in apron with arms crossed, ledger at the belt, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_quartermaster.png
+
+  - id: npc_portrait_forgemaster
+    type: image
+    description: "burly bearded forgemaster in soot-stained apron with hammer at the belt, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_forgemaster.png
+
+  - id: npc_portrait_apothecary
+    type: image
+    description: "robed apothecary woman with herb-stained fingers, holding a glass vial, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_apothecary.png
+
+  - id: npc_portrait_black_market
+    type: image
+    description: "hooded shadowy merchant with a sly half-smile, deep cloak, gold tooth catching the light, fantasy pixel art portrait"
+    size: [64, 64]
+    out: portraits/npc_black_market.png

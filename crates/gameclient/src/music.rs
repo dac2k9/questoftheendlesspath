@@ -67,6 +67,14 @@ enum MusicContext {
     Combat,
     Boss,
     Victory,
+    /// Chaos adventure — Survivors' Camp / Spire of Hael. Calm, with
+    /// a note of dread under the surface. Overrides the biome context
+    /// so the camp doesn't play grassland music.
+    ChaosCamp,
+    /// Chaos adventure — overworld between the camp and the castles.
+    /// Tense, building. Overrides the biome context unless the player
+    /// is in combat / boss / interior / village.
+    ChaosOverworld,
     Silent,
 }
 
@@ -83,6 +91,8 @@ impl MusicContext {
             Self::Combat => "combat",
             Self::Boss => "boss",
             Self::Victory => "victory",
+            Self::ChaosCamp => "chaos_camp",
+            Self::ChaosOverworld => "chaos_overworld",
             Self::Silent => "",
         }
     }
@@ -460,6 +470,20 @@ fn determine_context(
     }
 
     let Some(world) = world else { return MusicContext::Silent };
+
+    // Chaos adventure has its own atmosphere. Camp / Spire of Hael
+    // get the calm theme; everywhere else gets the dread/build theme.
+    // Falls through to biome music if no chaos tracks are authored
+    // (catalog lookup returns nothing → silent → biome wins next
+    // iteration).
+    if player.adventure_id == "chaos" {
+        if let Some(poi) = world.map.poi_at(player.tile_x as usize, player.tile_y as usize) {
+            if matches!(poi.poi_type, questlib::mapgen::PoiType::RefugeeCamp | questlib::mapgen::PoiType::WizardsSpire) {
+                return MusicContext::ChaosCamp;
+            }
+        }
+        return MusicContext::ChaosOverworld;
+    }
 
     // Check if at a village/town POI
     if let Some(poi) = world.map.poi_at(player.tile_x as usize, player.tile_y as usize) {

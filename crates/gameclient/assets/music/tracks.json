@@ -191,6 +191,22 @@
       "recommended_kmh": 4.5,
       "volume": 0.85,
       "loop": true
+    },
+    {
+      "id": "chaos_camp",
+      "file": "chaos_camp.mp3",
+      "context": "chaos_camp",
+      "recommended_kmh": 0.0,
+      "volume": 0.6,
+      "loop": true
+    },
+    {
+      "id": "chaos_overworld",
+      "file": "chaos_overworld.mp3",
+      "context": "chaos_overworld",
+      "recommended_kmh": 3.0,
+      "volume": 0.7,
+      "loop": true
     }
   ]
 }
