@@ -166,13 +166,13 @@ struct MonsterAnimation {
 struct TileInfoText;
 
 #[derive(Component)]
-struct PoiLabel;
+pub struct PoiLabel;
 
 /// Custom landmark sprite placed over POIs whose type has a matching
 /// PNG in assets/poi/. Kept as a marker component in case we later want
 /// to fade them in/out, scale them by zoom, etc.
 #[derive(Component)]
-struct PoiCustomSprite;
+pub struct PoiCustomSprite;
 
 /// Maps a POI type to its custom landmark asset: `(asset_path, tile_size)`.
 /// tile_size = 1 → sprite fits one tile (default, small landmarks).
@@ -182,7 +182,7 @@ struct PoiCustomSprite;
 /// would require widening that pass.
 ///
 /// Add new entries here when new PNGs are dropped in `assets/poi/`.
-fn poi_sprite_path(ty: questlib::mapgen::PoiType) -> Option<(&'static str, u32)> {
+pub fn poi_sprite_path(ty: questlib::mapgen::PoiType) -> Option<(&'static str, u32)> {
     use questlib::mapgen::PoiType::*;
     match ty {
         Town    => Some(("poi/town.png", 1)),

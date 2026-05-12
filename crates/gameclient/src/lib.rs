@@ -55,6 +55,7 @@ pub fn start() {
         .init_state::<AppState>()
         .add_plugins(title::TitlePlugin)
         .add_plugins(terrain::tilemap::TilemapPlugin)
+        .add_plugins(terrain::authored_pois::AuthoredPoisPlugin)
         .add_plugins(terrain::interior::InteriorPlugin)
         .add_plugins(terrain::lighting::LightingPlugin)
         .add_plugins(terrain::water_shader::WaterShaderPlugin)

@@ -1,3 +1,4 @@
+pub mod authored_pois;
 pub mod fog_shader;
 pub mod interior;
 pub mod lighting;
