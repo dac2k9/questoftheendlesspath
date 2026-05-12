@@ -114,6 +114,15 @@ fn blank_minimap_image() -> Image {
 /// Regenerate the minimap image whenever fog is dirty, or on first frame
 /// once WorldGrid has been inserted. Fog dirtiness already tracked for the
 /// main-world texture — we piggyback on the same signal.
+///
+/// **Sizing.** The blank image spawned on `OnEnter(AppState::InGame)` is
+/// allocated against the *default* world dims (100×80) because that
+/// system can fire before `spawn_world` (the order between `OnEnter`
+/// systems isn't guaranteed). Once the real `WorldGrid` lands, the
+/// chaos adventure's 200×160 dims would overflow the original buffer
+/// — so we resize here whenever `img.data.len()` disagrees with the
+/// current world's tile count. Resizing also updates the texture
+/// descriptor so the GPU upload picks up the new extent.
 fn regenerate_if_dirty(
     world: Option<Res<WorldGrid>>,
     fog: Option<Res<FogOfWar>>,
@@ -130,12 +139,24 @@ fn regenerate_if_dirty(
     let Ok(mut minimap) = q.get_single_mut() else { return; };
     let Some(img) = images.get_mut(&minimap.handle) else { return; };
 
+    let w = world.width;
+    let h = world.height;
+    let expected = w * h * 4;
+    if img.data.len() != expected {
+        img.data = vec![0u8; expected];
+        img.texture_descriptor.size = Extent3d {
+            width: w as u32,
+            height: h as u32,
+            depth_or_array_layers: 1,
+        };
+    }
+
     let bytes = &mut img.data;
-    for y in 0..world_h() {
-        for x in 0..world_w() {
+    for y in 0..h {
+        for x in 0..w {
             let terrain = world.get(x, y);
             let (mut r, mut g, mut b) = ground_color(terrain.ground);
-            let revealed = fog.revealed.get(y * world_w() + x).copied().unwrap_or(false);
+            let revealed = fog.revealed.get(y * w + x).copied().unwrap_or(false);
             if !revealed {
                 // Pure-dark fog cell. Earlier we kept a 15 % silhouette of
                 // the ground color so the map shape was hinted; that
@@ -147,7 +168,7 @@ fn regenerate_if_dirty(
                 g = 12;
                 b = 20;
             }
-            let idx = (y * world_w() + x) * 4;
+            let idx = (y * w + x) * 4;
             bytes[idx]     = r;
             bytes[idx + 1] = g;
             bytes[idx + 2] = b;

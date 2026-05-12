@@ -424,14 +424,14 @@ impl FogOfWar {
 // ── Texture Baking (unchanged) ────────────────────────
 
 fn bake_map_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize) -> Image {
-    let map_w = world_w() * 16;
-    let map_h = world_h() * 16;
+    let map_w = world.width * 16;
+    let map_h = world.height * 16;
     let mut pixels = vec![0u8; map_w * map_h * 4];
     let ts_w = tileset_img.width() as usize;
     let ts_data = &tileset_img.data;
     let tile_slot = 20;
-    for y in 0..world_h() {
-        for x in 0..world_w() {
+    for y in 0..world.height {
+        for x in 0..world.width {
             let ground = world.get_ground(x, y);
             blit_tile(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, ground.tile_index_varied(x, y), tileset_cols, tile_slot);
             if let Some(overlay) = world.cells[y][x].overlay {
@@ -447,14 +447,14 @@ fn bake_map_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize)
 /// boundaries doesn't drag in tree silhouettes from neighbor tiles —
 /// trees should sit *on top* of the biome, not be part of its border.
 fn bake_ground_only_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize) -> Image {
-    let map_w = world_w() * 16;
-    let map_h = world_h() * 16;
+    let map_w = world.width * 16;
+    let map_h = world.height * 16;
     let mut pixels = vec![0u8; map_w * map_h * 4];
     let ts_w = tileset_img.width() as usize;
     let ts_data = &tileset_img.data;
     let tile_slot = 20;
-    for y in 0..world_h() {
-        for x in 0..world_w() {
+    for y in 0..world.height {
+        for x in 0..world.width {
             let ground = world.get_ground(x, y);
             blit_tile(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, ground.tile_index_varied(x, y), tileset_cols, tile_slot);
         }
@@ -467,14 +467,14 @@ fn bake_ground_only_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols
 /// at the un-shifted UV — so trees stay rooted to their actual tile
 /// while the ground beneath them mixes organically with neighbors.
 fn bake_overlays_only_texture(world: &WorldGrid, tileset_img: &Image, tileset_cols: usize) -> Image {
-    let map_w = world_w() * 16;
-    let map_h = world_h() * 16;
+    let map_w = world.width * 16;
+    let map_h = world.height * 16;
     let mut pixels = vec![0u8; map_w * map_h * 4]; // alpha 0 by default
     let ts_w = tileset_img.width() as usize;
     let ts_data = &tileset_img.data;
     let tile_slot = 20;
-    for y in 0..world_h() {
-        for x in 0..world_w() {
+    for y in 0..world.height {
+        for x in 0..world.width {
             if let Some(overlay) = world.cells[y][x].overlay {
                 blit_tile_alpha(&mut pixels, map_w, x * 16, y * 16, ts_data, ts_w, overlay.tile_index_varied(x, y), tileset_cols, tile_slot);
             }
