@@ -1,28 +1,6 @@
 {
   "entities": [
     {
-      "id": "chaos_knight_1",
-      "kind": "monster",
-      "name": "Corrupted Knight",
-      "sprite": "corrupted_knight",
-      "spawn": [18, 42],
-      "behavior": { "type": "wander", "radius": 4 },
-      "movement": { "speed_tiles_per_min": 6 },
-      "on_contact": { "type": "combat", "difficulty": 3 },
-      "respawn_after_secs": 600
-    },
-    {
-      "id": "chaos_knight_2",
-      "kind": "monster",
-      "name": "Corrupted Knight",
-      "sprite": "corrupted_knight",
-      "spawn": [62, 55],
-      "behavior": { "type": "wander", "radius": 5 },
-      "movement": { "speed_tiles_per_min": 6 },
-      "on_contact": { "type": "combat", "difficulty": 3 },
-      "respawn_after_secs": 600
-    },
-    {
       "id": "chaos_imp_1",
       "kind": "monster",
       "name": "Void Imp",
@@ -56,6 +34,146 @@
       "respawn_after_secs": 300
     },
     {
+      "id": "chaos_knight_1",
+      "kind": "monster",
+      "name": "Corrupted Knight",
+      "sprite": "corrupted_knight",
+      "spawn": [18, 42],
+      "behavior": { "type": "wander", "radius": 4 },
+      "movement": { "speed_tiles_per_min": 6 },
+      "on_contact": { "type": "combat", "difficulty": 3 },
+      "respawn_after_secs": 600
+    },
+    {
+      "id": "chaos_flame_imp_1",
+      "kind": "monster",
+      "name": "Flame Imp",
+      "sprite": "void_imp",
+      "spawn": [130, 25],
+      "behavior": { "type": "wander", "radius": 4 },
+      "movement": { "speed_tiles_per_min": 11 },
+      "on_contact": { "type": "combat", "difficulty": 2 },
+      "respawn_after_secs": 300
+    },
+    {
+      "id": "chaos_flame_knight_1",
+      "kind": "monster",
+      "name": "Corrupted Knight",
+      "sprite": "corrupted_knight",
+      "spawn": [150, 30],
+      "behavior": { "type": "wander", "radius": 5 },
+      "movement": { "speed_tiles_per_min": 6 },
+      "on_contact": { "type": "combat", "difficulty": 4 },
+      "respawn_after_secs": 600
+    },
+    {
+      "id": "chaos_flame_knight_2",
+      "kind": "monster",
+      "name": "Corrupted Knight",
+      "sprite": "corrupted_knight",
+      "spawn": [165, 50],
+      "behavior": { "type": "wander", "radius": 4 },
+      "movement": { "speed_tiles_per_min": 6 },
+      "on_contact": { "type": "combat", "difficulty": 4 },
+      "respawn_after_secs": 600
+    },
+    {
+      "id": "chaos_flame_bandit_1",
+      "kind": "monster",
+      "name": "Road Bandit",
+      "sprite": "road_bandit",
+      "spawn": [145, 40],
+      "behavior": {
+        "type": "patrol",
+        "waypoints": [[145, 40], [148, 40], [148, 44], [145, 44]],
+        "loop_mode": "wrap"
+      },
+      "movement": { "speed_tiles_per_min": 8 },
+      "on_contact": { "type": "combat", "difficulty": 3 },
+      "respawn_after_secs": 480
+    },
+    {
+      "id": "chaos_shadow_imp_1",
+      "kind": "monster",
+      "name": "Shadow Stalker",
+      "sprite": "void_imp",
+      "spawn": [50, 130],
+      "behavior": { "type": "wander", "radius": 5 },
+      "movement": { "speed_tiles_per_min": 12 },
+      "on_contact": { "type": "combat", "difficulty": 3 },
+      "respawn_after_secs": 300
+    },
+    {
+      "id": "chaos_shadow_knight_1",
+      "kind": "monster",
+      "name": "Corrupted Knight",
+      "sprite": "corrupted_knight",
+      "spawn": [30, 120],
+      "behavior": { "type": "wander", "radius": 4 },
+      "movement": { "speed_tiles_per_min": 6 },
+      "on_contact": { "type": "combat", "difficulty": 4 },
+      "respawn_after_secs": 600
+    },
+    {
+      "id": "chaos_shadow_knight_2",
+      "kind": "monster",
+      "name": "Corrupted Knight",
+      "sprite": "corrupted_knight",
+      "spawn": [45, 145],
+      "behavior": { "type": "wander", "radius": 4 },
+      "movement": { "speed_tiles_per_min": 6 },
+      "on_contact": { "type": "combat", "difficulty": 5 },
+      "respawn_after_secs": 600
+    },
+    {
+      "id": "chaos_storm_knight_1",
+      "kind": "monster",
+      "name": "Corrupted Knight",
+      "sprite": "corrupted_knight",
+      "spawn": [160, 125],
+      "behavior": { "type": "wander", "radius": 5 },
+      "movement": { "speed_tiles_per_min": 6 },
+      "on_contact": { "type": "combat", "difficulty": 4 },
+      "respawn_after_secs": 600
+    },
+    {
+      "id": "chaos_storm_imp_1",
+      "kind": "monster",
+      "name": "Stormwight",
+      "sprite": "void_imp",
+      "spawn": [180, 110],
+      "behavior": { "type": "wander", "radius": 4 },
+      "movement": { "speed_tiles_per_min": 13 },
+      "on_contact": { "type": "combat", "difficulty": 3 },
+      "respawn_after_secs": 300
+    },
+    {
+      "id": "chaos_storm_bandit_1",
+      "kind": "monster",
+      "name": "Road Bandit",
+      "sprite": "road_bandit",
+      "spawn": [155, 145],
+      "behavior": {
+        "type": "patrol",
+        "waypoints": [[155, 145], [160, 145], [160, 148], [155, 148]],
+        "loop_mode": "wrap"
+      },
+      "movement": { "speed_tiles_per_min": 8 },
+      "on_contact": { "type": "combat", "difficulty": 3 },
+      "respawn_after_secs": 480
+    },
+    {
+      "id": "chaos_knight_2",
+      "kind": "monster",
+      "name": "Corrupted Knight",
+      "sprite": "corrupted_knight",
+      "spawn": [62, 55],
+      "behavior": { "type": "wander", "radius": 5 },
+      "movement": { "speed_tiles_per_min": 6 },
+      "on_contact": { "type": "combat", "difficulty": 3 },
+      "respawn_after_secs": 600
+    },
+    {
       "id": "chaos_bandit_1",
       "kind": "monster",
       "name": "Road Bandit",
@@ -75,7 +193,7 @@
       "kind": "monster",
       "name": "Road Bandit",
       "sprite": "road_bandit",
-      "spawn": [30, 58],
+      "spawn": [90, 110],
       "behavior": { "type": "wander", "radius": 6 },
       "movement": { "speed_tiles_per_min": 8 },
       "on_contact": { "type": "combat", "difficulty": 2 },
@@ -90,6 +208,28 @@
       "behavior": { "type": "wander", "radius": 4 },
       "movement": { "speed_tiles_per_min": 8 },
       "on_contact": { "type": "combat", "difficulty": 2 },
+      "respawn_after_secs": 480
+    },
+    {
+      "id": "chaos_central_imp_1",
+      "kind": "monster",
+      "name": "Void Imp",
+      "sprite": "void_imp",
+      "spawn": [110, 70],
+      "behavior": { "type": "wander", "radius": 4 },
+      "movement": { "speed_tiles_per_min": 10 },
+      "on_contact": { "type": "combat", "difficulty": 2 },
+      "respawn_after_secs": 300
+    },
+    {
+      "id": "chaos_central_bandit_1",
+      "kind": "monster",
+      "name": "Road Bandit",
+      "sprite": "road_bandit",
+      "spawn": [120, 95],
+      "behavior": { "type": "wander", "radius": 5 },
+      "movement": { "speed_tiles_per_min": 8 },
+      "on_contact": { "type": "combat", "difficulty": 3 },
       "respawn_after_secs": 480
     }
   ]

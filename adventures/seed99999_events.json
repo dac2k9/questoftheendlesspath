@@ -689,6 +689,652 @@
       "requires_browser": true
     },
     {
+      "id": "chaos_shop_quartermaster",
+      "name": "Camp Quartermaster",
+      "description": "A stout woman behind a plank-and-barrel counter. Lanterns, blankets, scuffed weapons, the smell of dried meat.",
+      "kind": {
+        "type": "shop",
+        "merchant_name": "Quartermaster Bera",
+        "items": [
+          { "name": "health_potion", "cost": 30, "effect": "heal" },
+          { "name": "torch", "cost": 20, "effect": "fog_radius" },
+          { "name": "wooden_club", "cost": 40, "effect": "equip" },
+          { "name": "leather_vest", "cost": 50, "effect": "equip" },
+          { "name": "leather_boots", "cost": 100, "effect": "equip" },
+          { "name": "haste_draught", "cost": 50, "effect": "use" },
+          { "name": "explorers_map", "cost": 60, "effect": "use" },
+          { "name": "compass", "cost": 80, "effect": "use" }
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1200 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_forge_vorn",
+      "name": "Forgemaster Vorn",
+      "description": "A bearded smith bent over a battered anvil. He looks up, hammer mid-swing, and grunts a greeting.",
+      "kind": {
+        "type": "forge",
+        "npc_name": "Forgemaster Vorn"
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1200 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_shop_apothecary",
+      "name": "Wandering Apothecary",
+      "description": "A weathered woman with herb-stained fingers sets out vials on a folded cloak.",
+      "kind": {
+        "type": "shop",
+        "merchant_name": "Apothecary Veska",
+        "items": [
+          { "name": "health_potion", "cost": 30, "effect": "heal" },
+          { "name": "greater_health_potion", "cost": 90, "effect": "heal" },
+          { "name": "speed_potion", "cost": 60, "effect": "use" },
+          { "name": "mystery_potion", "cost": 40, "effect": "use" },
+          { "name": "battle_elixir", "cost": 120, "effect": "use" },
+          { "name": "quicksilver_tonic", "cost": 80, "effect": "use" },
+          { "name": "ring_of_vigor", "cost": 200, "effect": "equip" }
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_shop_black_market",
+      "name": "Black Market",
+      "description": "Half-collapsed ruins, a hooded figure under the broken arch. He doesn't lift his head. \"Browse. Don't ask names.\"",
+      "kind": {
+        "type": "shop",
+        "merchant_name": "The Hooded Dealer",
+        "items": [
+          { "name": "iron_sword", "cost": 220, "effect": "equip" },
+          { "name": "chainmail", "cost": 320, "effect": "equip" },
+          { "name": "sturdy_boots", "cost": 280, "effect": "equip" },
+          { "name": "berserker_pendant", "cost": 400, "effect": "equip" },
+          { "name": "toe_ring_adder", "cost": 350, "effect": "equip" },
+          { "name": "seven_league_boots", "cost": 1500, "effect": "equip" },
+          { "name": "rope", "cost": 60, "effect": "use" }
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 8 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [],
+      "status": "pending",
+      "requires_browser": true,
+      "repeatable": true
+    },
+    {
+      "id": "chaos_npc_town_watch",
+      "name": "Town Watch",
+      "description": "A watchman in dented chainmail glances up from sharpening a notched sword.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Watchman Edgar",
+        "lines": [
+          "You've come a long way for a stranger. Marwen sends them through here sometimes.",
+          "The roads aren't safe. Bandits on the easier paths, knights on the harder ones, things in the woods I can't name.",
+          "Drink from the well if you stop. Don't sleep outside the palisade. And don't trust the silence near the castles."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 0
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 30 },
+        { "effect": "notification", "text": "Watchman Edgar shares a meal and points you down the road." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_mountain_elder",
+      "name": "Mountain Village Elder",
+      "description": "An old woman with a fur-trimmed shawl sits on a porch overlooking the cliffs.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Elder Yska",
+        "lines": [
+          "We saw the Castle of Storm rise. It came out of the cliffs like a tooth pushing through gum.",
+          "The lightning crowns it every midnight. We've lost two goats and a goatherd to it.",
+          "If you mean to climb up there — wait for a still hour. And cover your wrists with copper."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 2
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 40 },
+        { "effect": "item", "name": "torch" },
+        { "effect": "notification", "text": "Elder Yska presses a torch into your hand. \"For the dark places.\"" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_refugee_carver",
+      "name": "Refugee Carver",
+      "description": "A wood-carver among a knot of refugees, hands working a chip of pine into a tiny figure.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Carver Liso",
+        "lines": [
+          "We came from the south. The Castle of Shadow took our village in a single night — woke up to mist where the orchard had been.",
+          "I carve these as charms now. Take one. It won't ward off the dark, but it's company.",
+          "If you find the Hierophant — make him answer for what was done."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 3
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 25 },
+        { "effect": "item", "name": "health_potion" },
+        { "effect": "notification", "text": "A wooden charm from Carver Liso. He offers a potion too." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_forest_hunter",
+      "name": "Forest Hunter",
+      "description": "A green-clad hunter cleaning a longbow at the village edge.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Hunter Vex",
+        "lines": [
+          "Tracks I don't know. Hooves the wrong size, no smell I can place. Beasts the woods didn't have last spring.",
+          "I trap what I can; the rest I let pass. If you walk east toward the Flame Castle, the wolves are worse — corrupted, all of them.",
+          "Take a draught. The world's bigger than your legs make it."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 6
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 50 },
+        { "effect": "item", "name": "haste_draught" },
+        { "effect": "notification", "text": "Hunter Vex shares a haste draught and points east." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_archaeologist",
+      "name": "The Archaeologist",
+      "description": "A young scholar kneels in the rubble, brushing soil from a fragment of dark stone.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Scholar Tessa",
+        "lines": [
+          "These ruins are older than the chaos. Someone built here before the Starstone fell — and someone tore it down.",
+          "The script is broken, but I can read one word over and over: 'bound.' The Starstone wasn't always loose, walker.",
+          "Here, take this. I copied the safe parts of the inscription. It's a map — sort of."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 9
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 40 },
+        { "effect": "item", "name": "explorers_map" },
+        { "effect": "notification", "text": "Scholar Tessa hands you a copied fragment — an Explorer's Map." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_prospector",
+      "name": "The Mad Prospector",
+      "description": "An old man crouches at the cave mouth, sorting pebbles by some private logic.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Prospector Halby",
+        "lines": [
+          "Hssh — quiet. They're sleeping. The veins, I mean. The cave veins. Pulse if you touch the wrong wall.",
+          "Found a purse though! Some traveler left it. Or didn't leave it. Hard to say, with the dark.",
+          "Here, take half. I don't spend coin anymore. Coin makes the veins itch."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 12
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 150 },
+        { "effect": "notification", "text": "Prospector Halby splits a found purse with you. +150 gold." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_hermit",
+      "name": "The Edge-of-the-Map Hermit",
+      "description": "A weather-stained cabin at the southern frontier. The hermit waves you in like he's been expecting you.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Hermit Olund",
+        "lines": [
+          "Heard the wind change last week. Means another castle stirring — they don't all rise at once, you know.",
+          "Sit by the fire a moment. I've walked the south paths since before the chaos. Let me give you the lay.",
+          "Reveal: south coast, west bog, east road. There. Now the map in your head matches the world."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 14
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 30 },
+        { "effect": "reveal_fog", "x": 30, "y": 140, "radius": 12 },
+        { "effect": "reveal_fog", "x": 60, "y": 120, "radius": 10 },
+        { "effect": "reveal_fog", "x": 95, "y": 150, "radius": 10 },
+        { "effect": "notification", "text": "Hermit Olund traces the south paths on your map — fog clears in 3 patches." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_shrine_pilgrim",
+      "name": "Pilgrim at the Shrine",
+      "description": "A robed figure prays at the moss-covered shrine, then turns slowly as you approach.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Pilgrim Aren",
+        "lines": [
+          "Stranger. The shrine's old god is gone — the Starstone took the prayers when it cracked.",
+          "But the shrine still listens. Leave your name in it. Or your fear. The stone keeps the secret.",
+          "Take this with you. Pilgrims carry it for the long walk. May your road be soft."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 18
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 35 },
+        { "effect": "item", "name": "speed_potion" },
+        { "effect": "notification", "text": "Pilgrim Aren blesses your road. A speed potion changes hands." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_tower_scholar",
+      "name": "Scholar in the Tower",
+      "description": "A young scholar climbs out of a trapdoor with a stack of soot-blackened books.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Scholar Maren",
+        "lines": [
+          "Walker! Good — I've been catalogueing chaos-touched relics. You walking ones see them first.",
+          "If you find anything unusual in the castles, bring it to me later. For now — this is for the journey.",
+          "It's not magic. It's just a very good rope. But you'll be surprised how often that's the better answer."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 20
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 60 },
+        { "effect": "item", "name": "rope" },
+        { "effect": "item", "name": "compass" },
+        { "effect": "notification", "text": "Scholar Maren gifts you rope and a compass for the long walks." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_camp_refugees",
+      "name": "Refugee Camp",
+      "description": "A handful of tents around a smoking pit. Children chase each other; a woman is mending boots.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Refugee Mira",
+        "lines": [
+          "There's nothing to spare, but you've a kind face. Sit with us a moment.",
+          "We came from the village by the lake — the lake that wasn't there before. We don't know where we're going.",
+          "If you find anyone who knows how to send the lake back, tell them we're here."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "at_poi",
+        "poi_id": 22
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 20 },
+        { "effect": "item", "name": "warm_cloak" },
+        { "effect": "notification", "text": "Refugee Mira hands you a warm cloak. \"You'll need it more than us.\"" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_encounter_forest_imps",
+      "name": "Void Imps in the Trees",
+      "description": "Twigs snap. Half a dozen pinprick eyes blink from the canopy.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Void Imp Pack",
+        "description": "A handful of imps drop from the branches!",
+        "difficulty": 2
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "random_in_biome", "biome": "Forest", "chance": 0.06 },
+          { "condition": "distance_walked", "meters_min": 1000 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 60 },
+        { "effect": "item", "name": "health_potion" },
+        { "effect": "notification", "text": "Scattered the imps! +60 gold, +1 Health Potion." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_encounter_wolves",
+      "name": "Corrupted Wolf Pack",
+      "description": "The undergrowth shifts. Three shapes with eyes the wrong color slip into the clearing.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Corrupted Wolf Pack",
+        "description": "Three wolves circle, hackles raised!",
+        "difficulty": 3
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "random_in_biome", "biome": "DenseForest", "chance": 0.05 },
+          { "condition": "distance_walked", "meters_min": 1500 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 80 },
+        { "effect": "item", "name": "haste_draught" },
+        { "effect": "notification", "text": "Drove off the wolves! +80 gold, +1 Haste Draught." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_encounter_mountain_raider",
+      "name": "Stone-Bound Raider",
+      "description": "A figure rises from behind a boulder — silent, plate-armored, eyes like cold lamps.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Stone-Bound Raider",
+        "description": "The raider charges, axe in both hands!",
+        "difficulty": 4
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "random_in_biome", "biome": "Mountain", "chance": 0.04 },
+          { "condition": "distance_walked", "meters_min": 2000 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 120 },
+        { "effect": "item", "name": "iron_sword" },
+        { "effect": "notification", "text": "Felled the raider! +120 gold. Dropped: Iron Sword." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_encounter_swamp_wraith",
+      "name": "Bog Wraith",
+      "description": "The mist gathers waist-high, then thickens into a shape with arms.",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Bog Wraith",
+        "description": "The wraith lunges, mist clinging like cobweb!",
+        "difficulty": 4
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "random_in_biome", "biome": "Swamp", "chance": 0.05 },
+          { "condition": "distance_walked", "meters_min": 2000 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 100 },
+        { "effect": "item", "name": "bog_charm" },
+        { "effect": "notification", "text": "Dispersed the wraith! +100 gold. Dropped: Bog Charm." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_encounter_grassland_bandits",
+      "name": "Road Bandit Ambush",
+      "description": "Three figures step out from the long grass, blades drawn. \"Toll. Make it generous.\"",
+      "kind": {
+        "type": "random_encounter",
+        "enemy_name": "Bandit Trio",
+        "description": "Three bandits surround you on the road!",
+        "difficulty": 2
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "random_in_biome", "biome": "Grassland", "chance": 0.05 },
+          { "condition": "distance_walked", "meters_min": 800 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 70 },
+        { "effect": "item", "name": "leather_vest" },
+        { "effect": "notification", "text": "Routed the bandits! +70 gold. Dropped: Leather Vest." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_cache_1",
+      "name": "Hidden Coin Pouch",
+      "description": "A leather pouch half-buried at the base of a split tree.",
+      "kind": {
+        "type": "treasure",
+        "description": "Old coins, still bright."
+      },
+      "trigger": { "condition": "at_tile", "x": 45, "y": 70 },
+      "outcomes": [
+        { "effect": "gold", "amount": 90 },
+        { "effect": "notification", "text": "Found a hidden pouch — +90 gold." }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "chaos_cache_2",
+      "name": "Refugee Cache",
+      "description": "A small chest hidden under brush, abandoned by someone in a hurry.",
+      "kind": {
+        "type": "treasure",
+        "description": "Survival kit a refugee buried before fleeing."
+      },
+      "trigger": { "condition": "at_tile", "x": 130, "y": 90 },
+      "outcomes": [
+        { "effect": "gold", "amount": 60 },
+        { "effect": "item", "name": "health_potion" },
+        { "effect": "item", "name": "torch" },
+        { "effect": "notification", "text": "Refugee cache: +60 gold, +1 Health Potion, +1 Torch." }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "chaos_cache_3",
+      "name": "Bandit Stash",
+      "description": "Shovel-marks in the dirt. Whoever buried this didn't have time to come back.",
+      "kind": {
+        "type": "treasure",
+        "description": "Bandits buried this hoard before something found them."
+      },
+      "trigger": { "condition": "at_tile", "x": 35, "y": 100 },
+      "outcomes": [
+        { "effect": "gold", "amount": 150 },
+        { "effect": "item", "name": "leather_boots" },
+        { "effect": "notification", "text": "Bandit stash: +150 gold, +Leather Boots." }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "chaos_cache_4",
+      "name": "Tarnished Reliquary",
+      "description": "A small reliquary on a moss-grown plinth. The inside is dry, untouched by rain.",
+      "kind": {
+        "type": "treasure",
+        "description": "A pilgrim's leftover stash, intact for some reason no one wants to ask about."
+      },
+      "trigger": { "condition": "at_tile", "x": 170, "y": 100 },
+      "outcomes": [
+        { "effect": "gold", "amount": 120 },
+        { "effect": "item", "name": "ring_of_vigor" },
+        { "effect": "notification", "text": "Reliquary opened — +120 gold, +Ring of Vigor." }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "chaos_cache_5",
+      "name": "Sunken Saddle-bag",
+      "description": "A saddle-bag in the grass — its horse long gone, contents miraculously dry.",
+      "kind": {
+        "type": "treasure",
+        "description": "Whoever rode through here was carrying a fortune."
+      },
+      "trigger": { "condition": "at_tile", "x": 110, "y": 140 },
+      "outcomes": [
+        { "effect": "gold", "amount": 200 },
+        { "effect": "item", "name": "speed_potion" },
+        { "effect": "notification", "text": "Saddle-bag: +200 gold, +Speed Potion." }
+      ],
+      "status": "pending",
+      "requires_browser": false
+    },
+    {
+      "id": "chaos_beat_vista",
+      "name": "The Vista",
+      "description": "The trees break. You can see for kilometers — the whole north of the chaos lands laid out.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "From this rise the world stretches out: forest to mountain to the curve of distant cliffs.",
+          "You can see the Castle of Frost in the north, a glint of ice. The smoke from the Castle of Flame far east.",
+          "The wound in the world has shape from up here. Almost a map."
+        ]
+      },
+      "trigger": { "condition": "at_tile", "x": 60, "y": 30 },
+      "outcomes": [
+        { "effect": "reveal_fog", "x": 30, "y": 25, "radius": 15 },
+        { "effect": "reveal_fog", "x": 160, "y": 35, "radius": 15 },
+        { "effect": "notification", "text": "Vista — north and east revealed on your map." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_beat_battle_site",
+      "name": "Old Battle Site",
+      "description": "Bone-bleached weapons, a few shields warped by fire. No bodies — they were carried away or worse.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "Someone made a stand here. Recently. The grass is just starting to come back.",
+          "You pick up a shield half-melted at the rim. The arms etched on it aren't any kingdom you know.",
+          "It was a refugee militia, you think. They didn't make it to the camp."
+        ]
+      },
+      "trigger": { "condition": "at_tile", "x": 90, "y": 65 },
+      "outcomes": [
+        { "effect": "gold", "amount": 40 },
+        { "effect": "item", "name": "leather_vest" },
+        { "effect": "notification", "text": "Battle site — +40 gold, salvaged Leather Vest." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_beat_standing_stone",
+      "name": "The Standing Stone",
+      "description": "A standing stone, taller than you. Runes spiral up its face — the same word, over and over.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "BOUND. BOUND. BOUND. All the way up the stone.",
+          "Someone meant to remind the world of something. Or someone.",
+          "The stone is warm under your palm — like it's still working."
+        ]
+      },
+      "trigger": { "condition": "at_tile", "x": 130, "y": 130 },
+      "outcomes": [
+        { "effect": "gold", "amount": 30 },
+        { "effect": "notification", "text": "The standing stone hums faintly under your palm. (+30 gold for the rubbings you take.)" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
       "id": "chaos_starstone_revealed",
       "name": "The Starstone Reveals Itself",
       "description": "The campfire stills. Above it, between the tents, a wound in the air opens — and through it, light.",
