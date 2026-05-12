@@ -410,6 +410,40 @@
       ]
     },
     {
+      "id": "pilgrim_token",
+      "display_name": "Pilgrim's Token",
+      "description": "A small bone medallion. Wear it while visiting the four castles.",
+      "category": "key_item"
+    },
+    {
+      "id": "pilgrim_blessing",
+      "display_name": "Pilgrim's Blessing",
+      "description": "The shrine's last gift to those who walked the circuit. +2 DEF, +30 Max HP.",
+      "category": "equipment",
+      "slot": "accessory",
+      "effects": [
+        { "type": "stat_bonus", "stat": "defense", "amount": 2 },
+        { "type": "stat_bonus", "stat": "max_hp", "amount": 30 }
+      ]
+    },
+    {
+      "id": "walkoff_token",
+      "display_name": "Walk-Off Token",
+      "description": "A clay chip the refugees scribbled their bet on. Walk far, then bring it back to settle the argument.",
+      "category": "key_item"
+    },
+    {
+      "id": "refugees_charm",
+      "display_name": "Refugees' Charm",
+      "description": "Strung from a child's bracelet and a copper button. +1 ATK, +1 DEF — small but well-meant.",
+      "category": "equipment",
+      "slot": "accessory",
+      "effects": [
+        { "type": "stat_bonus", "stat": "attack", "amount": 1 },
+        { "type": "stat_bonus", "stat": "defense", "amount": 1 }
+      ]
+    },
+    {
       "id": "mythril_plate",
       "display_name": "Mythril Plate",
       "description": "Lighter than steel, stronger than iron. DEF +9, HP +40",

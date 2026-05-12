@@ -1334,6 +1334,307 @@
       "status": "pending",
       "requires_browser": true
     },
+
+    {
+      "id": "chaos_pilgrim_circuit_start",
+      "name": "The Pilgrim's Circuit",
+      "description": "Pilgrim Aren rises from the moss-covered shrine. \"You walk the chaos lands? Walk them well — visit each of the four castles in turn, carry this token to mark the road, and return to the shrine when the circle is closed.\"",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Pilgrim Aren",
+        "lines": [
+          "The shrine remembers the old pilgrim's path — a circle around the four cardinal castles, walked in any order.",
+          "Take this token. The shrine sees through it; each castle you stand on, the token will know.",
+          "When you have stood beside all four, return here. The old shrine still has one gift left to give."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 18 },
+          { "condition": "event_completed", "event_id": "chaos_intro" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "item", "name": "pilgrim_token" },
+        { "effect": "notification", "text": "Received Pilgrim's Token. Visit all 4 castles, then return to the shrine." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_pilgrim_at_frost",
+      "name": "Pilgrim's Mark — Frost",
+      "description": "The token in your pocket grows cold as you stand in the shadow of the ice-spire.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The token rests warm against your palm — and then suddenly cold, as if it knows where you are.",
+          "One mark of four. The Frost stands acknowledged."
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1000 },
+          { "condition": "has_item", "item": "pilgrim_token" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "notification", "text": "Pilgrim's mark: Frost. (1/4)" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_pilgrim_at_flame",
+      "name": "Pilgrim's Mark — Flame",
+      "description": "Heat radiates from the basalt walls. The token in your hand catches the ember-light.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The token's surface darkens, then brightens, as if remembering fire.",
+          "Two marks of four. The Flame stands acknowledged."
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1001 },
+          { "condition": "has_item", "item": "pilgrim_token" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "notification", "text": "Pilgrim's mark: Flame. (2/4)" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_pilgrim_at_shadow",
+      "name": "Pilgrim's Mark — Shadow",
+      "description": "The void-mist thickens around the throne-spires. The token feels heavier in your hand.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The token darkens for a moment, then settles. The shrine has noted your passage.",
+          "Three marks of four. The Shadow stands acknowledged."
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1002 },
+          { "condition": "has_item", "item": "pilgrim_token" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "notification", "text": "Pilgrim's mark: Shadow. (3/4)" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_pilgrim_at_storm",
+      "name": "Pilgrim's Mark — Storm",
+      "description": "Lightning crowns the cliffs. The token tingles, electric.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The token snaps with a tiny spark; you can almost smell ozone.",
+          "Four marks of four. The Storm stands acknowledged.",
+          "The shrine awaits."
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1003 },
+          { "condition": "has_item", "item": "pilgrim_token" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "notification", "text": "Pilgrim's mark: Storm. (4/4). Return to the shrine." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_pilgrim_circuit_reward",
+      "name": "Pilgrim's Circuit — The Shrine's Gift",
+      "description": "Pilgrim Aren takes the token, kisses it, and presses something into your palm in return.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Pilgrim Aren",
+        "lines": [
+          "Four marks. The circle is closed.",
+          "I won't see another pilgrim, I think. The shrine's voice grows quieter every year.",
+          "Take this with you. The blessing is small, but it has been waiting a long time to be given."
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 18 },
+          { "condition": "event_completed", "event_id": "chaos_pilgrim_at_frost" },
+          { "condition": "event_completed", "event_id": "chaos_pilgrim_at_flame" },
+          { "condition": "event_completed", "event_id": "chaos_pilgrim_at_shadow" },
+          { "condition": "event_completed", "event_id": "chaos_pilgrim_at_storm" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 200 },
+        { "effect": "item", "name": "pilgrim_blessing" },
+        { "effect": "notification", "text": "Pilgrim's Blessing received: +2 DEF, +30 Max HP." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+
+    {
+      "id": "chaos_bounty_100km",
+      "name": "Bounty — 100 km Walked",
+      "description": "Quartermaster Bera looks up from her ledger. \"Heard you've been on the road. Here's your due.\"",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "Bera flips her ledger, marks something, and pushes a stack of coins across the plank.",
+          "\"The camp keeps a tally of who walks how far. You've crossed 100 km in your wandering life. Take this.\""
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1200 },
+          { "condition": "event_completed", "event_id": "chaos_intro" },
+          { "condition": "distance_walked", "meters_min": 100000 }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 150 },
+        { "effect": "notification", "text": "Bounty paid: 100 km walked. +150 gold." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_bounty_250km",
+      "name": "Bounty — 250 km Walked",
+      "description": "Bera pushes a larger purse across the plank this time.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "\"250 km. The camp has paid out for less.\"",
+          "Bera grins. \"Keep walking. The road is the only thing the chaos hasn't broken yet.\""
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1200 },
+          { "condition": "event_completed", "event_id": "chaos_bounty_100km" },
+          { "condition": "distance_walked", "meters_min": 250000 }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 400 },
+        { "effect": "item", "name": "speed_potion" },
+        { "effect": "notification", "text": "Bounty paid: 250 km walked. +400 gold, +Speed Potion." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_bounty_500km",
+      "name": "Bounty — 500 km Walked",
+      "description": "Bera nods slowly, then reaches under the counter for something wrapped in oilcloth.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "\"500 km. That's a number I don't see often.\"",
+          "She unwraps a pair of well-stitched boots. \"Found them on a trader who didn't make it. He'd want them walking.\""
+        ]
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1200 },
+          { "condition": "event_completed", "event_id": "chaos_bounty_250km" },
+          { "condition": "distance_walked", "meters_min": 500000 }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 800 },
+        { "effect": "item", "name": "sturdy_boots" },
+        { "effect": "notification", "text": "Bounty paid: 500 km walked. +800 gold, +Sturdy Boots." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+
+    {
+      "id": "chaos_walkoff_intro",
+      "name": "The Refugees' Walk-Off",
+      "description": "Two refugees by the fire wave you over, voices already raised. \"Settle our bet, walker — we've argued for a week.\"",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Refugees Rion & Velka",
+        "lines": [
+          "RION: \"I say a walker covers more ground than a fisherman ever did. The roads are longer than the lake-shore.\"",
+          "VELKA: \"And I say a fisherman walks the same shoreline forever and back. You add it up and it's the same.\"",
+          "BOTH: \"Take this chip. Walk a few kilometers. Whatever you cover, come back and we'll declare a winner. We'll both pay out, win or lose — we're just bored.\""
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1200 },
+          { "condition": "event_completed", "event_id": "chaos_intro" },
+          { "condition": "not", "inner": { "condition": "event_completed", "event_id": "chaos_walkoff_intro" } }
+        ]
+      },
+      "outcomes": [
+        { "effect": "item", "name": "walkoff_token" },
+        { "effect": "notification", "text": "Received Walk-Off Token. Walk 10 km and return to the camp." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_walkoff_settle",
+      "name": "Walk-Off — Settled",
+      "description": "Rion and Velka look up as you approach. The chip in your hand is warm with road-dust.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Refugees Rion & Velka",
+        "lines": [
+          "RION: \"How far'd you go?\"",
+          "VELKA, before you can answer: \"Doesn't matter. We talked while you were gone. We decided we both win.\"",
+          "RION: \"Yeah. Walker's right. The road's the road, whatever the shore says.\"",
+          "BOTH: \"Here. Wear this. We made it together while we argued.\""
+        ],
+        "choices": []
+      },
+      "trigger": {
+        "condition": "all",
+        "conditions": [
+          { "condition": "at_poi", "poi_id": 1200 },
+          { "condition": "has_item", "item": "walkoff_token" },
+          { "condition": "event_completed", "event_id": "chaos_walkoff_intro" }
+        ]
+      },
+      "outcomes": [
+        { "effect": "gold", "amount": 100 },
+        { "effect": "item", "name": "refugees_charm" },
+        { "effect": "notification", "text": "Walk-off settled — Refugees' Charm received. The chip can stay with you for luck." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+
     {
       "id": "chaos_starstone_revealed",
       "name": "The Starstone Reveals Itself",
