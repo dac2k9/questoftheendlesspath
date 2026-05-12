@@ -145,8 +145,14 @@ fn toggle_and_manage(
     // World-size mesh, placed at the map sprite's origin convention
     // (tile (0,0) centered at world origin → sprite center offset by
     // half a tile). z=0.3 matches where the old CPU overlay sat.
-    let w = world_w() as f32 * TILE_PX;
-    let h = world_h() as f32 * TILE_PX;
+    //
+    // Read dims from the WorldGrid Resource (authoritative) instead
+    // of the world_w() / world_h() atomics — the atomics can lag if
+    // this system somehow runs before spawn_world has called
+    // set_world_dims, which manifested as a 100×80 mesh sitting
+    // over the upper-left quadrant of the chaos 200×160 world.
+    let w = world.width as f32 * TILE_PX;
+    let h = world.height as f32 * TILE_PX;
     let cx = w / 2.0 - TILE_PX / 2.0;
     let cy = -h / 2.0 + TILE_PX / 2.0;
     let mesh_handle = meshes.add(Rectangle::new(w, h));
@@ -203,8 +209,11 @@ fn update_material(
 // ── Heightmap generation (100×80 R8) ────────────────────────────────
 
 fn generate_heightmap(world: &WorldGrid) -> Image {
-    let w = world_w();
-    let h = world_h();
+    // Read dims off the WorldGrid directly — avoids any race with the
+    // world_w()/world_h() atomics if this generator ever gets called
+    // outside the spawn_world flow.
+    let w = world.width;
+    let h = world.height;
     // Build height per tile from biome, then 3× box blur so slopes
     // transition smoothly across tile boundaries instead of stepping.
     let mut height = vec![0.0_f32; w * h];
@@ -315,8 +324,11 @@ fn box_blur_3x3(input: &[f32], w: usize, h: usize) -> Vec<f32> {
 
 fn generate_water_distance(world: &WorldGrid) -> Image {
     use questlib::mapgen::Biome::*;
-    let pw = world_w() * TILE_PX as usize;
-    let ph = world_h() * TILE_PX as usize;
+    // Read dims off the WorldGrid directly (see generate_heightmap).
+    let ww = world.width;
+    let wh = world.height;
+    let pw = ww * TILE_PX as usize;
+    let ph = wh * TILE_PX as usize;
     let mut data = Vec::with_capacity(pw * ph);
     for py in 0..ph {
         for px in 0..pw {
@@ -331,7 +343,7 @@ fn generate_water_distance(world: &WorldGrid) -> Image {
             let tile_x = (fx / TILE_PX).floor() as i32;
             let tile_y = (fy / TILE_PX).floor() as i32;
             let in_world = tile_x >= 0 && tile_y >= 0
-                && tile_x < world_w() as i32 && tile_y < world_h() as i32;
+                && tile_x < ww as i32 && tile_y < wh as i32;
             let own_is_water = in_world && matches!(
                 world.map.biome_at(tile_x as usize, tile_y as usize),
                 Water | DeepWater
@@ -347,7 +359,7 @@ fn generate_water_distance(world: &WorldGrid) -> Image {
                     if nx == 0 && ny == 0 { continue; }
                     let bx = tile_x + nx;
                     let by = tile_y + ny;
-                    if bx < 0 || by < 0 || bx >= world_w() as i32 || by >= world_h() as i32 {
+                    if bx < 0 || by < 0 || bx >= ww as i32 || by >= wh as i32 {
                         continue;
                     }
                     if !matches!(
