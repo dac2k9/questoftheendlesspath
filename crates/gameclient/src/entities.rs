@@ -434,7 +434,14 @@ fn render_entities(
             if is_walking {
                 anim.timer.tick(time.delta());
                 if anim.timer.just_finished() {
-                    anim.frame = (anim.frame % 4) + 1;
+                    // Cycle within the row: 0 → 1 → … → cols-1 → 0.
+                    // The previous `(frame % 4) + 1` was hard-coded to 4
+                    // AND never wrapped to 0, so for a 4-col atlas the
+                    // walk cycle would tick 1 → 2 → 3 → 4 → 1 → ... —
+                    // index 4 lands in the NEXT row, briefly flashing
+                    // a wrong-direction frame each cycle (the bug the
+                    // chaos mobs were showing as "flash 9 of them").
+                    anim.frame = (anim.frame + 1) % cols.max(1);
                 }
                 if let Some(ref mut atlas) = sprite.texture_atlas {
                     atlas.index = (row * cols + anim.frame).min(rows_safe(cols, atlas));
