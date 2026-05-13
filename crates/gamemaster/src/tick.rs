@@ -186,8 +186,27 @@ pub fn run_tick_dev(
         // Blocking event check — only block if there's a requires_browser event
         // that THIS player hasn't personally completed. Otherwise one player's
         // dialog would freeze everyone else on the map.
+        //
+        // Combat-kind events (Boss / RandomEncounter) are EXCLUDED from this
+        // global Active scan because combat is already tracked per-player via
+        // `shared_combat`. A wolves encounter triggered by player A would
+        // otherwise block player B even though only A is in the actual fight —
+        // exactly the "Daniel can't move because someone else triggered the
+        // wolves" bug we hit on the live server.
         let has_blocking = events_lock.active_events().iter()
-            .any(|e| e.requires_browser && !player.completed_events.contains(&e.id))
+            .any(|e| {
+                if !e.requires_browser { return false; }
+                if player.completed_events.contains(&e.id) { return false; }
+                // Skip combat events — `player_in_combat` handles those
+                // per-player just below.
+                if matches!(e.kind,
+                    questlib::events::kind::EventKind::Boss { .. }
+                    | questlib::events::kind::EventKind::RandomEncounter { .. })
+                {
+                    return false;
+                }
+                true
+            })
             || server_combat::player_in_combat(shared_combat, player_id);
 
         // Parse route
