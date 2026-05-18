@@ -416,6 +416,12 @@
       "category": "key_item"
     },
     {
+      "id": "wooden_charm",
+      "display_name": "Wooden Charm",
+      "description": "A tiny pine figure, no taller than your thumb. Carver Liso whittled it while waiting out the mist. It won't ward off the dark — but it's company.",
+      "category": "key_item"
+    },
+    {
       "id": "pilgrim_blessing",
       "display_name": "Pilgrim's Blessing",
       "description": "The shrine's last gift to those who walked the circuit. +2 DEF, +30 Max HP.",

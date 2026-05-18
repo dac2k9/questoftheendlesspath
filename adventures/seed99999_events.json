@@ -867,6 +867,7 @@
       },
       "outcomes": [
         { "effect": "gold", "amount": 25 },
+        { "effect": "item", "name": "wooden_charm" },
         { "effect": "item", "name": "health_potion" },
         { "effect": "notification", "text": "A wooden charm from Carver Liso. He offers a potion too." }
       ],
