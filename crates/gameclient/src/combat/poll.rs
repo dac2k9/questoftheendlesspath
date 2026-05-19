@@ -21,8 +21,27 @@ pub fn poll_combat_state(
     let fetched_ref = combat.fetched.clone();
     if let Ok(mut lock) = fetched_ref.lock() {
         if let Some(server_state) = lock.take() {
-            combat.local_player_charge = server_state.player_charge;
-            combat.local_enemy_charge = server_state.enemy_charge;
+            // Don't blindly overwrite the smooth local prediction with
+            // the server's last-tick value — the server ticks every
+            // ~1 s but the poll response can arrive at any phase of
+            // that interval, so the server's `player_charge` lags the
+            // client by 0..1 s of smooth fill. Overwriting made the
+            // bar visibly snap backward every poll.
+            //
+            // Accept server's value only when it's a RESET (much
+            // lower than local), i.e. an attack just fired and the
+            // server zeroed the bar. Otherwise keep the local
+            // prediction; the server is authoritative on HP /
+            // status which we still copy.
+            let first_state = combat.state.is_none();
+            let player_reset = server_state.player_charge + 0.1 < combat.local_player_charge;
+            let enemy_reset = server_state.enemy_charge + 0.1 < combat.local_enemy_charge;
+            if first_state || player_reset {
+                combat.local_player_charge = server_state.player_charge;
+            }
+            if first_state || enemy_reset {
+                combat.local_enemy_charge = server_state.enemy_charge;
+            }
             combat.state = Some(server_state);
             combat.active = true;
             combat.action_pending = false;
