@@ -84,6 +84,7 @@ fn spawn_minimap(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         BorderColor(Color::srgb(0.4, 0.35, 0.2)),
         BorderRadius::all(Val::Px(4.0)),
         MinimapRoot,
+        crate::terrain::tilemap::OverworldOnly,
     )).with_children(|parent| {
         parent.spawn((
             Node {

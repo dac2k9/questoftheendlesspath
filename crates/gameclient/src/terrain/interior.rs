@@ -24,7 +24,7 @@ use bevy::prelude::*;
 use questlib::interior::{InteriorMap, InteriorTile, PortalDest};
 
 use super::procedural_ground::ProceduralGroundSprite;
-use super::tilemap::{FogSprite, MapSprite, MyPlayerState};
+use super::tilemap::{FogSprite, MapSprite, MyPlayerState, OverworldOnly};
 use super::world::{WorldGrid, TILE_PX};
 use crate::states::AppState;
 use crate::GameSession;
@@ -121,24 +121,25 @@ fn watch_location_changes(
     state: Res<MyPlayerState>,
     mut current: ResMut<CurrentInterior>,
     interior_entities: Query<Entity, With<InteriorEntity>>,
-    mut map_vis: Query<&mut Visibility, (With<MapSprite>, Without<FogSprite>, Without<ProceduralGroundSprite>)>,
-    mut fog_vis: Query<&mut Visibility, (With<FogSprite>, Without<MapSprite>, Without<ProceduralGroundSprite>)>,
-    mut ground_vis: Query<&mut Visibility, (With<ProceduralGroundSprite>, Without<MapSprite>, Without<FogSprite>)>,
+    mut overworld_only: Query<&mut Visibility, With<OverworldOnly>>,
 ) {
     let desired = state.location.clone();
 
-    // Every-frame visibility sync. The watcher is the single owner of
-    // MapSprite / FogSprite / ProceduralGroundSprite visibility once
-    // the game is running. ProceduralGroundSprite is the procedural
-    // shader ground layer (the pixel-art grass/water you actually see)
-    // — it ran on top of the cavern tiles for Daniel because it sits at
-    // z=0.05 / Opaque, so even with MapSprite + FogSprite hidden the
-    // overworld leaked through.
+    // Every-frame visibility sync — the watcher is the single owner of
+    // overworld-only visibility once the game is running. Anything
+    // that shouldn't show inside a cavern (MapSprite, FogSprite,
+    // ProceduralGroundSprite, ChestSprite, MonsterSprite, POI labels,
+    // POI custom sprites, mobile entity sprites, minimap, …) carries
+    // the `OverworldOnly` marker; we sweep all of them at once here.
+    // ProceduralGroundSprite is the procedural shader ground layer
+    // (the pixel-art grass/water you actually see) — it ran on top of
+    // the cavern tiles for Daniel because it sits at z=0.05 / Opaque,
+    // so even with MapSprite + FogSprite hidden the overworld leaked
+    // through. Chests likewise leaked when only the map/fog sprites
+    // were hidden.
     let want_overworld_visible = desired.is_none();
     let target_vis = if want_overworld_visible { Visibility::Visible } else { Visibility::Hidden };
-    for mut v in &mut map_vis { if *v != target_vis { *v = target_vis; } }
-    for mut v in &mut fog_vis { if *v != target_vis { *v = target_vis; } }
-    for mut v in &mut ground_vis { if *v != target_vis { *v = target_vis; } }
+    for mut v in &mut overworld_only { if *v != target_vis { *v = target_vis; } }
 
     // No interior wanted → make sure interior entities are gone.
     let Some(want_id) = desired else {

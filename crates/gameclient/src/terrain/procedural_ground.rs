@@ -274,6 +274,7 @@ fn toggle_and_manage(
         // origin. z=0.05 keeps it above the tile atlas, below lighting.
         Transform::from_xyz(0.0, 0.0, 0.05),
         ProceduralGroundSprite,
+        super::tilemap::OverworldOnly,
     ));
 }
 

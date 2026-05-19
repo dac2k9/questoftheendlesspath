@@ -111,6 +111,15 @@ impl Plugin for TilemapPlugin {
 
 // ── Components ────────────────────────────────────────
 
+/// Marker for entities whose `Visibility` should be `Hidden` while the
+/// player is inside an interior. The interior watcher drives the toggle
+/// based on `MyPlayerState.location` once per frame. Tag every
+/// overworld-only sprite / label with this — chests, monsters, POIs,
+/// mobile entities, anything that draws against world coords on the
+/// overworld layer.
+#[derive(Component)]
+pub struct OverworldOnly;
+
 #[derive(Component)]
 pub struct MapSprite;
 
@@ -589,7 +598,7 @@ fn spawn_world(
     let map_cx = (width as f32 * TILE_PX) / 2.0 - TILE_PX / 2.0;
     let map_cy = -(height as f32 * TILE_PX) / 2.0 + TILE_PX / 2.0;
 
-    commands.spawn((Sprite { image: map_handle, ..default() }, Transform::from_xyz(map_cx, map_cy, 0.0), Visibility::Hidden, MapSprite));
+    commands.spawn((Sprite { image: map_handle, ..default() }, Transform::from_xyz(map_cx, map_cy, 0.0), Visibility::Hidden, MapSprite, OverworldOnly));
     // Expose ground-only and overlays-only textures so procedural_ground
     // can sample biomes for jittered borders without dragging in tree
     // silhouettes, then composite the actual overlays back on top at
@@ -642,6 +651,7 @@ fn spawn_world(
         // toggles this via interior.rs.
         Visibility::Visible,
         FogSprite,
+        OverworldOnly,
     ));
 
     // Spawn chest sprites (above map, below fog)
@@ -671,6 +681,7 @@ fn spawn_world(
                 Transform::from_xyz(pos.x, pos.y + lift, 1.5),
                 Visibility::Hidden,
                 ChestSprite(i),
+                OverworldOnly,
             ));
         }
     }
@@ -739,6 +750,7 @@ fn spawn_world(
                         cols: *cols,
                         difficulty: monster.difficulty,
                     },
+                    OverworldOnly,
                 ));
             }
         }
@@ -771,7 +783,7 @@ fn spawn_world(
     for poi in &world.map.pois {
         let pos = WorldGrid::tile_to_world(poi.x, poi.y);
         let lift = super::procedural_ground::tile_lift(&world, poi.x, poi.y);
-        commands.spawn((Text2d::new(format!("{:?}", poi.poi_type)), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(pos.x, pos.y + lift - 12.0, 8.0), Visibility::Hidden, PoiLabel));
+        commands.spawn((Text2d::new(format!("{:?}", poi.poi_type)), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(pos.x, pos.y + lift - 12.0, 8.0), Visibility::Hidden, PoiLabel, OverworldOnly));
     }
 
     // Custom POI sprites — illustrated landmark art drawn over the tile
@@ -804,6 +816,7 @@ fn spawn_world(
                 },
                 Transform::from_xyz(pos.x, pos.y + lift, 1.7),
                 PoiCustomSprite,
+                OverworldOnly,
             ));
         }
     }
@@ -1373,7 +1386,15 @@ fn handle_zoom(
     proj.scale += diff * (1.0 - (-6.0 * time.delta_secs()).exp());
 }
 
-fn toggle_poi_labels(keys: Res<ButtonInput<KeyCode>>, mut labels: Query<&mut Visibility, With<PoiLabel>>, debug: Res<DebugOptions>) {
+fn toggle_poi_labels(
+    keys: Res<ButtonInput<KeyCode>>,
+    state: Res<MyPlayerState>,
+    mut labels: Query<&mut Visibility, With<PoiLabel>>,
+    debug: Res<DebugOptions>,
+) {
+    // Don't fight the OverworldOnly watcher while in an interior — TAB
+    // still shows the overworld POI labels otherwise.
+    if state.location.is_some() { return; }
     let show = keys.pressed(KeyCode::Tab) || debug.show_pois;
     for mut vis in &mut labels { *vis = if show { Visibility::Visible } else { Visibility::Hidden }; }
 }
@@ -1622,11 +1643,14 @@ fn update_chest_sprites(
     mut monsters: Query<(Entity, &MonsterSprite, &mut Visibility), Without<ChestSprite>>,
 ) {
     if !state.initialized { return; }
+    // While in an interior the OverworldOnly watcher keeps these
+    // hidden — don't fight it by re-asserting Visible here.
+    let in_interior = state.location.is_some();
     for (entity, chest, mut vis) in &mut chests {
         let chest_id = format!("chest_{}", chest.0);
         if state.opened_chests.contains(&chest_id) {
             commands.entity(entity).despawn();
-        } else {
+        } else if !in_interior {
             *vis = Visibility::Visible;
         }
     }
@@ -1634,7 +1658,7 @@ fn update_chest_sprites(
         let monster_id = format!("monster_{}", monster.0);
         if state.defeated_monsters.contains(&monster_id) {
             commands.entity(entity).despawn();
-        } else {
+        } else if !in_interior {
             *vis = Visibility::Visible;
         }
     }

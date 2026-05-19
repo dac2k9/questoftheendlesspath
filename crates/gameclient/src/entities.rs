@@ -564,6 +564,7 @@ fn render_entities(
                     cols: cols_count,
                     moving: false,
                 },
+                crate::terrain::tilemap::OverworldOnly,
             ));
         }
     }
