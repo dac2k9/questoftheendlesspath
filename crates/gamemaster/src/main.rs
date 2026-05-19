@@ -3,6 +3,8 @@ mod combat;
 mod devserver;
 mod interior;
 mod mobile_entity;
+#[cfg(test)]
+mod sim;
 mod tick;
 mod walker_bridge;
 
