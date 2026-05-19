@@ -104,6 +104,26 @@ pub fn run_interior_tick(
     // burst once the player starts walking again.
     if !player.is_walking {
         player_last_distance.remove(player_id);
+        // BUT — if the player's current tile IS the last tile of their
+        // planned route, clear the stale route. Otherwise it sticks
+        // around forever (the walking-branch route-clear can't fire
+        // because we return here before it). Daniel hit this on the
+        // live server: stopped walking on his destination tile and the
+        // route stayed pinned indefinitely.
+        if !player.planned_route.is_empty() {
+            if let Some(tiles) = route::parse_route_json(&player.planned_route) {
+                if let Some(&last) = tiles.last() {
+                    if last.0 as i32 == player.map_tile_x && last.1 as i32 == player.map_tile_y {
+                        if let Ok(mut lock) = state.lock() {
+                            if let Some(p) = lock.get_mut(player_id) {
+                                p.planned_route.clear();
+                                p.route_meters_walked = 0.0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         return Ok(());
     }
 

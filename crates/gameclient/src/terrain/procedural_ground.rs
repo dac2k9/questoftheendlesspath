@@ -158,7 +158,7 @@ impl Material2d for GroundMaterial {
 }
 
 #[derive(Component)]
-struct ProceduralGroundSprite;
+pub struct ProceduralGroundSprite;
 
 fn toggle_key(
     keys: Res<ButtonInput<KeyCode>>,
