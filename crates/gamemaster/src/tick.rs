@@ -453,7 +453,19 @@ pub fn run_tick_dev(
                 }
                 ids
             },
-            completed_events: events_lock.completed_ids(),
+            // Union of GLOBAL completed events and this player's personal
+            // completed list. `requires_browser` events complete per-player,
+            // so a player whose own completed_events has the prerequisite
+            // must satisfy `event_completed` even if the global status
+            // never flipped to Completed (which happens if another player
+            // is still mid-dialogue, or hasn't seen it yet). Without this
+            // union, the second player onwards is silently gated out of
+            // any quest chain that depends on a per-player NPC dialogue.
+            completed_events: {
+                let mut set = events_lock.completed_ids();
+                for id in &player.completed_events { set.insert(id.clone()); }
+                set
+            },
             rng_roll,
         };
 
@@ -939,7 +951,17 @@ fn promote_pending_triggers(
         }
         ids
     };
-    let completed_global = events_lock.completed_ids();
+    // Union of GLOBAL completed events and this player's personal
+    // completed list — see the equivalent comment in the walking branch.
+    // Without the union, `event_completed chaos_intro` (the prereq for
+    // Spire of Hael) fails for player N+1 even when their personal
+    // completed_events contains it, because the global status never
+    // flipped.
+    let completed_events = {
+        let mut set = events_lock.completed_ids();
+        for id in &player.completed_events { set.insert(id.clone()); }
+        set
+    };
     let ctx = TriggerContext {
         player_tile: (tile_x, tile_y),
         player_poi: poi_id,
@@ -947,7 +969,7 @@ fn promote_pending_triggers(
         player_biome: biome,
         total_distance_m: player.total_distance_m as u32,
         inventory,
-        completed_events: completed_global,
+        completed_events,
         // Never fires Random triggers from this path — they're meant
         // to be sampled while moving, not as long as the player stands
         // still. The walking branch will pick them up on the first
