@@ -155,6 +155,21 @@ impl SimulatedRun {
         }
     }
 
+    /// Mark an event as completed in this player's PERSONAL list only,
+    /// leaving the global catalog status untouched. Use this to
+    /// simulate the multi-player state where one player has dismissed
+    /// a `requires_browser` dialogue while the global status is still
+    /// Active or Pending — common in the chaos arc when two players
+    /// walk the same quest chain at different paces.
+    pub fn mark_personal_completed(&mut self, pid: &str, event_id: &str) {
+        let mut lock = self.state.lock().unwrap();
+        if let Some(p) = lock.get_mut(pid) {
+            if !p.completed_events.contains(&event_id.to_string()) {
+                p.completed_events.push(event_id.to_string());
+            }
+        }
+    }
+
     /// Force-complete an event for this player AND in the global
     /// catalog. Useful to skip the "fight the boss" step in tests
     /// that focus on the rewards / downstream gating.
@@ -462,6 +477,34 @@ mod tests {
         assert!(
             run.has_completed(&p, "chaos_enter_via_east_gate"),
             "cave-entry event should be marked completed"
+        );
+    }
+
+    #[test]
+    fn per_player_event_completed_satisfies_trigger() {
+        // Regression for the live-server bug where dac2k9 stood on the
+        // Spire of Hael with chaos_intro in his personal completed_events,
+        // yet chaos_hael_quest never fired because its trigger
+        // `event_completed chaos_intro` was checking the GLOBAL completed
+        // set and the catalog's global status of chaos_intro hadn't
+        // flipped to Completed (Daniel had triggered it but the dismissal
+        // path didn't propagate the global flag in a way the trigger eval
+        // could see). The fix unions the player's personal completed_events
+        // with the global set inside TriggerContext; this test pins it.
+        let mut run = SimulatedRun::for_chaos();
+        let p = run.spawn_player("Tester");
+        // Mark chaos_intro in the player's personal list ONLY — do not
+        // flip the global catalog. This mirrors the real-world state
+        // where the dismissal happened in a way that didn't bubble up.
+        run.mark_personal_completed(&p, "chaos_intro");
+        // Stand on Spire of Hael (POI 1201 at 70, 50).
+        run.teleport(&p, 70, 50);
+        // Stationary tick: the watcher should promote chaos_hael_quest
+        // because the trigger now sees the per-player chaos_intro.
+        run.tick_walking(&p, 1.0, 0.0);
+        assert!(
+            run.event_is_active("chaos_hael_quest"),
+            "chaos_hael_quest should fire when player has personal completion of chaos_intro, even if global status didn't flip",
         );
     }
 
