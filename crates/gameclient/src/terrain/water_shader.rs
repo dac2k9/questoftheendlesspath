@@ -177,6 +177,7 @@ fn toggle_and_manage(
         // occluded by raised mountain-quad geometry.
         Transform::from_xyz(cx, cy, 0.99),
         WaterShaderSprite,
+        super::tilemap::OverworldOnly,
     ));
 }
 

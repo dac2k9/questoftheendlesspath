@@ -137,6 +137,7 @@ fn spawn_night_overlay(
         // pass. Matches the old darkness sprite's z.
         Transform::from_xyz(cx, cy, 50.0),
         NightOverlaySprite,
+        super::tilemap::OverworldOnly,
     ));
 }
 
