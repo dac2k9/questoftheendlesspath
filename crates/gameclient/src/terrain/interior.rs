@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use bevy::color::Color;
 use bevy::prelude::*;
+use bevy::render::view::RenderLayers;
 
 use questlib::interior::{InteriorMap, InteriorTile, PortalDest};
 
@@ -28,6 +29,26 @@ use super::tilemap::{FogSprite, MapSprite, MyPlayerState, OverworldOnly};
 use super::world::{WorldGrid, TILE_PX};
 use crate::states::AppState;
 use crate::GameSession;
+
+/// Bevy render layer for the overworld (default). All non-interior
+/// world entities live on layer 0 by virtue of not specifying a
+/// RenderLayers component.
+pub const OVERWORLD_LAYER: usize = 0;
+/// Bevy render layer for interior scenes. Every entity inside a cave
+/// is tagged with `RenderLayers::layer(INTERIOR_LAYER)` so the
+/// overworld camera literally cannot see them, and vice versa. The
+/// camera swap in `sync_camera_layer` flips which layer the camera
+/// renders based on state.location — overworld and interior become
+/// genuinely separate render passes that can't bleed into each other.
+pub const INTERIOR_LAYER: usize = 1;
+
+/// Layers for entities that should render in BOTH scenes — the
+/// player's own sprite, path markers, name tags, on-camera HUD bits.
+/// Without this they would only exist on one layer and disappear when
+/// the camera switched.
+pub fn cross_scene_layers() -> RenderLayers {
+    RenderLayers::from_layers(&[OVERWORLD_LAYER, INTERIOR_LAYER])
+}
 
 // ── Plugin ─────────────────────────────────────────
 
@@ -41,6 +62,7 @@ impl Plugin for InteriorPlugin {
                 Update,
                 (
                     watch_location_changes,
+                    sync_camera_layer,
                     apply_fetched_interior,
                     retry_stuck_interior_fetch,
                     handle_interior_click,
@@ -185,6 +207,31 @@ fn watch_location_changes(
     });
 }
 
+/// Drives the world camera's RenderLayers from `MyPlayerState.location`:
+/// overworld → layer 0, interior → layer 1. Bevy renders only entities
+/// whose `RenderLayers` intersect the camera's. Cross-scene entities
+/// (PlayerSprite, PathMarker, name tags) carry both layers and stay
+/// visible across the swap. Spawning the RenderLayers component lazily
+/// the first time we enter an interior keeps the title-screen camera
+/// (which doesn't have one) unchanged.
+fn sync_camera_layer(
+    mut commands: Commands,
+    state: Res<MyPlayerState>,
+    mut camera_q: Query<(Entity, Option<&mut RenderLayers>), With<Camera2d>>,
+) {
+    let want = if state.location.is_some() {
+        RenderLayers::layer(INTERIOR_LAYER)
+    } else {
+        RenderLayers::layer(OVERWORLD_LAYER)
+    };
+    for (e, layers) in &mut camera_q {
+        match layers {
+            Some(mut l) => { if *l != want { *l = want.clone(); } }
+            None => { commands.entity(e).insert(want.clone()); }
+        }
+    }
+}
+
 /// Detects "fetch crashed and never landed in current.fetched" and
 /// clears fetching_id so the next frame's watcher kicks off a retry.
 /// Without this, a single network blip on entry to an interior strands
@@ -246,6 +293,7 @@ fn apply_fetched_interior(
                 Sprite { color, custom_size: Some(tile_size), ..default() },
                 Transform::from_xyz(pos.x, pos.y, z),
                 InteriorEntity,
+                RenderLayers::layer(INTERIOR_LAYER),
             ));
         }
     }
@@ -269,6 +317,7 @@ fn apply_fetched_interior(
                 unlock_event_id: portal.unlock_event_id.clone(),
             },
             InteriorEntity,
+            RenderLayers::layer(INTERIOR_LAYER),
         ));
     }
 
@@ -283,6 +332,7 @@ fn apply_fetched_interior(
             },
             Transform::from_xyz(pos.x, pos.y, 0.9),
             InteriorEntity,
+            RenderLayers::layer(INTERIOR_LAYER),
         ));
     }
 
@@ -301,6 +351,7 @@ fn apply_fetched_interior(
             Transform::from_xyz(pos.x, pos.y, 0.95),
             InteriorMonsterMarker { key: questlib::interior::monster_key(&map.id, idx) },
             InteriorEntity,
+            RenderLayers::layer(INTERIOR_LAYER),
         ));
     }
 

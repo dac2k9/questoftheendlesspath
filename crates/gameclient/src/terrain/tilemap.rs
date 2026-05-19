@@ -771,9 +771,12 @@ fn spawn_world(
         Sprite { image: champion_tex, texture_atlas: Some(TextureAtlas { layout: layout_handle, index: 0 }), ..default() },
         Transform::from_xyz(0.0, 0.0, 5.0), Visibility::Hidden, PlayerSprite,
         WalkAnimation { timer: Timer::from_seconds(0.15, TimerMode::Repeating), frame: 0, facing: Facing::Down, moving: false, cols: info.cols, facing_rows: info.facing_rows, facing_flip: info.facing_flip },
+        super::interior::cross_scene_layers(),
     ));
-    commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(0.0, 12.0, 6.0), Visibility::Hidden, PlayerNameTag));
-    commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 1.0)), Transform::from_xyz(0.0, 0.0, 10.0), Visibility::Hidden, TileInfoText));
+    commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(0.1, 0.1, 0.1)), Transform::from_xyz(0.0, 12.0, 6.0), Visibility::Hidden, PlayerNameTag, super::interior::cross_scene_layers()));
+    // TileInfoText is overworld-only — it shows the biome under the
+    // cursor on TAB, which doesn't make sense inside a cavern.
+    commands.spawn((Text2d::new(""), TextFont { font: font.0.clone(), font_size: 8.0, ..default() }, TextColor(Color::srgb(1.0, 1.0, 1.0)), Transform::from_xyz(0.0, 0.0, 10.0), Visibility::Hidden, TileInfoText, OverworldOnly));
 
     // Loading text
     commands.spawn((Node { position_type: PositionType::Absolute, top: Val::Percent(45.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() }, LoadingText))
@@ -1328,7 +1331,7 @@ pub fn draw_path_markers(commands: &mut Commands, waypoints: &[(usize, usize)], 
                 let (w, h) = if nx.abs() > ny.abs() { (length, line_width) } else { (line_width, length) };
                 let (tile_x, tile_y) = WorldGrid::world_to_tile(Vec2::new(cx, cy));
                 let color = if fog.is_revealed(tile_x, tile_y) { Color::srgba(0.0, 0.0, 0.0, 0.7) } else { Color::srgba(1.0, 1.0, 1.0, 0.7) };
-                commands.spawn((Sprite { color, custom_size: Some(Vec2::new(w, h)), ..default() }, Transform::from_xyz(cx, cy, 3.0), PathMarker));
+                commands.spawn((Sprite { color, custom_size: Some(Vec2::new(w, h)), ..default() }, Transform::from_xyz(cx, cy, 3.0), PathMarker, super::interior::cross_scene_layers()));
                 d = end + gap_len;
             } else { d += gap_len; }
             drawing = !drawing;
@@ -1338,8 +1341,8 @@ pub fn draw_path_markers(commands: &mut Commands, waypoints: &[(usize, usize)], 
     // Flag at destination
     if len > start {
         let pos = WorldGrid::tile_to_world(waypoints[len - 1].0, waypoints[len - 1].1);
-        commands.spawn((Sprite { color: Color::srgb(0.3, 0.2, 0.1), custom_size: Some(Vec2::new(1.5, 14.0)), ..default() }, Transform::from_xyz(pos.x - 3.0, pos.y + 4.0, 3.5), PathMarker));
-        commands.spawn((Sprite { color: Color::srgb(0.9, 0.2, 0.1), custom_size: Some(Vec2::new(8.0, 6.0)), ..default() }, Transform::from_xyz(pos.x + 1.0, pos.y + 9.0, 3.6), PathMarker));
+        commands.spawn((Sprite { color: Color::srgb(0.3, 0.2, 0.1), custom_size: Some(Vec2::new(1.5, 14.0)), ..default() }, Transform::from_xyz(pos.x - 3.0, pos.y + 4.0, 3.5), PathMarker, super::interior::cross_scene_layers()));
+        commands.spawn((Sprite { color: Color::srgb(0.9, 0.2, 0.1), custom_size: Some(Vec2::new(8.0, 6.0)), ..default() }, Transform::from_xyz(pos.x + 1.0, pos.y + 9.0, 3.6), PathMarker, super::interior::cross_scene_layers()));
     }
 }
 
@@ -1568,6 +1571,7 @@ fn update_other_players(
                 Transform::from_xyz(pos.x.round(), pos.y.round(), 4.0),
                 OtherPlayerSprite { id: other.id.clone(), visual_pos: pos },
                 OtherPlayerAnim { timer: Timer::from_seconds(0.2, TimerMode::Repeating), frame: 0, moving: false, cols: info.cols, facing_rows: info.facing_rows, facing_flip: info.facing_flip },
+                super::interior::cross_scene_layers(),
             ));
             // Name tag — hidden by default; the TAB pass below reveals it
             // whenever the player holds TAB and the owner is co-located.
@@ -1578,6 +1582,7 @@ fn update_other_players(
                 Transform::from_xyz(pos.x, pos.y + 12.0, 6.0),
                 Visibility::Hidden,
                 OtherPlayerName(other.id.clone()),
+                super::interior::cross_scene_layers(),
             ));
         }
     }
