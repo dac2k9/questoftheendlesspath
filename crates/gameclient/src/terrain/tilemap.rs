@@ -127,7 +127,7 @@ pub struct MapSprite;
 pub struct FogSprite;
 
 #[derive(Component)]
-struct PathMarker;
+pub struct PathMarker;
 
 #[derive(Component)]
 pub struct PlayerSprite;
@@ -1300,7 +1300,7 @@ fn handle_clear_route(
 }
 
 /// Draw dashed path markers from a given tile index onward.
-fn draw_path_markers(commands: &mut Commands, waypoints: &[(usize, usize)], skip_until: usize, fog: &FogOfWar) {
+pub fn draw_path_markers(commands: &mut Commands, waypoints: &[(usize, usize)], skip_until: usize, fog: &FogOfWar) {
     let len = waypoints.len();
     if len == 0 { return; }
 

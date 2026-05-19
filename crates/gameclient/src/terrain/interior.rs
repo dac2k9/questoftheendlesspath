@@ -383,9 +383,14 @@ fn handle_interior_click(
     camera_q: Query<(&Camera, &GlobalTransform)>,
     current: Res<CurrentInterior>,
     session: Res<GameSession>,
-    state: Res<MyPlayerState>,
+    mut state: ResMut<MyPlayerState>,
     portals: Query<(&Transform, &InteriorPortal)>,
     ui_hover: Res<crate::UiHovered>,
+    mut display_route: ResMut<super::path::DisplayRoute>,
+    mut interp: ResMut<super::path::InterpolationState>,
+    mut commands: Commands,
+    path_markers: Query<Entity, With<super::tilemap::PathMarker>>,
+    fog: Res<super::tilemap::FogOfWar>,
 ) {
     // Only handle clicks while inside an interior. Also require that the
     // interior data has actually landed (we don't want to send routes before
@@ -403,29 +408,39 @@ fn handle_interior_click(
     // Clamp to grid bounds.
     if tx >= map.width || ty >= map.height { return; }
 
-    // Portal check first — special-case, bypasses route planning.
-    // (We detect via the Portal component's transform matching the clicked
-    //  tile, because the grid lookup already told us there's a portal here.)
-    if let Some(portal_idx) = map.portal_at(tx, ty) {
-        // Must be adjacent to the portal to actually take it — otherwise
-        // route them there first and let the step-on-portal logic fire
-        // server-side next tick. For Phase 2: route them to the portal; a
-        // later pass can auto-call /use_portal when they reach it.
-        let _ = (portals, portal_idx); // avoid unused; portals query is intentional for future hover UI
-        // Plan a route to the portal tile using the same BFS as walkable clicks.
-        let Some(route) = bfs_path(map, (state.tile_x as usize, state.tile_y as usize), (tx, ty)) else { return };
-        post_route(&session.player_id, &route);
-        // Also send use_portal — the server side will no-op unless the
-        // player is actually on the portal tile. Next tick after arrival,
-        // the client can also call /use_portal on step-detection. For MVP,
-        // we just leave the portal as the destination; the player clicks
-        // again on the portal when they've arrived.
-        return;
-    }
+    // Portal click: pathfind to the portal tile. Falls through to the same
+    // local + server route update as a regular floor click.
+    let route = if let Some(_portal_idx) = map.portal_at(tx, ty) {
+        let _ = portals;
+        match bfs_path(map, (state.tile_x as usize, state.tile_y as usize), (tx, ty)) {
+            Some(r) => r,
+            None => return,
+        }
+    } else {
+        if !map.is_walkable(tx, ty) { return; }
+        match bfs_path(map, (state.tile_x as usize, state.tile_y as usize), (tx, ty)) {
+            Some(r) => r,
+            None => return,
+        }
+    };
 
-    // Regular walkable floor tile: BFS to path through walls.
-    if !map.is_walkable(tx, ty) { return; }
-    let Some(route) = bfs_path(map, (state.tile_x as usize, state.tile_y as usize), (tx, ty)) else { return };
+    // Local optimistic update — mirror the overworld handler so the
+    // player sees the flag jump immediately instead of waiting for the
+    // server round-trip + next long-poll (~1s of perceived lag, which
+    // Daniel reported in 364). Server is still authoritative; the next
+    // poll confirms via apply_server_state.
+    display_route.waypoints = route.clone();
+    display_route.locally_modified = true;
+    state.route = route.clone();
+    state.route_meters = 0.0;
+    interp.start_meters = 0.0;
+    interp.target_meters = 0.0;
+    interp.elapsed = 0.0;
+    interp.duration = 0.0;
+    for entity in &path_markers { commands.entity(entity).despawn(); }
+    super::tilemap::draw_path_markers(&mut commands, &display_route.waypoints, 0, &fog);
+    display_route.rendered_waypoints = display_route.waypoints.clone();
+
     post_route(&session.player_id, &route);
 }
 
