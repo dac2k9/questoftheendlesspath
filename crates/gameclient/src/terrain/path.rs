@@ -11,6 +11,14 @@ pub struct DisplayRoute {
     pub waypoints: Vec<(usize, usize)>,
     /// True if user just set/cleared route locally — don't overwrite from server until next poll confirms.
     pub locally_modified: bool,
+    /// Path markers (red flag, dashed line) were last rendered against
+    /// these waypoints. When this differs from `waypoints`, the
+    /// markers need to be redrawn — used to catch the case where the
+    /// player's tile didn't change between polls (e.g. they re-click
+    /// while standing still) but the route did. Without this the
+    /// flag stayed at the old destination until the player moved or
+    /// refreshed.
+    pub rendered_waypoints: Vec<(usize, usize)>,
 }
 
 /// Server-driven interpolation state. The server tells us where to animate toward,

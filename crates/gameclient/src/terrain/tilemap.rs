@@ -974,13 +974,19 @@ fn apply_server_state(
         for entity in &loading_q { commands.entity(entity).despawn_recursive(); }
     }
 
-    // Redraw path markers when tile changes (but not if user just modified route)
-    if (tile_changed || !state.initialized) && !display_route.locally_modified {
+    // Redraw path markers when EITHER the player's tile changes OR the
+    // displayed route itself changed (e.g. user clicked a new waypoint
+    // while standing still — common in interiors where you re-aim
+    // without moving). Skip while locally_modified, the next poll
+    // confirms the route and we redraw then.
+    let route_changed = display_route.rendered_waypoints != display_route.waypoints;
+    if (tile_changed || route_changed || !state.initialized) && !display_route.locally_modified {
         for entity in &path_markers { commands.entity(entity).despawn(); }
         if let Some(world) = &world {
             let tile_idx = tile_index_from_meters(&state.route, state.route_meters, world);
             draw_path_markers(&mut commands, &display_route.waypoints, tile_idx, &fog);
         }
+        display_route.rendered_waypoints = display_route.waypoints.clone();
     }
 
     state.last_poll_tile = (state.tile_x, state.tile_y);
