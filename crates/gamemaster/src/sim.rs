@@ -466,6 +466,35 @@ mod tests {
     }
 
     #[test]
+    fn interior_route_clears_on_arrival() {
+        // Regression: when a player walked across an interior to the end
+        // of their planned_route, the interior tick used to leave the
+        // route + route_meters_walked in place. The client then thought
+        // the player was still travelling indefinitely. Daniel hit this
+        // on the live server after walking the cavern — stuck on his
+        // destination tile because the stale route blocked progress.
+        let mut run = SimulatedRun::for_chaos();
+        let p = run.spawn_player("Tester");
+        run.force_complete_event(&p, "chaos_intro");
+        // Drop the player inside the cavern at the east mouth.
+        run.teleport(&p, 140, 56);
+        run.tick_walking(&p, 3.0, 3.0);
+        assert!(run.is_in_interior(&p, "chaos_cavern"));
+        // Walk to a nearby walkable tile that is NOT a portal. The
+        // east mouth is at (19, 5); (18, 5) and (17, 5) are floor.
+        run.set_route(&p, &[(19, 5), (18, 5), (17, 5)]);
+        run.tick_walking(&p, 30.0, 20.0);
+        let snap = run.snapshot(&p).expect("player");
+        assert_eq!((snap.map_tile_x, snap.map_tile_y), (17, 5),
+            "should have walked to the end of the route");
+        assert!(snap.planned_route.is_empty() || snap.planned_route == "[]",
+            "planned_route should be cleared on arrival, was {:?}", snap.planned_route);
+        assert_eq!(snap.route_meters_walked, 0.0,
+            "route_meters_walked should reset when route clears, was {}",
+            snap.route_meters_walked);
+    }
+
+    #[test]
     fn east_portal_round_trip() {
         let mut run = SimulatedRun::for_chaos();
         let p = run.spawn_player("Tester");

@@ -159,6 +159,16 @@ pub fn run_interior_tick(
         route_m -= cost_per_tile;
     }
     let new_tile = route_tiles.get(cur_idx).copied();
+    // Did we land on the last tile of the route? If so the route is
+    // complete and we should clear `planned_route` — otherwise it
+    // sticks around forever, `route_meters_walked` keeps growing
+    // indefinitely, and the client thinks the player is still
+    // travelling. Symptom on the live server: Daniel walked across
+    // the cavern, reached his destination, and "couldn't move"
+    // because the stale route held his is_walking + route state
+    // open. The overworld tick has the equivalent clear at the end
+    // of its route-advance branch.
+    let route_complete = cur_idx + 1 == route_tiles.len();
 
     // Fog: reveal around the new tile.
     let fog_key = (player_id.to_string(), interior_id.clone());
@@ -192,7 +202,12 @@ pub fn run_interior_tick(
                 p.map_tile_x = x as i32;
                 p.map_tile_y = y as i32;
             }
-            p.route_meters_walked = route_m;
+            if route_complete {
+                p.planned_route.clear();
+                p.route_meters_walked = 0.0;
+            } else {
+                p.route_meters_walked = route_m;
+            }
             // Fog persistence
             if fog_changed {
                 p.interior_fog.insert(interior_id.clone(), fog.to_base64());

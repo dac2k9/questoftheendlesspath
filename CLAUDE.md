@@ -587,7 +587,18 @@ reveal → chest open) against `interior.tiles`.
 - [x] Route planning + walking inside; chest open gives +50 gold
 
 **Phase 2 (shipped)** — client tilemap swap
-- [x] Client watches `MyPlayerState.location`; on change, hides overworld sprites (MapSprite/FogSprite) and fetches `/interior?id=X`
+- [x] Client watches `MyPlayerState.location` **every frame**; drives
+      MapSprite/FogSprite visibility from it (Visible when `None`,
+      Hidden when `Some(id)`) and fetches `/interior?id=X` when a new
+      interior is needed. This is the SINGLE owner of those
+      visibilities — `apply_server_state`'s one-time init no longer
+      flips them, because that raced the watcher and stranded
+      interior-side players on a visible overworld (Daniel on the live
+      server, May 2026). A 4-second retry kicks the fetch back to life
+      if the slot is still empty after the request crashes silently.
+      Also: on interior-tick route completion, server clears
+      `planned_route` + `route_meters_walked` — without that the player
+      was stuck "walking" on the destination tile forever.
 - [x] Interior rendered as colored quads (walls, floor, portal, chest) — proper dark tileset is a Phase 3 polish item
 - [x] Click on a walkable interior tile: BFS through the interior grid → `POST /set_route`
 - [x] Click on a portal tile: routes the player to it (auto-use_portal triggers when they arrive — see Phase 3a)

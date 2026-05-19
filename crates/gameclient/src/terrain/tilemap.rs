@@ -830,10 +830,8 @@ fn apply_server_state(
     mut display_route: ResMut<DisplayRoute>,
     mut fog: ResMut<FogOfWar>,
     mut commands: Commands,
-    mut player_tf: Query<(&mut Transform, &mut Visibility), (With<PlayerSprite>, Without<Camera2d>, Without<MapSprite>, Without<FogSprite>)>,
+    mut player_tf: Query<(&mut Transform, &mut Visibility), (With<PlayerSprite>, Without<Camera2d>)>,
     mut camera_tf: Query<&mut Transform, (With<Camera2d>, Without<PlayerSprite>)>,
-    mut map_vis: Query<&mut Visibility, (With<MapSprite>, Without<PlayerSprite>, Without<FogSprite>)>,
-    mut fog_vis: Query<&mut Visibility, (With<FogSprite>, Without<PlayerSprite>, Without<MapSprite>)>,
     loading_q: Query<Entity, With<LoadingText>>,
     path_markers: Query<Entity, With<PathMarker>>,
     world: Option<Res<WorldGrid>>,
@@ -949,14 +947,16 @@ fn apply_server_state(
         }
     }
 
-    // First init — show everything, snap camera
+    // First init — snap camera + player, despawn loading text. Map /
+    // fog visibility is the interior watcher's job (it runs every frame
+    // and drives both from state.location). Touching them here would
+    // race with the watcher and leave the overworld stuck visible for
+    // a player who's actually in an interior.
     if !state.initialized {
         state.initialized = true;
 
         let pos = WorldGrid::tile_to_world(state.tile_x as usize, state.tile_y as usize);
         for (mut tf, mut vis) in &mut player_tf { tf.translation.x = pos.x; tf.translation.y = pos.y; *vis = Visibility::Visible; }
-        for mut vis in &mut map_vis { *vis = Visibility::Visible; }
-        for mut vis in &mut fog_vis { *vis = Visibility::Visible; }
         for mut cam in &mut camera_tf { cam.translation.x = pos.x; cam.translation.y = pos.y; }
         for entity in &loading_q { commands.entity(entity).despawn_recursive(); }
     }

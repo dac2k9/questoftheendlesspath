@@ -41,6 +41,7 @@ impl Plugin for InteriorPlugin {
                 (
                     watch_location_changes,
                     apply_fetched_interior,
+                    retry_stuck_interior_fetch,
                     handle_interior_click,
                     update_hud_label,
                     sync_monster_visibility,
@@ -92,10 +93,28 @@ struct InteriorHudLabel;
 
 // ── Location-change watcher ────────────────────────
 
-/// Detects transitions in MyPlayerState.location:
-///   - None → Some(id): kick off the interior fetch
-///   - Some(a) → Some(b): kick off fetch for b
-///   - Some → None: clear the interior scene and re-show overworld
+/// Drives the interior scene based on MyPlayerState.location every frame:
+///   - state.location == None  → overworld VISIBLE, no interior entities
+///   - state.location == Some  → overworld HIDDEN, fetch + render interior
+///
+/// This used to be a pure transition detector (only acted when desired
+/// != rendered). That left the overworld stuck visible in two failure
+/// modes we hit on production:
+///   1. apply_server_state's one-time init flips both layers to Visible
+///      AFTER the watcher's hide-on-transition already ran. The watcher
+///      then sees desired==rendered or fetching_id==Some, returns
+///      early, and never hides again.
+///   2. /interior fetch fails or parses fail — the async error is
+///      logged but no retry happens. fetching_id is Some so the watcher
+///      keeps returning early forever. With the old transition-only
+///      logic, the overworld was hidden once and stayed hidden; with
+///      the init race in (1) it stayed visible.
+///
+/// New shape: visibility is set every frame from `state.location`, and
+/// fetch is kicked off only when needed (desired set + not currently
+/// fetching it + not already rendered). Failed fetches retry on the
+/// next frame because we clear fetching_id when the slot empties out
+/// without a map landing in `current.map`.
 fn watch_location_changes(
     mut commands: Commands,
     state: Res<MyPlayerState>,
@@ -105,45 +124,85 @@ fn watch_location_changes(
     mut fog_vis: Query<&mut Visibility, (With<FogSprite>, Without<MapSprite>)>,
 ) {
     let desired = state.location.clone();
-    let rendered = current.map.as_ref().map(|m| m.id.clone());
 
-    if desired == rendered { return; }
+    // Every-frame visibility sync. The watcher is the single owner of
+    // MapSprite / FogSprite visibility once the game is running.
+    let want_overworld_visible = desired.is_none();
+    let target_vis = if want_overworld_visible { Visibility::Visible } else { Visibility::Hidden };
+    for mut v in &mut map_vis { if *v != target_vis { *v = target_vis; } }
+    for mut v in &mut fog_vis { if *v != target_vis { *v = target_vis; } }
 
-    // Case 1: leaving interior entirely → clear + show overworld
-    if desired.is_none() {
+    // No interior wanted → make sure interior entities are gone.
+    let Some(want_id) = desired else {
+        if current.map.is_some() || current.fetching_id.is_some() {
+            for e in &interior_entities { commands.entity(e).despawn_recursive(); }
+            current.map = None;
+            current.fetching_id = None;
+        }
+        return;
+    };
+
+    // Already rendering this interior — nothing to do.
+    if current.map.as_ref().is_some_and(|m| m.id == want_id) { return; }
+
+    // A different interior is currently rendered — clear it before
+    // fetching the new one. apply_fetched_interior also clears, but
+    // doing it here keeps the screen empty during the in-flight fetch
+    // rather than showing stale tiles.
+    if current.map.as_ref().is_some_and(|m| m.id != want_id) {
         for e in &interior_entities { commands.entity(e).despawn_recursive(); }
         current.map = None;
-        current.fetching_id = None;
-        for mut v in &mut map_vis { *v = Visibility::Visible; }
-        for mut v in &mut fog_vis { *v = Visibility::Visible; }
-        return;
     }
 
-    let want_id = desired.unwrap();
-    // Case 2: already fetching this one, just wait for the fetch to land.
+    // Don't double-fetch a request already in flight.
     if current.fetching_id.as_deref() == Some(&want_id) { return; }
 
-    // Case 3: kick off a fetch for this interior.
     current.fetching_id = Some(want_id.clone());
     let slot = current.fetched.clone();
     let url = crate::api_url(&format!("/interior?id={}", want_id));
+    let want_id_for_task = want_id.clone();
     wasm_bindgen_futures::spawn_local(async move {
         let client = reqwest::Client::new();
-        match client.get(&url).send().await {
+        let outcome = client.get(&url).send().await;
+        match outcome {
             Ok(resp) => match resp.json::<InteriorMap>().await {
                 Ok(map) => {
                     if let Ok(mut lock) = slot.lock() { *lock = Some(map); }
                 }
-                Err(e) => log::error!("[interior] parse failed: {}", e),
+                Err(e) => log::error!("[interior] parse failed for {}: {}", want_id_for_task, e),
             },
-            Err(e) => log::error!("[interior] fetch failed: {}", e),
+            Err(e) => log::error!("[interior] fetch failed for {}: {}", want_id_for_task, e),
         }
     });
+}
 
-    // Hide overworld visual entities immediately so the user doesn't see a
-    // one-frame flash of the overworld while the fetch is in flight.
-    for mut v in &mut map_vis { *v = Visibility::Hidden; }
-    for mut v in &mut fog_vis { *v = Visibility::Hidden; }
+/// Detects "fetch crashed and never landed in current.fetched" and
+/// clears fetching_id so the next frame's watcher kicks off a retry.
+/// Without this, a single network blip on entry to an interior strands
+/// the client on a hidden overworld forever.
+fn retry_stuck_interior_fetch(
+    time: Res<Time>,
+    state: Res<MyPlayerState>,
+    mut current: ResMut<CurrentInterior>,
+    mut retry: Local<f32>,
+) {
+    *retry += time.delta_secs();
+    if *retry < 4.0 { return; }
+    *retry = 0.0;
+
+    // Only retry while we're supposed to be in an interior, are
+    // actively waiting on a fetch, and the slot is still empty.
+    let want = state.location.as_deref();
+    let fetching = current.fetching_id.as_deref();
+    if let (Some(w), Some(f)) = (want, fetching) {
+        if w == f && current.map.is_none() {
+            let slot_empty = current.fetched.lock().map(|g| g.is_none()).unwrap_or(true);
+            if slot_empty {
+                log::warn!("[interior] retrying stranded fetch for {}", w);
+                current.fetching_id = None;
+            }
+        }
+    }
 }
 
 // ── Fetched-interior consumer ──────────────────────
