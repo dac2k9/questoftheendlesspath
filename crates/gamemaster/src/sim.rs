@@ -481,6 +481,33 @@ mod tests {
     }
 
     #[test]
+    fn stationary_pass_does_not_promote_boss() {
+        // Regression: a player standing on a boss POI used to have the
+        // stationary trigger pass flip the Boss event to Active. The
+        // walking-branch trigger filter only re-considers Pending or
+        // Completed-by-another events (never Active), so the boss fight
+        // then never started when the player walked onto the tile —
+        // combat init lives in the walking branch. Live repro: dac2k9
+        // stood on the Castle of Frost, chaos_frost_queen went Active
+        // from the stationary pass, and walking did nothing. The fix
+        // excludes Boss + RandomEncounter from promote_pending_triggers
+        // (same treatment CaveEntrance already had).
+        let mut run = SimulatedRun::for_chaos();
+        let p = run.spawn_player("Tester");
+        run.force_complete_event(&p, "chaos_intro");
+        run.give_item(&p, "frostbound_key");
+        // Castle of Frost (POI 1000) at (28, 24).
+        run.teleport(&p, 28, 24);
+        // Stationary tick — the buggy behavior promoted the boss here.
+        run.tick_walking(&p, 1.0, 0.0);
+        assert!(
+            !run.event_is_active("chaos_frost_queen"),
+            "boss must NOT be promoted to Active by the stationary pass; \
+             it has to stay Pending so the walking branch can start combat",
+        );
+    }
+
+    #[test]
     fn per_player_event_completed_satisfies_trigger() {
         // Regression for the live-server bug where dac2k9 stood on the
         // Spire of Hael with chaos_intro in his personal completed_events,

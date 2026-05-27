@@ -979,13 +979,23 @@ fn promote_pending_triggers(
     for event in events_lock.events.iter_mut() {
         if event.status != EventStatus::Pending { continue; }
         if event.repeatable { continue; }
-        // CaveEntrance events MUST be handled in the walking branch
-        // (it has the `enter_interior` call + torch consumption +
-        // per-player completion tracking). If we flip them to Active
-        // from this stationary path, the walking-branch filter skips
-        // them (it only re-considers Pending events), and the player
-        // is stuck standing on a cave mouth that never opens.
-        if matches!(event.kind, questlib::events::kind::EventKind::CaveEntrance { .. }) {
+        // CaveEntrance + combat events (Boss / RandomEncounter) MUST be
+        // handled in the walking branch — it owns enter_interior / torch
+        // consumption (CaveEntrance) and combat init (Boss /
+        // RandomEncounter). If we flip them to Active from this
+        // stationary path, the walking-branch trigger filter skips them
+        // (it only re-considers Pending or Completed-by-another, never
+        // Active), so the action never runs: the player is stuck
+        // standing on a cave mouth that never opens, or on a boss tile
+        // whose fight never starts. Live repro: dac2k9 stood on the
+        // Castle of Frost, the stationary pass flipped chaos_frost_queen
+        // to Active, and then walking onto the tile did nothing because
+        // the walking branch ignored the now-Active boss.
+        if matches!(event.kind,
+            questlib::events::kind::EventKind::CaveEntrance { .. }
+            | questlib::events::kind::EventKind::Boss { .. }
+            | questlib::events::kind::EventKind::RandomEncounter { .. })
+        {
             continue;
         }
         if player.completed_events.contains(&event.id) { continue; }
