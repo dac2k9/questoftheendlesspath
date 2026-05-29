@@ -481,7 +481,32 @@ pub fn run_tick_dev(
                 if !is_cave_entrance && player.completed_events.contains(&e.id) { return false; }
                 // Skip repeatable (shops etc — handled by client)
                 if e.repeatable { return false; }
-                // Must be Pending or Completed-by-another-player
+                // Combat events (Boss / RandomEncounter) are per-player and
+                // RE-TRIGGERABLE: combat lives in `shared_combat` keyed per
+                // player, not in the event's global status. Gating them on
+                // the shared Pending/Completed status is wrong — if player A
+                // triggers the boss (status → Active) or this player flees a
+                // fight (status stays Active, combat cleared), the global
+                // status is no longer Pending and the player can NEVER
+                // re-engage: the fight just won't start when they walk back
+                // onto the tile. Live repro: dac2k9 stood on the Castle of
+                // Frost, the boss went Active, combat ended without a win,
+                // and "one tile down, one tile up" never restarted it.
+                // So for combat events: skip the global-status gate, and
+                // instead refuse only while this player is already mid-fight
+                // (the tick is frozen then anyway — re-init would reset the
+                // bar every tick). The has-completed guard above still stops
+                // a defeated boss from re-firing.
+                let is_combat = matches!(e.kind,
+                    questlib::events::kind::EventKind::Boss { .. }
+                    | questlib::events::kind::EventKind::RandomEncounter { .. });
+                if is_combat {
+                    if server_combat::player_in_combat(shared_combat, player_id) {
+                        return false;
+                    }
+                    return e.trigger.evaluate(&ctx);
+                }
+                // Non-combat events: must be Pending or Completed-by-another-player
                 if e.status != EventStatus::Pending && e.status != EventStatus::Completed {
                     return false;
                 }

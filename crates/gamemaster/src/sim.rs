@@ -189,6 +189,23 @@ impl SimulatedRun {
         }
     }
 
+    /// Force an event's GLOBAL catalog status without touching any
+    /// player's personal completion. Used to simulate "another player
+    /// triggered this" / "this player fled mid-fight" states where the
+    /// global status diverges from a given player's reality.
+    pub fn force_event_status(&mut self, event_id: &str, status: EventStatus) {
+        if let Ok(mut events) = self.bundle.events.lock() {
+            if let Some(ev) = events.get_mut(event_id) {
+                ev.force_status(status);
+            }
+        }
+    }
+
+    /// True if a combat is currently registered for this event id.
+    pub fn combat_exists(&self, event_id: &str) -> bool {
+        self.combat.lock().unwrap().contains_key(event_id)
+    }
+
     /// Drive the tick loop for `secs` simulated seconds at `speed_kmh`.
     /// Sets `is_walking` / `current_speed_kmh` on the player; the tick
     /// loop's debug-walk path turns those into distance deltas.
@@ -477,6 +494,39 @@ mod tests {
         assert!(
             run.has_completed(&p, "chaos_enter_via_east_gate"),
             "cave-entry event should be marked completed"
+        );
+    }
+
+    #[test]
+    fn boss_re_engages_when_stuck_active() {
+        // Regression: once a boss event went Active (triggered once, then
+        // the player fled or combat cleared without a win), the
+        // walking-branch filter — which only re-fired Pending/Completed
+        // events — locked the player out forever. Walking back onto the
+        // tile did nothing. Live repro: dac2k9 on the Castle of Frost,
+        // chaos_frost_queen Active, no combat, "one tile down one tile
+        // up" never restarted the fight. Fix: combat events bypass the
+        // global-status gate and re-trigger as long as the player isn't
+        // already mid-fight and hasn't personally completed it.
+        let mut run = SimulatedRun::for_chaos();
+        let p = run.spawn_player("Tester");
+        run.force_complete_event(&p, "chaos_intro");
+        run.give_item(&p, "frostbound_key");
+        // Simulate the stuck state: boss is Active globally, player has
+        // NOT completed it, and is not in combat.
+        run.force_event_status("chaos_frost_queen", EventStatus::Active);
+        assert!(!run.combat_exists("chaos_frost_queen"), "precondition: no combat yet");
+        // Player walks a route ONTO the Castle of Frost (28, 24).
+        // poi_at is an EXACT tile match, so the player must actually land
+        // on (28, 24) — walk fast + long enough to cross the road tile.
+        run.teleport(&p, 28, 25);
+        run.set_route(&p, &[(28, 25), (28, 24)]);
+        run.tick_walking(&p, 30.0, 20.0);
+        assert_eq!(run.tile(&p), (28, 24), "precondition: player reached the boss tile");
+        assert!(
+            run.combat_exists("chaos_frost_queen"),
+            "boss combat should (re)start when walking onto the tile even though \
+             the global event status was stuck Active",
         );
     }
 
