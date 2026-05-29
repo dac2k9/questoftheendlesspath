@@ -294,6 +294,7 @@ pub fn run_interior_tick(
                 player.total_distance_m as u64,
                 eq_bonus,
                 player_id,
+                &[], // interior monsters are solo, per-player
             );
             if let Ok(mut n) = shared_notifs.lock() {
                 crate::push_notif(&mut n, player_id, format!("A {} blocks your path!", monster_data.monster_type.display_name()));

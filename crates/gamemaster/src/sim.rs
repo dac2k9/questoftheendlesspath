@@ -144,6 +144,18 @@ impl SimulatedRun {
         }
     }
 
+    /// Set a player's walking state without ticking. Lets a test put
+    /// several players in motion before driving the shared tick loop, so
+    /// they advance together (run_tick_dev processes every player each
+    /// call, regardless of which pid tick_once was handed).
+    pub fn set_walking(&self, pid: &str, speed_kmh: f32) {
+        let mut lock = self.state.lock().unwrap();
+        if let Some(p) = lock.get_mut(pid) {
+            p.is_walking = speed_kmh > 0.0;
+            p.current_speed_kmh = speed_kmh;
+        }
+    }
+
     /// Set the player's planned route (JSON array of [x, y] pairs).
     pub fn set_route(&self, pid: &str, route: &[(usize, usize)]) {
         let json = serde_json::to_string(&route).expect("route json");
@@ -201,9 +213,23 @@ impl SimulatedRun {
         }
     }
 
-    /// True if a combat is currently registered for this event id.
+    /// True if a combat is currently registered for this CONTENT event id
+    /// (any player). Value-based — solo sessions key by
+    /// `{event_id}\x1f{player_id}`, so a bare key lookup would miss them.
     pub fn combat_exists(&self, event_id: &str) -> bool {
-        self.combat.lock().unwrap().contains_key(event_id)
+        self.combat.lock().unwrap().values().any(|c| c.event_id == event_id)
+    }
+
+    /// Number of distinct combat sessions for a CONTENT event id. Two
+    /// players soloing the same boss should produce 2 sessions; the old
+    /// event_id-keyed map produced 1 (the second clobbered the first).
+    pub fn combat_session_count(&self, event_id: &str) -> usize {
+        self.combat.lock().unwrap().values().filter(|c| c.event_id == event_id).count()
+    }
+
+    /// True if this player is currently in any combat session.
+    pub fn player_in_combat(&self, pid: &str) -> bool {
+        crate::combat::player_in_combat(&self.combat, pid)
     }
 
     /// Drive the tick loop for `secs` simulated seconds at `speed_kmh`.
@@ -494,6 +520,42 @@ mod tests {
         assert!(
             run.has_completed(&p, "chaos_enter_via_east_gate"),
             "cave-entry event should be marked completed"
+        );
+    }
+
+    #[test]
+    fn two_players_solo_same_boss_independently() {
+        // The cross-feed fix: two players who independently engage the
+        // same (non-coop) boss must get SEPARATE combat sessions. With
+        // the old event_id-keyed map, player B's start_combat overwrote
+        // player A's CombatState — A's fight vanished / desynced. Now
+        // solo sessions are keyed per player.
+        let mut run = SimulatedRun::for_chaos();
+        let a = run.spawn_player("Ava");
+        let b = run.spawn_player("Bo");
+        for p in [&a, &b] {
+            run.force_complete_event(p, "chaos_intro");
+            run.give_item(p, "frostbound_key");
+        }
+        // Put BOTH in motion toward the Castle of Frost (28, 24), then
+        // drive the shared tick loop a short, fixed number of steps —
+        // long enough for both to reach the tile and engage, short
+        // enough that neither 220-HP fight resolves before we assert.
+        for p in [&a, &b] {
+            run.teleport(p, 28, 25);
+            run.set_route(p, &[(28, 25), (28, 24)]);
+            run.set_walking(p, 20.0);
+        }
+        // tick_walking(&a, ...) re-sets Ava walking and ticks; Bo is
+        // already walking via set_walking, so run_tick_dev advances both.
+        run.tick_walking(&a, 8.0, 20.0);
+        assert_eq!(run.tile(&a), (28, 24), "Ava reached the boss tile");
+        assert_eq!(run.tile(&b), (28, 24), "Bo reached the boss tile");
+        assert!(run.player_in_combat(&a), "Ava should be in her own fight");
+        assert!(run.player_in_combat(&b), "Bo should be in his own fight");
+        assert_eq!(
+            run.combat_session_count("chaos_frost_queen"), 2,
+            "two solo fighters on one boss must yield two independent sessions, not one clobbered one",
         );
     }
 

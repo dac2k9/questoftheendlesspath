@@ -90,12 +90,15 @@ pub fn tick_entities(
     // (etc.) keeps wandering on the world map even while the player is
     // mid-fight in the combat overlay — visible as the sprite walking
     // off across the map.
+    // Value-based, not key-based: solo combat sessions key by
+    // `{event_id}\x1f{player_id}`, so the entity id lives in
+    // `cs.event_id` (`mobile_monster:<id>`), not the map key.
     let engaged_ids: std::collections::HashSet<String> = shared_combat
         .lock()
         .ok()
         .map(|lock| {
-            lock.keys()
-                .filter_map(|k| k.strip_prefix(MOBILE_MONSTER_PREFIX).map(String::from))
+            lock.values()
+                .filter_map(|c| c.event_id.strip_prefix(MOBILE_MONSTER_PREFIX).map(String::from))
                 .collect()
         })
         .unwrap_or_default();
@@ -409,10 +412,7 @@ pub fn check_contacts(
                 // and overwrites the combat state, ping-ponging between
                 // players standing on the same tile and never letting
                 // the fight resolve.
-                let already_engaged = shared_combat
-                    .lock()
-                    .map(|lock| lock.contains_key(&event_id))
-                    .unwrap_or(false);
+                let already_engaged = crate::combat::event_combat_active(shared_combat, &event_id);
                 if already_engaged {
                     // If a player is actually standing on this entity's
                     // tile but we skip, that's the "stuck combat entry"
@@ -453,6 +453,7 @@ pub fn check_contacts(
                         *total_m,
                         *eq,
                         pid,
+                        &[], // mobile monsters are one-player-per-entity (solo)
                     );
                     if let Ok(mut n) = shared_notifs.lock() {
                         crate::push_notif(&mut n, pid, format!("A {} attacks!", display));

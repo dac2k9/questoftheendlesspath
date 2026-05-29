@@ -326,7 +326,7 @@ pub fn run_tick_dev(
                 let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog, &player.item_upgrades);
                 // Only start if THIS player isn't already in combat
                 if !server_combat::player_in_combat(shared_combat, player_id) {
-                    server_combat::start_combat(shared_combat, &combat_event_id, &kind, player.total_distance_m as u64, eq_bonus, player_id);
+                    server_combat::start_combat(shared_combat, &combat_event_id, &kind, player.total_distance_m as u64, eq_bonus, player_id, &[]);
                     info!("[{}] Monster encounter: {} (difficulty {})", player.name, m.monster_type.display_name(), m.difficulty);
                 }
             }
@@ -691,6 +691,12 @@ pub fn run_tick_dev(
                     if !player.planned_route.is_empty() {
                         let catalog = crate::item_catalog();
                         let eq_bonus = questlib::items::equipment_bonuses(&player.equipment, &catalog, &player.item_upgrades);
+                        // Co-op bosses share one session keyed by the bare
+                        // event_id; everything else is a per-player solo
+                        // session. `coop_player_ids` is only populated for
+                        // requires_coop bosses (the wait-gate above), empty
+                        // otherwise — so passing it through gives solo keys
+                        // for solo fights and a shared key for co-op.
                         server_combat::start_combat(
                             shared_combat,
                             &event.id,
@@ -698,15 +704,10 @@ pub fn run_tick_dev(
                             player.total_distance_m as u64,
                             eq_bonus,
                             player_id,
+                            if is_boss { &coop_player_ids } else { &[] },
                         );
-                        // For coop bosses, add all present players to the combat
-                        if is_boss && !coop_player_ids.is_empty() {
-                            if let Ok(mut combat_lock) = shared_combat.lock() {
-                                if let Some(cs) = combat_lock.get_mut(&event.id) {
-                                    cs.coop_players = coop_player_ids.clone();
-                                    info!("  Coop boss fight started: {} players", coop_player_ids.len());
-                                }
-                            }
+                        if is_boss && coop_player_ids.len() > 1 {
+                            info!("  Coop boss fight started: {} players", coop_player_ids.len());
                         }
                         info!("  Combat started: {}", event.name);
                     } else {
@@ -743,20 +744,21 @@ pub fn run_tick_dev(
         .collect();
     let (victories, retreats) = server_combat::tick_all(shared_combat, &player_speeds, 1.0);
 
-    for victory_event_id in &victories {
-        info!("Combat victory: {}", victory_event_id);
-
-        // Get the player_id(s) from the combat state before removing
-        let (fighter_pid, coop_pids) = {
+    for victory_key in &victories {
+        // Read the CONTENT event_id + participants from the session state.
+        // The map key may carry a `\x1f<player_id>` suffix for solo
+        // fights, so we MUST route on `cs.event_id`, not the key.
+        let (event_id, fighter_pid, coop_pids) = {
             let lock = shared_combat.lock().unwrap();
-            let c = lock.get(victory_event_id);
-            (
-                c.map(|c| c.player_id.clone()),
-                c.map(|c| c.coop_players.clone()).unwrap_or_default(),
-            )
+            match lock.get(victory_key) {
+                Some(c) => (c.event_id.clone(), Some(c.player_id.clone()), c.coop_players.clone()),
+                None => { drop(lock); server_combat::remove_combat(shared_combat, victory_key); continue; }
+            }
         };
+        let event_id = event_id.as_str();
+        info!("Combat victory: {} (session {})", event_id, victory_key);
 
-        if let Some(entity_id) = crate::mobile_entity::parse_combat_event_id(victory_event_id) {
+        if let Some(entity_id) = crate::mobile_entity::parse_combat_event_id(event_id) {
             // Mobile monster victory — mark dead, schedule respawn,
             // pay loot. Difficulty comes from the entity def's
             // ContactAction::Combat.
@@ -796,14 +798,14 @@ pub fn run_tick_dev(
                     }
                 }
             }
-        } else if victory_event_id.starts_with("monster_") {
+        } else if event_id.starts_with("monster_") {
             // World monster victory — mark defeated, give loot
             let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
             if let Some(pid) = fighter_pid.clone() {
                 if let Some(p) = lock.get_mut(&pid) {
-                    p.defeated_monsters.push(victory_event_id.clone());
+                    p.defeated_monsters.push(event_id.to_string());
                     // Loot based on monster difficulty
-                    let idx: usize = victory_event_id.strip_prefix("monster_").and_then(|s| s.parse().ok()).unwrap_or(0);
+                    let idx: usize = event_id.strip_prefix("monster_").and_then(|s| s.parse().ok()).unwrap_or(0);
                     let difficulty = world.monsters.get(idx).map(|m| m.difficulty).unwrap_or(1);
                     let name = world.monsters.get(idx).map(|m| m.monster_type.display_name()).unwrap_or("Monster");
                     let raw_gold = 30 + (difficulty as i32 * 20);
@@ -830,7 +832,7 @@ pub fn run_tick_dev(
                     }
                 }
             }
-        } else if let Some((interior_id, monster_idx)) = questlib::interior::parse_monster_combat_event_id(victory_event_id) {
+        } else if let Some((interior_id, monster_idx)) = questlib::interior::parse_monster_combat_event_id(event_id) {
             // Interior monster victory — same loot rules as overworld.
             let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
             if let Some(pid) = fighter_pid.clone() {
@@ -864,7 +866,7 @@ pub fn run_tick_dev(
                     }
                 }
             }
-        } else if let Some(event) = events_lock.get_mut(victory_event_id) {
+        } else if let Some(event) = events_lock.get_mut(event_id) {
             // Quest event victory — apply outcomes to ALL coop participants
             if event.transition(EventStatus::Completed).is_ok() {
                 // Climactic boss with `grants_boon: true`: each participant
@@ -879,12 +881,12 @@ pub fn run_tick_dev(
                 let participants = if !coop_pids.is_empty() { coop_pids.clone() } else { fighter_pid.clone().into_iter().collect() };
                 for pid in &participants {
                     if let (Some(p), Some(fog)) = (lock.get_mut(pid), player_fogs.get_mut(pid)) {
-                        p.completed_events.push(victory_event_id.clone());
+                        p.completed_events.push(event_id.to_string());
                         for outcome in &event.outcomes {
                             apply_outcome(outcome, p, fog);
                         }
                         if grants_boon {
-                            queue_boon_choice(p, victory_event_id);
+                            queue_boon_choice(p, event_id);
                         }
                     }
                 }
@@ -907,21 +909,30 @@ pub fn run_tick_dev(
                 }
             }
         }
-        server_combat::remove_combat(shared_combat, victory_event_id);
+        server_combat::remove_combat(shared_combat, victory_key);
     }
 
     // Defeat/Fled: push player back one tile (away from the monster/enemy)
-    for retreat_event_id in &retreats {
-        info!("Combat retreat: {}", retreat_event_id);
-
-        // Get player_id before removing the combat
-        let fighter_pid = {
+    for retreat_key in &retreats {
+        // event_id + player from the session state (key may be suffixed).
+        let (event_id, fighter_pid) = {
             let combat_lock = shared_combat.lock().unwrap();
-            combat_lock.get(retreat_event_id).map(|c| c.player_id.clone())
+            match combat_lock.get(retreat_key) {
+                Some(c) => (Some(c.event_id.clone()), Some(c.player_id.clone())),
+                None => (None, None),
+            }
         };
+        info!("Combat retreat: {} (session {})", event_id.as_deref().unwrap_or("?"), retreat_key);
 
-        if let Some(event) = events_lock.get_mut(retreat_event_id) {
-            event.force_status(EventStatus::Dismissed);
+        // Dismiss the underlying event globally only for solo fights —
+        // a co-op retreat is handled per the shared session. The status
+        // is no longer used to gate re-engagement (combat events
+        // re-trigger per-player), so this is mostly cosmetic, but keeps
+        // the catalog tidy.
+        if let Some(ref eid) = event_id {
+            if let Some(event) = events_lock.get_mut(eid) {
+                event.force_status(EventStatus::Dismissed);
+            }
         }
 
         // Push player back to where they came from
@@ -938,7 +949,7 @@ pub fn run_tick_dev(
             }
         }
 
-        server_combat::remove_combat(shared_combat, retreat_event_id);
+        server_combat::remove_combat(shared_combat, retreat_key);
     }
 
     Ok(())

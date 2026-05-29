@@ -1545,12 +1545,9 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
             .and_then(|i| serde_json::from_str::<serde_json::Value>(&request[i + 4..]).ok())
             .and_then(|v| v.get("player_id")?.as_str().map(|s| s.to_string()));
         let pid = body_player_id.unwrap_or_default();
-        let event_id = crate::combat::get_combat_for_player(combat, &pid).map(|c| c.event_id);
-        if let Some(eid) = event_id {
-            if let Some(updated) = crate::combat::flee(combat, &eid) {
-                let json = serde_json::to_string(&updated).unwrap_or_default();
-                return ("200 OK", json);
-            }
+        if let Some(updated) = crate::combat::flee_for_player(combat, &pid) {
+            let json = serde_json::to_string(&updated).unwrap_or_default();
+            return ("200 OK", json);
         }
         return ("400 Bad Request", r#"{"error":"no active combat"}"#.to_string());
     }
@@ -1849,10 +1846,13 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         // there's no live fight. Optional `event_id` clears just one.
         if first_line.starts_with("POST /admin/clear_combat") {
             let target = data.get("event_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let mut lock = combat.lock().unwrap();
             let removed: Vec<String> = if let Some(ref id) = target {
-                if lock.remove(id).is_some() { vec![id.clone()] } else { vec![] }
+                // Match by CONTENT event_id — solo session keys carry a
+                // `\x1f<player_id>` suffix, so a bare key.remove() would
+                // miss them. clear_combat_for_event handles both.
+                crate::combat::clear_combat_for_event(combat, id)
             } else {
+                let mut lock = combat.lock().unwrap();
                 let keys: Vec<String> = lock.keys().cloned().collect();
                 lock.clear();
                 keys
