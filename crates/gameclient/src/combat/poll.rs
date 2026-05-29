@@ -21,27 +21,20 @@ pub fn poll_combat_state(
     let fetched_ref = combat.fetched.clone();
     if let Ok(mut lock) = fetched_ref.lock() {
         if let Some(server_state) = lock.take() {
-            // Don't blindly overwrite the smooth local prediction with
-            // the server's last-tick value — the server ticks every
-            // ~1 s but the poll response can arrive at any phase of
-            // that interval, so the server's `player_charge` lags the
-            // client by 0..1 s of smooth fill. Overwriting made the
-            // bar visibly snap backward every poll.
-            //
-            // Accept server's value only when it's a RESET (much
-            // lower than local), i.e. an attack just fired and the
-            // server zeroed the bar. Otherwise keep the local
-            // prediction; the server is authoritative on HP /
-            // status which we still copy.
-            let first_state = combat.state.is_none();
-            let player_reset = server_state.player_charge + 0.1 < combat.local_player_charge;
-            let enemy_reset = server_state.enemy_charge + 0.1 < combat.local_enemy_charge;
-            if first_state || player_reset {
-                combat.local_player_charge = server_state.player_charge;
-            }
-            if first_state || enemy_reset {
-                combat.local_enemy_charge = server_state.enemy_charge;
-            }
+            // Re-anchor the dead-reckoned bars to this server sample.
+            // The displayed charge is recomputed every frame as
+            // `server_charge + rate * charge_age`, so anchoring here +
+            // resetting charge_age to 0 means the bar can't drift away
+            // from the server's truth over a long fight. Crucially, the
+            // forward prediction (below) compensates for the ~1 s the
+            // server sample lags real time, so re-anchoring does NOT
+            // snap the bar backward the way a naive `local = server`
+            // did — the value we display the instant after a poll is
+            // very close to what we displayed the instant before it,
+            // because both advance at the same rate.
+            combat.server_player_charge = server_state.player_charge;
+            combat.server_enemy_charge = server_state.enemy_charge;
+            combat.charge_age = 0.0;
             combat.state = Some(server_state);
             combat.active = true;
             combat.action_pending = false;
@@ -57,6 +50,9 @@ pub fn poll_combat_state(
             combat.state = None;
             combat.local_player_charge = 0.0;
             combat.local_enemy_charge = 0.0;
+            combat.server_player_charge = 0.0;
+            combat.server_enemy_charge = 0.0;
+            combat.charge_age = 0.0;
         }
     }
 
@@ -89,16 +85,18 @@ pub fn poll_combat_state(
         });
     }
 
-    // Advance local charge prediction between polls
-    let should_predict = combat.active && !combat.action_pending
+    // Dead-reckon the displayed bars from the last server sample.
+    // local = (server_charge + rate * charge_age).min(1.0). When the
+    // fight is paused/over we freeze the age so the bars hold steady.
+    let fighting = combat.active && !combat.action_pending
         && combat.state.as_ref().is_some_and(|cs| cs.status == questlib::combat::CombatStatus::Fighting);
     let difficulty = combat.state.as_ref().map(|cs| cs.difficulty).unwrap_or(1);
-    if should_predict {
-        let dt = time.delta_secs();
-        combat.local_player_charge += questlib::combat::player_charge_rate(state.speed_kmh) * dt;
-        combat.local_player_charge = combat.local_player_charge.min(1.0);
-        combat.local_enemy_charge += questlib::combat::enemy_charge_rate(difficulty) * dt;
-        combat.local_enemy_charge = combat.local_enemy_charge.min(1.0);
+    if fighting {
+        combat.charge_age += time.delta_secs();
+        let p_rate = questlib::combat::player_charge_rate(state.speed_kmh);
+        let e_rate = questlib::combat::enemy_charge_rate(difficulty);
+        combat.local_player_charge = (combat.server_player_charge + p_rate * combat.charge_age).min(1.0);
+        combat.local_enemy_charge = (combat.server_enemy_charge + e_rate * combat.charge_age).min(1.0);
     }
 }
 

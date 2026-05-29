@@ -74,10 +74,19 @@ fn load_boss_portraits(
 pub struct CombatUiState {
     pub active: bool,
     pub state: Option<questlib::combat::CombatState>,
-    /// Client-predicted player charge (smooth animation between polls).
+    /// Displayed charge bars. Dead-reckoned each frame from the last
+    /// server sample (`server_*_charge` + rate × `charge_age`), NOT a
+    /// free-running accumulator — a free-runner drifts below the
+    /// server's true charge over a fight, so the server fires (HP drops)
+    /// while the bar still reads < 100%. Re-anchoring every poll keeps
+    /// the bar full exactly when the strike lands.
     pub local_player_charge: f32,
-    /// Client-predicted enemy charge.
     pub local_enemy_charge: f32,
+    /// Last charge values the server reported, and seconds since that
+    /// sample. The bar is `(server_charge + rate * charge_age).min(1)`.
+    pub server_player_charge: f32,
+    pub server_enemy_charge: f32,
+    pub charge_age: f32,
     /// Shared with async poll task — Some means new state arrived.
     pub fetched: Arc<Mutex<Option<questlib::combat::CombatState>>>,
     /// Signal from async task that server returned null (no combat).
@@ -95,6 +104,9 @@ impl Default for CombatUiState {
             state: None,
             local_player_charge: 0.0,
             local_enemy_charge: 0.0,
+            server_player_charge: 0.0,
+            server_enemy_charge: 0.0,
+            charge_age: 0.0,
             fetched: Arc::new(Mutex::new(None)),
             server_cleared: Arc::new(Mutex::new(false)),
             poll_timer: 0.0,
