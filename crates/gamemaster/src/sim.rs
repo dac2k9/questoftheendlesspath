@@ -232,6 +232,28 @@ impl SimulatedRun {
         crate::combat::player_in_combat(&self.combat, pid)
     }
 
+    /// Force the enemy HP of the live combat session(s) for a CONTENT
+    /// event id. Lets a test drive a fight to the brink without
+    /// simulating the full balance, so the next tick triggers victory
+    /// and we can assert on the reward path.
+    pub fn set_combat_enemy_hp(&self, event_id: &str, hp: i32) {
+        let mut lock = self.combat.lock().unwrap();
+        for c in lock.values_mut().filter(|c| c.event_id == event_id) {
+            c.enemy_hp = hp;
+        }
+    }
+
+    /// True if the player owns an adventure-scoped boon in their current
+    /// adventure.
+    pub fn has_adventure_boon(&self, pid: &str, boon_id: &str) -> bool {
+        self.snapshot(pid)
+            .map(|p| {
+                let adv = p.adventure_id.clone();
+                p.adventure_boons.get(&adv).map(|v| v.iter().any(|b| b == boon_id)).unwrap_or(false)
+            })
+            .unwrap_or(false)
+    }
+
     /// Drive the tick loop for `secs` simulated seconds at `speed_kmh`.
     /// Sets `is_walking` / `current_speed_kmh` on the player; the tick
     /// loop's debug-walk path turns those into distance deltas.
@@ -520,6 +542,40 @@ mod tests {
         assert!(
             run.has_completed(&p, "chaos_enter_via_east_gate"),
             "cave-entry event should be marked completed"
+        );
+    }
+
+    #[test]
+    fn boss_victory_grants_rewards() {
+        // dac2k9 beat the Frost Queen bare-handed but received nothing —
+        // no completion, no 300 gold, no Frost Axe, no Frostproof boon.
+        // This pins the full victory→reward path: walk in, engage, drop
+        // the enemy to 1 HP, land the killing blow, assert every outcome
+        // applied. (Drives enemy HP directly so the test doesn't depend
+        // on combat balance / how long the fight takes.)
+        let mut run = SimulatedRun::for_chaos();
+        let p = run.spawn_player("Tester");
+        run.force_complete_event(&p, "chaos_intro");
+        run.give_item(&p, "frostbound_key");
+        run.teleport(&p, 28, 25);
+        run.set_route(&p, &[(28, 25), (28, 24)]);
+        run.tick_walking(&p, 10.0, 20.0);
+        assert!(run.combat_exists("chaos_frost_queen"), "combat should have started");
+        let gold_before = run.gold(&p);
+        run.set_combat_enemy_hp("chaos_frost_queen", 1);
+        // Keep walking so the player charge fills and lands the kill.
+        run.tick_walking(&p, 20.0, 20.0);
+        assert!(
+            run.has_completed(&p, "chaos_frost_queen"),
+            "victory must mark the boss completed",
+        );
+        // >= because the player keeps earning a little distance gold
+        // walking after the fight ends in the same tick batch.
+        assert!(run.gold(&p) >= gold_before + 300, "victory must award at least 300 gold (got {})", run.gold(&p) - gold_before);
+        assert!(run.has_item(&p, "frost_axe"), "victory must drop the Frost Axe");
+        assert!(
+            run.has_adventure_boon(&p, "frostproof"),
+            "victory must grant the Frostproof adventure boon",
         );
     }
 
