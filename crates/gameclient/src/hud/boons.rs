@@ -214,24 +214,42 @@ fn spawn_strips(mut commands: Commands, font: Res<GameFont>) {
 fn rebuild_boon_chips(
     mut commands: Commands,
     player: Res<MyPlayerState>,
+    font: Res<GameFont>,
     icons: Res<BoonIcons>,
     strip_q: Query<Entity, With<BoonStrip>>,
     chips_q: Query<Entity, With<BoonChip>>,
     mut last_owned: Local<Vec<String>>,
 ) {
-    if player.boons == *last_owned {
+    // Display = permanent boons (with PNG icons) followed by the CURRENT
+    // adventure's scoped boons. The latter (frostproof, voidsight, …)
+    // ship no PNG, so they render as a letter chip with a teal tint;
+    // the hover tooltip resolves name/description via
+    // questlib::boons::lookup, which knows them. Without this whole
+    // branch, adventure boons were invisible client-side even though the
+    // server granted them (the "I see no frostproof boon" report).
+    let adventure_boons: Vec<String> = player.adventure_boons
+        .get(&player.adventure_id)
+        .cloned()
+        .unwrap_or_default();
+    // Combined owned list for change detection — tag adventure boons so
+    // the strip rebuilds when either set changes.
+    let owned: Vec<String> = player.boons.iter().cloned()
+        .chain(adventure_boons.iter().map(|b| format!("adv:{b}")))
+        .collect();
+    if owned == *last_owned {
         return;
     }
-    *last_owned = player.boons.clone();
+    *last_owned = owned;
 
     let Ok(strip) = strip_q.get_single() else { return };
     for chip in &chips_q {
         commands.entity(chip).despawn_recursive();
     }
 
+    // Permanent boons — PNG icon, dark tint.
     for boon_id in &player.boons {
         let Some(handle) = icons.by_id.get(boon_id) else { continue };
-        let chip_entity = commands
+        let chip = commands
             .spawn((
                 Button,
                 Node {
@@ -246,16 +264,54 @@ fn rebuild_boon_chips(
             ))
             .with_children(|c| {
                 c.spawn((
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        ..default()
-                    },
+                    Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
                     ImageNode::new(handle.clone()),
                 ));
             })
             .id();
-        commands.entity(strip).add_child(chip_entity);
+        commands.entity(strip).add_child(chip);
+    }
+
+    // Current adventure's scoped boons — PNG if one happens to exist,
+    // else a letter chip with a teal tint to set them apart.
+    for boon_id in &adventure_boons {
+        let icon = icons.by_id.get(boon_id).cloned();
+        let chip = commands
+            .spawn((
+                Button,
+                Node {
+                    width: Val::Px(24.0),
+                    height: Val::Px(24.0),
+                    padding: UiRect::all(Val::Px(1.0)),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.06, 0.30, 0.34, 0.65)),
+                BorderRadius::all(Val::Px(4.0)),
+                BoonChip(boon_id.clone()),
+            ))
+            .with_children(|c| {
+                if let Some(handle) = icon {
+                    c.spawn((
+                        Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+                        ImageNode::new(handle),
+                    ));
+                } else {
+                    let letter = questlib::boons::lookup(boon_id)
+                        .map(|b| b.name.chars().next().unwrap_or('?'))
+                        .unwrap_or('?')
+                        .to_ascii_uppercase()
+                        .to_string();
+                    c.spawn((
+                        Text::new(letter),
+                        TextFont { font: font.0.clone(), font_size: 11.0, ..default() },
+                        TextColor(Color::srgb(0.75, 0.95, 1.0)),
+                    ));
+                }
+            })
+            .id();
+        commands.entity(strip).add_child(chip);
     }
 }
 

@@ -69,6 +69,11 @@ pub struct PlayerRow {
     /// Permanent meta-progression boons earned across adventures.
     #[serde(default)]
     pub boons: Vec<String>,
+    /// Adventure-scoped boons, keyed by adventure_id. Only the entry for
+    /// the player's current `adventure_id` applies / is shown. The HUD
+    /// renders these alongside the permanent boons.
+    #[serde(default)]
+    pub adventure_boons: std::collections::HashMap<String, Vec<String>>,
     /// Pending boon picker (set after a climactic-quest victory). When
     /// `Some`, the client opens the boon picker modal and the player
     /// must choose one of `choices` to dismiss it.

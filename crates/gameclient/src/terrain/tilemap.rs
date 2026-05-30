@@ -296,6 +296,10 @@ pub struct MyPlayerState {
     pub item_upgrades: std::collections::HashMap<String, u8>,
     /// Permanent meta-progression boons earned across adventures.
     pub boons: Vec<String>,
+    /// Adventure-scoped boons keyed by adventure_id; only the current
+    /// adventure's entry applies / is shown. Mirrors
+    /// DevPlayerState.adventure_boons.
+    pub adventure_boons: std::collections::HashMap<String, Vec<String>>,
     /// When `Some`, the boon picker modal opens and the player must
     /// pick one of `choices` before continuing. Cleared by the server
     /// after `/select_boon`.
@@ -874,6 +878,7 @@ fn apply_server_state(
     state.completed_events = me.completed_events.clone();
     state.item_upgrades = me.item_upgrades.clone();
     state.boons = me.boons.clone();
+    state.adventure_boons = me.adventure_boons.clone();
     state.pending_boon_choice = me.pending_boon_choice.clone();
     state.active_buffs = me.active_buffs.clone();
     // Detect adventure switch — clear local fog so we don't carry
