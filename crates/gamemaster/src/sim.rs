@@ -243,6 +243,26 @@ impl SimulatedRun {
         }
     }
 
+    /// Make the player flee their current combat session(s) for an
+    /// event id — sets the session status to Fled so the next tick's
+    /// retreat handler runs.
+    pub fn flee_combat(&self, event_id: &str) {
+        let mut lock = self.combat.lock().unwrap();
+        for c in lock.values_mut().filter(|c| c.event_id == event_id) {
+            c.status = questlib::combat::CombatStatus::Fled;
+        }
+    }
+
+    /// Set the player's cumulative walked distance (drives leveling +
+    /// `distance_walked` triggers). Lets a test satisfy a meters_min
+    /// gate without walking thousands of simulated ticks.
+    pub fn set_distance(&self, pid: &str, meters: f64) {
+        let mut lock = self.state.lock().unwrap();
+        if let Some(p) = lock.get_mut(pid) {
+            p.total_distance_m = meters;
+        }
+    }
+
     /// True if the player owns an adventure-scoped boon in their current
     /// adventure.
     pub fn has_adventure_boon(&self, pid: &str, boon_id: &str) -> bool {
@@ -542,6 +562,110 @@ mod tests {
         assert!(
             run.has_completed(&p, "chaos_enter_via_east_gate"),
             "cave-entry event should be marked completed"
+        );
+    }
+
+    #[test]
+    fn random_encounter_completes_on_victory_and_stops_refiring() {
+        // Daniel fought the grassland Bandit Trio over and over — the
+        // encounter never landed in completed_events, so its
+        // random_in_biome roll kept re-firing. This reproduces the real
+        // trigger path: stand in Grassland past the 800 m gate with a
+        // guaranteed roll, confirm the bandits engage, win, then assert
+        // (a) it's marked completed and (b) it does NOT re-fire on the
+        // next grassland tick.
+        let mut run = SimulatedRun::for_chaos();
+        let p = run.spawn_player("Tester");
+        run.force_complete_event(&p, "chaos_intro");
+        run.set_distance(&p, 5000.0); // clear the 800 m distance gate
+
+        // Find two adjacent walkable Grassland tiles for a short route.
+        let (start, next) = {
+            let w = &run.bundle.world;
+            let mut found = None;
+            'scan: for y in 1..w.height - 1 {
+                for x in 1..w.width - 1 {
+                    if w.biome_at(x, y) == questlib::mapgen::Biome::Grassland
+                        && w.biome_at(x + 1, y) == questlib::mapgen::Biome::Grassland
+                    {
+                        found = Some(((x, y), (x + 1, y)));
+                        break 'scan;
+                    }
+                }
+            }
+            found.expect("chaos world has adjacent grassland tiles")
+        };
+        run.teleport(&p, start.0 as i32, start.1 as i32);
+        // Guaranteed random_in_biome roll (chance 0.05 > 0.01).
+        run.rng_roll = 0.01;
+        run.set_route(&p, &[start, next]);
+        run.tick_walking(&p, 3.0, 6.0);
+
+        assert!(
+            run.combat_exists("chaos_encounter_grassland_bandits"),
+            "bandits should engage on a guaranteed grassland roll past the distance gate",
+        );
+        // Win the fight.
+        run.set_combat_enemy_hp("chaos_encounter_grassland_bandits", 1);
+        run.tick_walking(&p, 10.0, 6.0);
+        assert!(
+            run.has_completed(&p, "chaos_encounter_grassland_bandits"),
+            "winning the bandits must mark the encounter completed",
+        );
+        // Keep walking in grassland with the roll still guaranteed — it
+        // must NOT re-fire now that it's completed.
+        run.set_route(&p, &[next, start]);
+        run.tick_walking(&p, 10.0, 6.0);
+        assert!(
+            !run.combat_exists("chaos_encounter_grassland_bandits"),
+            "a completed random encounter must not re-fire",
+        );
+    }
+
+    #[test]
+    fn fled_random_encounter_does_not_re_ambush() {
+        // The actual Daniel bug: he kept fighting the Bandit Trio over
+        // and over because he wasn't WINNING (fleeing/losing), and a
+        // fled random encounter used to re-roll every grassland tick
+        // forever. Fleeing must now resolve it for that player.
+        let mut run = SimulatedRun::for_chaos();
+        let p = run.spawn_player("Tester");
+        run.force_complete_event(&p, "chaos_intro");
+        run.set_distance(&p, 5000.0);
+        let (start, next) = {
+            let w = &run.bundle.world;
+            let mut found = None;
+            'scan: for y in 1..w.height - 1 {
+                for x in 1..w.width - 1 {
+                    if w.biome_at(x, y) == questlib::mapgen::Biome::Grassland
+                        && w.biome_at(x + 1, y) == questlib::mapgen::Biome::Grassland
+                    {
+                        found = Some(((x, y), (x + 1, y)));
+                        break 'scan;
+                    }
+                }
+            }
+            found.expect("grassland tiles")
+        };
+        run.teleport(&p, start.0 as i32, start.1 as i32);
+        run.rng_roll = 0.01;
+        run.set_route(&p, &[start, next]);
+        run.tick_walking(&p, 3.0, 6.0);
+        assert!(run.combat_exists("chaos_encounter_grassland_bandits"), "bandits should engage");
+        // Flee instead of winning.
+        run.flee_combat("chaos_encounter_grassland_bandits");
+        run.tick_walking(&p, 2.0, 6.0); // retreat handler resolves it
+        assert!(
+            run.has_completed(&p, "chaos_encounter_grassland_bandits"),
+            "fleeing a random encounter resolves it for the player",
+        );
+        // Walk more grassland with the roll still guaranteed — must NOT
+        // re-ambush.
+        run.set_route(&p, &[next, start]);
+        run.tick_walking(&p, 10.0, 6.0);
+        assert!(
+            !run.combat_exists("chaos_encounter_grassland_bandits"),
+            "a fled random encounter must not re-ambush the same player",
         );
     }
 

@@ -924,11 +924,16 @@ pub fn run_tick_dev(
         };
         info!("Combat retreat: {} (session {})", event_id.as_deref().unwrap_or("?"), retreat_key);
 
-        // Dismiss the underlying event globally only for solo fights —
-        // a co-op retreat is handled per the shared session. The status
-        // is no longer used to gate re-engagement (combat events
-        // re-trigger per-player), so this is mostly cosmetic, but keeps
-        // the catalog tidy.
+        // Is the fled/lost fight an ambient RandomEncounter (vs a
+        // deliberate Boss)? Random encounters are one-time-per-player:
+        // engaging one and ending the fight in ANY outcome resolves it.
+        // Bosses stay re-engageable so you can walk back to a POI and
+        // try again.
+        let is_random_encounter = event_id.as_ref().and_then(|eid| {
+            events_lock.get(eid).map(|e| matches!(
+                e.kind, questlib::events::kind::EventKind::RandomEncounter { .. }))
+        }).unwrap_or(false);
+
         if let Some(ref eid) = event_id {
             if let Some(event) = events_lock.get_mut(eid) {
                 event.force_status(EventStatus::Dismissed);
@@ -946,6 +951,22 @@ pub fn run_tick_dev(
                 }
                 p.planned_route.clear();
                 p.route_meters_walked = 0.0;
+                // Mark a fled/lost RANDOM encounter resolved for this
+                // player so its random_in_biome roll can't re-ambush
+                // them every ~20 s. Without this, the combat-event
+                // re-trigger path (which correctly lets bosses
+                // re-engage) turned a single fled Bandit Trio into an
+                // endless loop — Daniel walking the grasslands fighting
+                // them over and over. Bosses are intentionally NOT
+                // marked here.
+                if is_random_encounter {
+                    if let Some(eid) = &event_id {
+                        if !p.completed_events.contains(eid) {
+                            p.completed_events.push(eid.clone());
+                            info!("[{}] random encounter {} resolved (fled/lost) — won't re-roll", p.name, eid);
+                        }
+                    }
+                }
             }
         }
 

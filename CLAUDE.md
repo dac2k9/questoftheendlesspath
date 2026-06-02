@@ -231,6 +231,13 @@ Per-player reality lives in three places, none of them the global status:
   it re-fires them whenever the player is on the tile, hasn't personally
   completed the event, and isn't already mid-fight. So a fled fight or a
   status another player flipped can't lock you out.
+- **Boss vs RandomEncounter resolution differ.** A Boss is deliberate
+  (at_poi) and stays re-engageable: fleeing leaves it un-completed so you
+  can walk back and retry; only a win completes it. A RandomEncounter is
+  ambient (random_in_biome) and one-time-per-player: the retreat handler
+  marks it in the player's `completed_events` on flee/defeat too, so its
+  roll can't re-ambush them every ~20 s. Without this, the re-trigger
+  rule above turned one fled Bandit Trio into an endless grassland loop.
 
 Future direction (not built): fold the solo-vs-coop key split into an
 explicit "fight session" type holding 1..N players + an open/closed
