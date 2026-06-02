@@ -238,6 +238,13 @@ Per-player reality lives in three places, none of them the global status:
   marks it in the player's `completed_events` on flee/defeat too, so its
   roll can't re-ambush them every ~20 s. Without this, the re-trigger
   rule above turned one fled Bandit Trio into an endless grassland loop.
+- **Post-combat encounter cooldown.** `random_in_biome` rolls every 1 s
+  tick, so a "low" 6 %/s compounds to ~90 % within ~40 s and can fire
+  immediately after the previous fight. After ANY combat ends (win /
+  flee / defeat) the player's `last_combat_end_unix` is stamped, and the
+  trigger filter suppresses RandomEncounters for
+  `RANDOM_ENCOUNTER_COOLDOWN_SECS` (45 s) — a breather between fights.
+  Bosses (deliberate) and world monsters (tile-based) are exempt.
 
 Future direction (not built): fold the solo-vs-coop key split into an
 explicit "fight session" type holding 1..N players + an open/closed

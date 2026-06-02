@@ -11,6 +11,12 @@ use crate::combat::{self as server_combat, SharedCombat};
 use crate::devserver::{DevPlayerState, SharedState};
 use crate::{SharedEvents, SharedNotifs};
 
+/// Seconds of breathing room after ANY combat ends before a
+/// `random_in_biome` encounter may fire again. Random encounters roll
+/// every 1 s tick, so without this they stack back-to-back. Bosses
+/// (deliberate POI fights) and world monsters (tile-based) are exempt.
+const RANDOM_ENCOUNTER_COOLDOWN_SECS: u64 = 45;
+
 pub fn run_tick_dev(
     state: &SharedState,
     world: &WorldMap,
@@ -504,6 +510,22 @@ pub fn run_tick_dev(
                     if server_combat::player_in_combat(shared_combat, player_id) {
                         return false;
                     }
+                    // Post-combat breather: random_in_biome encounters
+                    // roll every tick (1 s), so a "low" 6 %/s compounds
+                    // to ~90 % within ~40 s and can fire immediately
+                    // after the previous fight ends — "I fight a lot of
+                    // monsters." Suppress RandomEncounters (not bosses —
+                    // those are deliberate POI fights) for a cooldown
+                    // after ANY combat ends. Bosses + world monsters are
+                    // exempt.
+                    let is_random = matches!(e.kind,
+                        questlib::events::kind::EventKind::RandomEncounter { .. });
+                    if is_random
+                        && now_unix.saturating_sub(player.last_combat_end_unix)
+                            < RANDOM_ENCOUNTER_COOLDOWN_SECS
+                    {
+                        return false;
+                    }
                     return e.trigger.evaluate(&ctx);
                 }
                 // Non-combat events: must be Pending or Completed-by-another-player
@@ -744,6 +766,20 @@ pub fn run_tick_dev(
         .collect();
     let (victories, retreats) = server_combat::tick_all(shared_combat, &player_speeds, 1.0);
 
+    // Stamp "combat just ended" on a player so the post-combat
+    // random-encounter cooldown starts ticking.
+    let combat_end_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let stamp_combat_end = |state: &SharedState, pids: &[String]| {
+        if let Ok(mut lock) = state.lock() {
+            for pid in pids {
+                if let Some(p) = lock.get_mut(pid) {
+                    p.last_combat_end_unix = combat_end_unix;
+                }
+            }
+        }
+    };
+
     for victory_key in &victories {
         // Read the CONTENT event_id + participants from the session state.
         // The map key may carry a `\x1f<player_id>` suffix for solo
@@ -757,6 +793,12 @@ pub fn run_tick_dev(
         };
         let event_id = event_id.as_str();
         info!("Combat victory: {} (session {})", event_id, victory_key);
+        // Start the post-combat cooldown for every participant.
+        {
+            let mut pids: Vec<String> = coop_pids.clone();
+            if let Some(ref f) = fighter_pid { if !pids.contains(f) { pids.push(f.clone()); } }
+            stamp_combat_end(state, &pids);
+        }
 
         if let Some(entity_id) = crate::mobile_entity::parse_combat_event_id(event_id) {
             // Mobile monster victory — mark dead, schedule respawn,
@@ -951,6 +993,8 @@ pub fn run_tick_dev(
                 }
                 p.planned_route.clear();
                 p.route_meters_walked = 0.0;
+                // Start the post-combat random-encounter cooldown.
+                p.last_combat_end_unix = combat_end_unix;
                 // Mark a fled/lost RANDOM encounter resolved for this
                 // player so its random_in_biome roll can't re-ambush
                 // them every ~20 s. Without this, the combat-event

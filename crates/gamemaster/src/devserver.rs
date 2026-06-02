@@ -101,6 +101,12 @@ pub struct DevPlayerState {
     /// detect "long idle" → resume transitions for `session_start_distance_m`.
     #[serde(default)]
     pub last_walking_unix: u64,
+    /// Unix seconds when this player's last combat ENDED (victory, flee,
+    /// or defeat). Random-in-biome encounters are suppressed for
+    /// `RANDOM_ENCOUNTER_COOLDOWN_SECS` after this, so fights don't fire
+    /// back-to-back with no breather. Bosses + world monsters ignore it.
+    #[serde(default)]
+    pub last_combat_end_unix: u64,
     /// Which adventure this player is currently in. The server has
     /// multiple AdventureBundles loaded; tick + endpoints route by
     /// this id. Existing saves default to "frost_quest" via the

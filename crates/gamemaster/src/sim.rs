@@ -263,6 +263,17 @@ impl SimulatedRun {
         }
     }
 
+    /// Set the unix-seconds timestamp of the player's last combat end.
+    /// The post-combat random-encounter cooldown is measured against
+    /// this. Tests pass `now` to simulate "just fought" (cooldown
+    /// active) or `0` to simulate "cooldown long elapsed".
+    pub fn set_last_combat_end(&self, pid: &str, unix: u64) {
+        let mut lock = self.state.lock().unwrap();
+        if let Some(p) = lock.get_mut(pid) {
+            p.last_combat_end_unix = unix;
+        }
+    }
+
     /// True if the player owns an adventure-scoped boon in their current
     /// adventure.
     pub fn has_adventure_boon(&self, pid: &str, boon_id: &str) -> bool {
@@ -619,6 +630,56 @@ mod tests {
         assert!(
             !run.combat_exists("chaos_encounter_grassland_bandits"),
             "a completed random encounter must not re-fire",
+        );
+    }
+
+    #[test]
+    fn random_encounter_cooldown_suppresses_back_to_back() {
+        // Post-combat breather: a random encounter must NOT fire within
+        // the cooldown window after the previous fight, but should fire
+        // once the window has elapsed. (Cooldown is wall-clock, so the
+        // test sets last_combat_end_unix directly: `now` = just fought,
+        // `0` = long ago.)
+        let mut run = SimulatedRun::for_chaos();
+        let p = run.spawn_player("Tester");
+        run.force_complete_event(&p, "chaos_intro");
+        run.set_distance(&p, 5000.0);
+        let (start, next) = {
+            let w = &run.bundle.world;
+            let mut found = None;
+            'scan: for y in 1..w.height - 1 {
+                for x in 1..w.width - 1 {
+                    if w.biome_at(x, y) == questlib::mapgen::Biome::Grassland
+                        && w.biome_at(x + 1, y) == questlib::mapgen::Biome::Grassland
+                    {
+                        found = Some(((x, y), (x + 1, y)));
+                        break 'scan;
+                    }
+                }
+            }
+            found.expect("grassland tiles")
+        };
+        run.teleport(&p, start.0 as i32, start.1 as i32);
+        run.rng_roll = 0.01; // guaranteed roll
+
+        // Just fought → cooldown active → encounter suppressed.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        run.set_last_combat_end(&p, now);
+        run.set_route(&p, &[start, next]);
+        run.tick_walking(&p, 5.0, 6.0);
+        assert!(
+            !run.combat_exists("chaos_encounter_grassland_bandits"),
+            "random encounter must be suppressed during the post-combat cooldown",
+        );
+
+        // Cooldown long elapsed → encounter fires.
+        run.set_last_combat_end(&p, 0);
+        run.set_route(&p, &[next, start]);
+        run.tick_walking(&p, 5.0, 6.0);
+        assert!(
+            run.combat_exists("chaos_encounter_grassland_bandits"),
+            "random encounter fires once the cooldown has elapsed",
         );
     }
 
