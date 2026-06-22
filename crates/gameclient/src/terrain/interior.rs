@@ -208,22 +208,31 @@ fn watch_location_changes(
 }
 
 /// Drives the world camera's RenderLayers from `MyPlayerState.location`:
-/// overworld → layer 0, interior → layer 1. Bevy renders only entities
-/// whose `RenderLayers` intersect the camera's. Cross-scene entities
-/// (PlayerSprite, PathMarker, name tags) carry both layers and stay
-/// visible across the swap. Spawning the RenderLayers component lazily
-/// the first time we enter an interior keeps the title-screen camera
-/// (which doesn't have one) unchanged.
+/// Ensure the world camera renders BOTH the overworld (0) and interior
+/// (1) layers at all times.
+///
+/// This used to SWITCH the single camera between layer 0 (overworld) and
+/// layer 1 (interior). That broke the HUD: Bevy UI nodes default to
+/// RenderLayers layer 0, and a camera restricted to layer 1 stops
+/// drawing them — so entering a cave made the entire menu / HUD / even
+/// the "⟐ Cavern" label vanish ("I stepped into a cave and lost my
+/// menu"). It was a latent bug from the RenderLayers refactor; nobody
+/// entered an interior after that deploy until they did.
+///
+/// There's only ONE camera (it also drives UI), so it must always
+/// include the UI layer (0). With the camera fixed on [0, 1], the layer
+/// split no longer hides the overworld in interiors — that job stays
+/// with the `OverworldOnly` visibility watcher (which is comprehensive:
+/// map, fog, ground/water/night shaders, chests, monsters, POIs,
+/// minimap). Interior entities live on layer 1 and despawn on exit, so
+/// nothing leaks the other way. The proper way to reclaim true
+/// render-layer isolation AND keep the HUD is a dedicated UI camera —
+/// noted as a follow-up, not worth the multi-camera risk right now.
 fn sync_camera_layer(
     mut commands: Commands,
-    state: Res<MyPlayerState>,
     mut camera_q: Query<(Entity, Option<&mut RenderLayers>), With<Camera2d>>,
 ) {
-    let want = if state.location.is_some() {
-        RenderLayers::layer(INTERIOR_LAYER)
-    } else {
-        RenderLayers::layer(OVERWORLD_LAYER)
-    };
+    let want = cross_scene_layers(); // [OVERWORLD_LAYER, INTERIOR_LAYER]
     for (e, layers) in &mut camera_q {
         match layers {
             Some(mut l) => { if *l != want { *l = want.clone(); } }
