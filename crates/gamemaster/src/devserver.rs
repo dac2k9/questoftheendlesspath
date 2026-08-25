@@ -574,6 +574,58 @@ async fn handle_join(
     ))
 }
 
+/// Compute the `route_meters_walked` to seed when a player (re)submits a
+/// route. Overworld and interior players consume this value under two
+/// different models, so it must be seeded differently:
+///
+/// - Overworld (`interior_floor_cost_m: None`): `run_tick_dev` reads it as
+///   **cumulative distance from route start** via
+///   `questlib::route::position_along_route`, so the seed sums tile costs
+///   up to the player's current tile in the new route, plus any sub-tile
+///   "partial" progress recovered from the old route.
+/// - Interior (`Some(floor_cost_m)`): `run_interior_tick` independently
+///   re-locates the player's current tile by direct coordinate match
+///   every tick and treats this value as **leftover residual distance
+///   toward the next tile** from wherever it just matched — never
+///   cumulative. Seeding `idx * floor_cost_m` there double-counted on the
+///   very next tick (the tick re-derives `cur_idx` AND burns through the
+///   seeded value as if it were unspent distance beyond that tile),
+///   causing an instant multi-tile jump. So interiors just carry the
+///   existing residual forward, clamped to one tile's worth.
+pub(crate) fn seed_route_meters(
+    world: &questlib::mapgen::WorldMap,
+    interior_floor_cost_m: Option<f64>,
+    current: (usize, usize),
+    old_route: &[(usize, usize)],
+    new_route: &[(usize, usize)],
+    old_route_meters_walked: f64,
+) -> f64 {
+    match interior_floor_cost_m {
+        Some(per) => {
+            if new_route.contains(&current) {
+                old_route_meters_walked.clamp(0.0, per)
+            } else {
+                0.0
+            }
+        }
+        None => {
+            let cost_to_idx = |route: &[(usize, usize)], idx: usize| -> f64 {
+                route[..idx].iter()
+                    .map(|&(x, y)| questlib::route::tile_cost(
+                        world.biome_at(x, y), world.has_road_at(x, y),
+                    ) as f64)
+                    .sum()
+            };
+            let partial = old_route.iter().position(|&t| t == current)
+                .map(|i| (old_route_meters_walked - cost_to_idx(old_route, i)).max(0.0))
+                .unwrap_or(0.0);
+            new_route.iter().position(|&t| t == current)
+                .map(|idx| cost_to_idx(new_route, idx) + partial)
+                .unwrap_or(0.0)
+        }
+    }
+}
+
 fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, notifs: &SharedNotifs, world: &questlib::mapgen::WorldMap, combat: &crate::combat::SharedCombat, interiors: &crate::interior::SharedInteriors, entity_defs: &crate::mobile_entity::SharedEntityDefs, entity_states: &crate::mobile_entity::SharedEntityStates, bundles: &Arc<HashMap<String, crate::adventure::AdventureBundle>>) -> (&'static str, String) {
     // Look up the calling player's bundle, falling back to the
     // default. Used by per-adventure endpoint routing below.
@@ -652,9 +704,9 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
     // Body: {"player_id": "...", "route": "[[x,y],...]"}
     //
     // Trust boundary: the client submits only geometry. The server owns the
-    // player's position along the route (route_meters_walked). We compute it
-    // by finding the player's current tile in the new route and accumulating
-    // tile costs up to that index — no client-supplied "how far along" values.
+    // player's position along the route (route_meters_walked) — see
+    // seed_route_meters for how overworld and interior players are seeded
+    // under two different consumption models.
     if first_line.starts_with("POST /set_route") {
         if let Some(body_start) = request.find("\r\n\r\n") {
             let body = &request[body_start + 4..];
@@ -676,40 +728,12 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                     let current = (player.map_tile_x as usize, player.map_tile_y as usize);
                     let interior_per_tile: Option<f64> = player.location.interior_id()
                         .map(|id| interiors_ref.get(id).map(|i| i.floor_cost_m).unwrap_or(40) as f64);
-                    // Sum tile costs from start of `route` up to (but not
-                    // including) `idx`. Closure so we can call it for
-                    // both the OLD route (to recover partial progress)
-                    // and the NEW route (to compute the new base).
-                    let cost_to_idx = |route: &[(usize, usize)], idx: usize| -> f64 {
-                        match interior_per_tile {
-                            Some(per) => idx as f64 * per,
-                            None => route[..idx].iter()
-                                .map(|&(x, y)| questlib::route::tile_cost(
-                                    world_ref.biome_at(x, y),
-                                    world_ref.has_road_at(x, y),
-                                ) as f64)
-                                .sum(),
-                        }
-                    };
-                    // Recover sub-tile progress from the OLD route: meters
-                    // walked since the last full tile boundary. Without
-                    // this, re-routing while mid-tile snaps the player
-                    // back to the last confirmed tile center — what
-                    // looked like "pushed back to the last tile" in
-                    // testing.
                     let old_parsed = questlib::route::parse_route_json(&player.planned_route)
                         .unwrap_or_default();
-                    let partial = old_parsed.iter().position(|&t| t == current)
-                        .map(|i| (player.route_meters_walked - cost_to_idx(&old_parsed, i)).max(0.0))
-                        .unwrap_or(0.0);
-                    // New route_meters = costs up to current tile in the
-                    // new route + retained partial progress. If the
-                    // current tile isn't in the new route at all (rare —
-                    // client always starts the new route from the
-                    // current tile), fall back to 0.
-                    let new_meters = parsed.iter().position(|&t| t == current)
-                        .map(|idx| cost_to_idx(&parsed, idx) + partial)
-                        .unwrap_or(0.0);
+                    let new_meters = seed_route_meters(
+                        world_ref, interior_per_tile, current, &old_parsed, &parsed,
+                        player.route_meters_walked,
+                    );
                     player.planned_route = req.route;
                     player.route_meters_walked = new_meters;
                     return ("200 OK", r#"{"ok":true}"#.to_string());
@@ -1407,87 +1431,98 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 let events_ref = bundle.map(|b| &b.events).unwrap_or(events);
                 let mut events_lock = events_ref.lock().unwrap();
                 if let Some(event) = events_lock.get_mut(event_id) {
-                    if event.transition(questlib::events::EventStatus::Completed).is_ok() {
-                        let outcomes = event.outcomes.clone();
-                        let repeatable = event.repeatable;
-                        let is_shop = matches!(event.kind, questlib::events::EventKind::Shop { .. });
-                        if repeatable {
-                            event.force_status(questlib::events::EventStatus::Pending);
+                    // The global transition is bookkeeping only, and its
+                    // result is intentionally ignored below — see the
+                    // matching rationale in tick.rs's victory handler.
+                    // Two players independently completing the SAME shared
+                    // event_id (e.g. each personally dismissing the same
+                    // story beat, or each soloing the same non-coop boss)
+                    // must each get their own outcomes regardless of who
+                    // transitions the global status first; gating on
+                    // `transition().is_ok()` rejected every completion
+                    // after the first with "invalid event", silently
+                    // eating the second player's reward.
+                    let _ = event.transition(questlib::events::EventStatus::Completed);
+                    let outcomes = event.outcomes.clone();
+                    let repeatable = event.repeatable;
+                    let is_shop = matches!(event.kind, questlib::events::EventKind::Shop { .. });
+                    if repeatable {
+                        event.force_status(questlib::events::EventStatus::Pending);
+                    }
+                    let mut state_lock = state.lock().unwrap();
+                    let player = state_lock.get_mut(&body_player_id);
+                    if let Some(player) = player {
+                        if player.completed_events.contains(&event_id.to_string()) {
+                            return ("200 OK", r#"{"ok":true}"#.to_string());
                         }
-                        let mut state_lock = state.lock().unwrap();
-                        let player = state_lock.get_mut(&body_player_id);
-                        if let Some(player) = player {
-                            if !player.completed_events.contains(&event_id.to_string()) {
-                                player.completed_events.push(event_id.to_string());
-                            }
-                            // First time visiting a shop → pin it on the map.
-                            if is_shop && !player.revealed_shops.contains(&event_id.to_string()) {
-                                player.revealed_shops.push(event_id.to_string());
-                            }
-                            for outcome in &outcomes {
-                                match outcome {
-                                    questlib::events::EventOutcome::Gold { amount } => {
-                                        player.gold += amount;
+                        player.completed_events.push(event_id.to_string());
+                        // First time visiting a shop → pin it on the map.
+                        if is_shop && !player.revealed_shops.contains(&event_id.to_string()) {
+                            player.revealed_shops.push(event_id.to_string());
+                        }
+                        for outcome in &outcomes {
+                            match outcome {
+                                questlib::events::EventOutcome::Gold { amount } => {
+                                    player.gold += amount;
+                                }
+                                questlib::events::EventOutcome::Item { name } => {
+                                    let cat = Some(crate::item_catalog());
+                                    questlib::items::add_item(&mut player.inventory, name, cat);
+                                }
+                                questlib::events::EventOutcome::RevealFog { x, y, radius } => {
+                                    // Size to bundle world dims — see /use_item
+                                    // for the same fix rationale.
+                                    let (bw, bh) = bundles.get(&player.adventure_id)
+                                        .map(|b| (b.world.width, b.world.height))
+                                        .unwrap_or((questlib::mapgen::MAP_W, questlib::mapgen::MAP_H));
+                                    let mut fog = if !player.revealed_tiles.is_empty() {
+                                        questlib::fog::FogBitfield::from_base64_sized(&player.revealed_tiles, bw, bh)
+                                            .unwrap_or_else(|| questlib::fog::FogBitfield::new_sized(bw, bh))
+                                    } else {
+                                        questlib::fog::FogBitfield::new_sized(bw, bh)
+                                    };
+                                    fog.reveal_radius(*x, *y, *radius);
+                                    player.revealed_tiles = fog.to_base64();
+                                }
+                                questlib::events::EventOutcome::Notification { text } => {
+                                    if let Ok(mut n) = notifs.lock() {
+                                        crate::push_notif(&mut n, &body_player_id, text.clone());
                                     }
-                                    questlib::events::EventOutcome::Item { name } => {
-                                        let cat = Some(crate::item_catalog());
-                                        questlib::items::add_item(&mut player.inventory, name, cat);
+                                }
+                                questlib::events::EventOutcome::RevealShop { shop_event_id } => {
+                                    if !player.revealed_shops.contains(shop_event_id) {
+                                        player.revealed_shops.push(shop_event_id.clone());
                                     }
-                                    questlib::events::EventOutcome::RevealFog { x, y, radius } => {
-                                        // Size to bundle world dims — see /use_item
-                                        // for the same fix rationale.
-                                        let (bw, bh) = bundles.get(&player.adventure_id)
-                                            .map(|b| (b.world.width, b.world.height))
-                                            .unwrap_or((questlib::mapgen::MAP_W, questlib::mapgen::MAP_H));
-                                        let mut fog = if !player.revealed_tiles.is_empty() {
-                                            questlib::fog::FogBitfield::from_base64_sized(&player.revealed_tiles, bw, bh)
-                                                .unwrap_or_else(|| questlib::fog::FogBitfield::new_sized(bw, bh))
-                                        } else {
-                                            questlib::fog::FogBitfield::new_sized(bw, bh)
-                                        };
-                                        fog.reveal_radius(*x, *y, *radius);
-                                        player.revealed_tiles = fog.to_base64();
-                                    }
-                                    questlib::events::EventOutcome::Notification { text } => {
-                                        if let Ok(mut n) = notifs.lock() {
-                                            crate::push_notif(&mut n, &body_player_id, text.clone());
-                                        }
-                                    }
-                                    questlib::events::EventOutcome::RevealShop { shop_event_id } => {
-                                        if !player.revealed_shops.contains(shop_event_id) {
-                                            player.revealed_shops.push(shop_event_id.clone());
-                                        }
-                                    }
-                                    questlib::events::EventOutcome::AdventureBoon { boon_id } => {
-                                        // Validate the boon exists; silently drop
-                                        // typos rather than letting bad ids creep
-                                        // into save state. Push to the player's
-                                        // CURRENT adventure bucket — these boons
-                                        // only apply while in this adventure.
-                                        if questlib::boons::lookup(boon_id).is_some() {
-                                            let adv = player.adventure_id.clone();
-                                            let bucket = player.adventure_boons
-                                                .entry(adv)
-                                                .or_default();
-                                            if !bucket.contains(boon_id) {
-                                                bucket.push(boon_id.clone());
-                                                tracing::info!(
-                                                    "[boons] {} earned adventure-boon '{}' in '{}'",
-                                                    player.name, boon_id, player.adventure_id,
-                                                );
-                                            }
-                                        } else {
-                                            tracing::warn!(
-                                                "[boons] event-outcome references unknown boon '{}'", boon_id
+                                }
+                                questlib::events::EventOutcome::AdventureBoon { boon_id } => {
+                                    // Validate the boon exists; silently drop
+                                    // typos rather than letting bad ids creep
+                                    // into save state. Push to the player's
+                                    // CURRENT adventure bucket — these boons
+                                    // only apply while in this adventure.
+                                    if questlib::boons::lookup(boon_id).is_some() {
+                                        let adv = player.adventure_id.clone();
+                                        let bucket = player.adventure_boons
+                                            .entry(adv)
+                                            .or_default();
+                                        if !bucket.contains(boon_id) {
+                                            bucket.push(boon_id.clone());
+                                            tracing::info!(
+                                                "[boons] {} earned adventure-boon '{}' in '{}'",
+                                                player.name, boon_id, player.adventure_id,
                                             );
                                         }
+                                    } else {
+                                        tracing::warn!(
+                                            "[boons] event-outcome references unknown boon '{}'", boon_id
+                                        );
                                     }
-                                    _ => {}
                                 }
+                                _ => {}
                             }
                         }
-                        return ("200 OK", r#"{"ok":true}"#.to_string());
                     }
+                    return ("200 OK", r#"{"ok":true}"#.to_string());
                 }
             }
         }
@@ -1926,4 +1961,50 @@ fn sell_price(item_id: &str) -> i32 {
         _ => 20,
     };
     (base / 2).max(5)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use questlib::mapgen::WorldMap;
+
+    #[test]
+    fn seed_route_meters_interior_carries_residual_not_cumulative() {
+        let world = WorldMap::generate(42);
+        // Player's true tile sits at index 10 of the new route. The
+        // interior model must NOT seed idx*floor_cost_m (= 400 here) —
+        // that's the bug that caused a 10-tile instant jump on the next
+        // tick. It should carry the existing residual forward instead.
+        let new_route: Vec<(usize, usize)> = (0..=19).map(|x| (x, 1)).collect();
+        let seeded = seed_route_meters(&world, Some(40.0), (10, 1), &[], &new_route, 5.0);
+        assert_eq!(seeded, 5.0, "interior seeding must carry the residual, not idx*floor_cost_m");
+    }
+
+    #[test]
+    fn seed_route_meters_interior_clamps_stale_residual_to_one_tile() {
+        let world = WorldMap::generate(42);
+        let new_route: Vec<(usize, usize)> = (0..=19).map(|x| (x, 1)).collect();
+        // A residual that somehow outlived a transition must clamp to one
+        // tile's worth, not propagate — defense against a corrupt value.
+        let seeded = seed_route_meters(&world, Some(40.0), (10, 1), &[], &new_route, 999.0);
+        assert_eq!(seeded, 40.0);
+    }
+
+    #[test]
+    fn seed_route_meters_interior_current_tile_not_in_route_resets() {
+        let world = WorldMap::generate(42);
+        let new_route: Vec<(usize, usize)> = (0..=19).map(|x| (x, 1)).collect();
+        let seeded = seed_route_meters(&world, Some(40.0), (99, 99), &[], &new_route, 30.0);
+        assert_eq!(seeded, 0.0);
+    }
+
+    #[test]
+    fn seed_route_meters_overworld_unchanged_cumulative_model() {
+        let world = WorldMap::generate(42);
+        let new_route: Vec<(usize, usize)> = vec![(0, 0), (1, 0), (2, 0)];
+        // Current tile is the route start (idx=0): seed is 0, matching
+        // today's existing (unchanged) overworld formula.
+        let seeded = seed_route_meters(&world, None, (0, 0), &[], &new_route, 0.0);
+        assert_eq!(seeded, 0.0);
+    }
 }

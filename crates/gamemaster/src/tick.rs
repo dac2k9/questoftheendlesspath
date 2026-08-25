@@ -760,11 +760,19 @@ pub fn run_tick_dev(
         }
     }
 
-    // Tick active combats using each player's own walking speed
+    // Tick active combats using each player's own walking speed. Restrict
+    // resolution to this bundle's own players — shared_combat holds every
+    // adventure's sessions, and victory/retreat processing below can only
+    // look events/entities up in THIS bundle's catalogs (see tick_all's
+    // doc comment).
     let player_speeds: Vec<(String, f32, f32)> = players.iter()
         .map(|p| (p.id.clone(), if p.is_walking { p.current_speed_kmh } else { 0.0 }, p.current_incline))
         .collect();
-    let (victories, retreats) = server_combat::tick_all(shared_combat, &player_speeds, 1.0);
+    let bundle_player_ids: std::collections::HashSet<String> = players.iter()
+        .filter(|p| p.adventure_id == adventure_id)
+        .map(|p| p.id.clone())
+        .collect();
+    let (victories, retreats) = server_combat::tick_all(shared_combat, &player_speeds, 1.0, &bundle_player_ids);
 
     // Stamp "combat just ended" on a player so the post-combat
     // random-encounter cooldown starts ticking.
@@ -909,44 +917,55 @@ pub fn run_tick_dev(
                 }
             }
         } else if let Some(event) = events_lock.get_mut(event_id) {
-            // Quest event victory — apply outcomes to ALL coop participants
-            if event.transition(EventStatus::Completed).is_ok() {
-                // Climactic boss with `grants_boon: true`: each participant
-                // gets a 3-of-N boon picker queued. Determined here (once)
-                // so we can apply per-participant after the apply_outcome
-                // loop without re-borrowing event.
-                let grants_boon = matches!(
-                    event.kind,
-                    questlib::events::kind::EventKind::Boss { grants_boon: true, .. }
-                );
-                let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-                let participants = if !coop_pids.is_empty() { coop_pids.clone() } else { fighter_pid.clone().into_iter().collect() };
-                for pid in &participants {
-                    if let (Some(p), Some(fog)) = (lock.get_mut(pid), player_fogs.get_mut(pid)) {
-                        p.completed_events.push(event_id.to_string());
-                        for outcome in &event.outcomes {
-                            apply_outcome(outcome, p, fog);
-                        }
-                        if grants_boon {
-                            queue_boon_choice(p, event_id);
-                        }
+            // Quest event victory — apply outcomes to ALL coop participants.
+            //
+            // The global transition is attempted for bookkeeping only and
+            // its result is intentionally ignored below: for a solo
+            // (requires_coop: false) boss, every player fights their own
+            // independent CombatState session, so two players CAN win at
+            // different times. Gating reward-granting on
+            // `transition().is_ok()` broke that — Active->Completed only
+            // succeeds for whoever wins first; every later winner's
+            // transition is rejected (event already Completed), silently
+            // eating their gold/item/completion even though their fight
+            // was entirely legitimate. Per the per-player invariant (see
+            // CLAUDE.md), rewards must key off each player's OWN
+            // completed_events, never the shared event's global status.
+            let _ = event.transition(EventStatus::Completed);
+            let grants_boon = matches!(
+                event.kind,
+                questlib::events::kind::EventKind::Boss { grants_boon: true, .. }
+            );
+            let mut lock = state.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let participants = if !coop_pids.is_empty() { coop_pids.clone() } else { fighter_pid.clone().into_iter().collect() };
+            let mut rewarded = Vec::new();
+            for pid in &participants {
+                if let (Some(p), Some(fog)) = (lock.get_mut(pid), player_fogs.get_mut(pid)) {
+                    if p.completed_events.contains(&event_id.to_string()) { continue; }
+                    p.completed_events.push(event_id.to_string());
+                    for outcome in &event.outcomes {
+                        apply_outcome(outcome, p, fog);
                     }
-                }
-                // Notifications to all participants
-                for outcome in &event.outcomes {
-                    if let EventOutcome::Notification { text } = outcome {
-                        if let Ok(mut notifs) = shared_notifs.lock() {
-                            for pid in &participants {
-                                crate::push_notif(&mut notifs, &pid, text.clone());
-                            }
-                        }
+                    if grants_boon {
+                        queue_boon_choice(p, event_id);
                     }
+                    rewarded.push(pid.clone());
                 }
-                if grants_boon {
+            }
+            // Notifications to participants actually rewarded this call.
+            for outcome in &event.outcomes {
+                if let EventOutcome::Notification { text } = outcome {
                     if let Ok(mut notifs) = shared_notifs.lock() {
-                        for pid in &participants {
-                            crate::push_notif(&mut notifs, &pid, "A boon awaits — choose your reward.".to_string());
+                        for pid in &rewarded {
+                            crate::push_notif(&mut notifs, &pid, text.clone());
                         }
+                    }
+                }
+            }
+            if grants_boon {
+                if let Ok(mut notifs) = shared_notifs.lock() {
+                    for pid in &rewarded {
+                        crate::push_notif(&mut notifs, &pid, "A boon awaits — choose your reward.".to_string());
                     }
                 }
             }

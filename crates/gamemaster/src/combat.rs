@@ -27,7 +27,7 @@
 //! solo-vs-coop key split is the minimum that makes solo fights correct
 //! without regressing co-op.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use questlib::combat::{self, CombatState};
@@ -81,16 +81,32 @@ pub fn start_combat(
 /// (player_id, speed_kmh, incline_pct). Returns (victory_keys,
 /// retreat_keys) — the SESSION KEYS, which callers pass to
 /// `remove_combat` and look up to read `cs.event_id` for routing.
+///
+/// `shared` holds combat sessions for EVERY adventure bundle — it's one
+/// global map, not scoped per-bundle. `run_tick_dev` calls this once per
+/// bundle per cycle, each time with only that bundle's own event/entity
+/// catalogs available for resolving a victory. `in_bundle` restricts
+/// ticking (and thus victory/retreat resolution) to sessions whose
+/// fighter belongs to the CURRENT bundle — otherwise, whichever bundle's
+/// call happened to land the killing blow would resolve it against its
+/// own catalog, silently dropping gold/items/completion for a fight that
+/// belongs to a different adventure (event_id / entity_id not found
+/// there). A session skipped here is left untouched for its own
+/// bundle's next call to pick up.
 pub fn tick_all(
     shared: &SharedCombat,
     player_speeds: &[(String, f32, f32)],
     delta_secs: f32,
+    in_bundle: &HashSet<String>,
 ) -> (Vec<String>, Vec<String>) {
     let mut lock = shared.lock().unwrap();
     let mut victories = Vec::new();
     let mut retreats = Vec::new();
 
     for (session_key, state) in lock.iter_mut() {
+        if !in_bundle.contains(&state.player_id) {
+            continue;
+        }
         // Combine walking speeds from all coop players (sum for faster fights)
         let (speed, incline) = if state.coop_players.len() > 1 {
             let total_speed: f32 = state.coop_players.iter()

@@ -861,6 +861,14 @@ fn apply_server_state(
     let Some(me) = players.iter().find(|p| p.name.eq_ignore_ascii_case(&session.player_name)) else { return };
 
     let tile_changed = me.map_tile_x.unwrap_or(0) != state.tile_x || me.map_tile_y.unwrap_or(0) != state.tile_y;
+    // A portal or CaveEntrance transition changes location AND clears the
+    // route in the same server tick — there's no intervening poll where
+    // server_in_sync below could ever observe "server caught up to our
+    // local route" before it jumps straight to empty. Detected here,
+    // before state.location gets overwritten below, and used to force a
+    // resync (see the locally_modified reset further down) instead of
+    // freezing forever waiting for a match that can't come.
+    let location_changed = state.initialized && me.location != state.location;
 
     // Update state from server
     state.tile_x = me.map_tile_x.unwrap_or(0);
@@ -893,6 +901,10 @@ fn apply_server_state(
     if !prev_adv.is_empty() && prev_adv != state.adventure_id {
         for cell in fog.revealed.iter_mut() { *cell = false; }
         fog.dirty = true;
+    }
+
+    if location_changed {
+        display_route.locally_modified = false;
     }
 
     // Parse route from server — check if server has caught up to local changes.

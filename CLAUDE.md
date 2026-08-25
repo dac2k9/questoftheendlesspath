@@ -225,6 +225,46 @@ Per-player reality lives in three places, none of them the global status:
   `event_combat_active(event_id)` / `player_in_combat(pid)` /
   `flee_for_player(pid)` / `clear_combat_for_event(event_id)` are all
   value-based. `combat.rs` module docs have the full rationale.
+- **`shared_combat` is global across adventure bundles — `tick_all` must
+  filter to the bundle it's called for.** `main.rs`'s tick loop calls
+  `run_tick_dev` once per registered adventure bundle every cycle, all
+  sharing the ONE `shared_combat` map, but each call only has that
+  bundle's own event/entity/world catalogs to resolve a victory against.
+  `tick_all(.., in_bundle: &HashSet<String>)` skips any session whose
+  fighter isn't in the current bundle's player set — otherwise, whichever
+  bundle's call happened to land the killing blow would resolve it
+  against its OWN catalog, silently dropping gold/items/completion
+  whenever that wasn't the fight's actual adventure (event_id / entity_id
+  not found there, so the whole reward branch silently no-ops while
+  `remove_combat` still unconditionally clears the session). Live
+  symptom: a chaos player beat a climactic boss clean to zero HP, twice,
+  and it kept "coming back" — completion was being eaten by
+  `frost_quest`'s tick call. Which bundle "wins" the race for a given
+  fight is essentially arbitrary (sensitive to that fight's exact
+  numbers), so this wasn't reproducible with a single always-broken boss
+  — it could silently eat any adventure's combat reward depending on
+  server-restart luck.
+- **Per-player reward granting must not gate on the shared EventInstance's
+  one-shot global transition.** A non-coop boss is meant to be
+  independently soloable by multiple players — each fights their own
+  `CombatState` session — but the victory-processing code (`tick.rs`'s
+  quest-event branch, and `devserver.rs`'s `/events/{id}/complete`
+  handler) used to wrap the whole reward grant in
+  `if event.transition(EventStatus::Completed).is_ok() { … }`. That
+  transition is Active→Completed exactly once; whoever's win (or
+  dialogue dismissal) reaches it FIRST flips the global status, and
+  every subsequent player's `transition()` call is then rejected —
+  silently eating their gold/item/completion even though their own
+  fight (or dialogue) was entirely legitimate, and leaving them without
+  personal credit so a re-engageable boss keeps "coming back" for them
+  specifically. Fix: the global transition is now attempted but its
+  result ignored — reward-granting and `completed_events` are keyed
+  purely off each player's own state (with an explicit
+  `if p.completed_events.contains(event_id) { skip }` guard against
+  double-granting), per the invariant at the top of this section. Live
+  symptom: player A legitimately beat a climactic boss (equipped the
+  drop, gold landed); player B beat the SAME boss afterward and got
+  nothing.
 - **Combat events re-trigger.** Boss / RandomEncounter are skipped by
   the stationary trigger pass (only the walking branch starts combat),
   and the walking-branch filter does NOT gate them on global status —
@@ -279,13 +319,25 @@ minimum that makes solo correct without regressing co-op.
 - Character interpolates smoothly between tiles based on speed
 
 ### Trust boundary: client submits geometry, server owns distance
-- `/set_route` takes ONLY the route waypoints. The server computes
-  `route_meters_walked` by finding the player's current tile in the new
-  route and summing tile costs up to that index (or 0 if not found).
-- The client never tells the server "I have moved X meters." That lets the
-  server stay authoritative on position + prevents the multi-click
-  teleport bug where the client's interpolated meters got handed back.
-- Same rule applies inside interiors (flat `floor_cost_m` per tile).
+- `/set_route` takes ONLY the route waypoints. The server owns
+  `route_meters_walked` — the client never tells it "I have moved X
+  meters." That keeps the server authoritative on position and
+  prevents the multi-click teleport bug where the client's interpolated
+  meters got handed back.
+- Overworld and interiors consume that value under two *different*
+  models, so `/set_route`'s seeding (`devserver::seed_route_meters`)
+  must match whichever one applies:
+  - Overworld: cumulative distance-from-route-start (sum tile costs up
+    to the player's current tile in the new route, or 0 if not found),
+    matching `position_along_route`.
+  - Interior: `run_interior_tick` re-derives its own current-tile index
+    by direct tile match every tick and treats the value as leftover
+    residual toward the *next* tile — never cumulative. Seeding the
+    overworld's `idx * floor_cost_m` there double-counted (the tick
+    re-matches the tile AND burns through the seed as if it were extra
+    distance beyond it), causing an instant multi-tile jump the moment
+    a route was re-submitted mid-corridor. Interiors seed only the
+    carried-forward residual, clamped to one `floor_cost_m`.
 - Forward-only: browser never moves current_index backwards
 
 ### Activity Detection
@@ -656,6 +708,19 @@ reveal → chest open) against `interior.tiles`.
       Also: on interior-tick route completion, server clears
       `planned_route` + `route_meters_walked` — without that the player
       was stuck "walking" on the destination tile forever.
+- [x] `apply_server_state` force-drops `DisplayRoute.locally_modified`
+      whenever `MyPlayerState.location` itself changes between polls.
+      A portal (or `CaveEntrance`) transition changes location AND
+      clears the route in the same server tick, so the client can never
+      observe an intervening "server caught up to our local route" poll
+      — without this, the optimistic-local-route reconciliation could
+      get stuck forever with no recovery, freezing the player sprite
+      (and the camera, which just follows it) at the pre-transition
+      tile while server truth had already moved on. Symptom on the live
+      server: a player looked stuck at a stone_tunnel exit portal, then
+      "flew" several tiles forward the moment they set a new waypoint
+      — the jump was the client finally snapping to a position the
+      server had held correctly the whole time.
 - [x] Interior rendered as colored quads (walls, floor, portal, chest) — proper dark tileset is a Phase 3 polish item
 - [x] Click on a walkable interior tile: BFS through the interior grid → `POST /set_route`
 - [x] Click on a portal tile: routes the player to it (auto-use_portal triggers when they arrive — see Phase 3a)
@@ -823,3 +888,32 @@ curl -s -X POST $BASE/admin/grant_boon_choice \
   known player_id can poll that player's queue)
 - Delete or revive the excluded `walker` crate (currently dead-on-disk)
 - Shared-goal widgets / team stats in HUD to reinforce co-op
+- **`has_blocking`'s cross-player leak for non-combat events.** The
+  Boss/RandomEncounter exclusion in `has_blocking` (see the per-player
+  invariant section above) never got extended to other `requires_browser`
+  kinds — an npc_dialogue, story_beat, shop, or forge event that goes
+  globally Active because ONE player triggered it (e.g. standing at its
+  POI) currently freezes every OTHER player too, until someone dismisses
+  it. Same root cause as the already-fixed "Daniel can't move because
+  someone else triggered the wolves" bug, just not yet applied past
+  combat kinds. Confirmed live via a two-player sim test. Compounds badly
+  with the still-open story-beat softlock below (a `requires_browser`
+  story beat has no client-side dismissal path at all, so if it's what
+  leaks, it blocks everyone forever, not just briefly).
+- **Story-beat events can't complete themselves.** Every chaos
+  `story_beat` is authored `requires_browser: true` (all ambient beats,
+  all four pilgrim marks, all three distance bounties, and
+  `chaos_starstone_revealed`, which gates the campaign climax) — but
+  `auto_completes()` correctly refuses to auto-complete a requires_browser
+  event server-side (matching `npc_dialogue`'s contract), while the
+  client's story_beat handler only ever pushes a passive one-shot line
+  into the ambient message log — it never calls `/events/{id}/complete`
+  the way the npc_dialogue box does on dismissal. Net effect: any of
+  these events permanently softlocks the first player to trigger it (see
+  the per-player invariant section — `has_blocking` never releases
+  without a completion call that will never come). Proposed fix (agreed,
+  not yet implemented): give the dialogue system a small FIFO queue
+  (multiple simultaneous `requires_browser` events must be shown one at a
+  time, never silently dropped) and route `requires_browser: true` story
+  beats through the same dialogue-box → dismiss → `/complete` flow
+  npc_dialogue already uses correctly, instead of the ambient log.

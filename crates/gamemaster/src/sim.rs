@@ -157,13 +157,25 @@ impl SimulatedRun {
     }
 
     /// Set the player's planned route (JSON array of [x, y] pairs).
+    ///
+    /// Routes `route_meters_walked` through the same `seed_route_meters`
+    /// logic the live `/set_route` HTTP handler uses (rather than always
+    /// resetting to 0) so tests exercise the real seeding model — including
+    /// its interior-vs-overworld distinction — instead of a harness-only
+    /// shortcut that can't catch seeding bugs.
     pub fn set_route(&self, pid: &str, route: &[(usize, usize)]) {
         let json = serde_json::to_string(&route).expect("route json");
         let mut lock = self.state.lock().unwrap();
         if let Some(p) = lock.get_mut(pid) {
+            let current = (p.map_tile_x as usize, p.map_tile_y as usize);
+            let interior_per_tile: Option<f64> = p.location.interior_id()
+                .map(|id| self.bundle.interiors.get(id).map(|i| i.floor_cost_m).unwrap_or(40) as f64);
+            let old_parsed = questlib::route::parse_route_json(&p.planned_route).unwrap_or_default();
+            p.route_meters_walked = crate::devserver::seed_route_meters(
+                &self.bundle.world, interior_per_tile, current, &old_parsed, route,
+                p.route_meters_walked,
+            );
             p.planned_route = json;
-            // Reset route_meters_walked since the route is new.
-            p.route_meters_walked = 0.0;
         }
     }
 
@@ -951,5 +963,170 @@ mod tests {
         // the cave_entrance event.
         assert_eq!(snap.map_tile_x, 139);
         assert_eq!(snap.map_tile_y, 56);
+    }
+
+    #[test]
+    fn interior_reroute_mid_corridor_does_not_overshoot() {
+        // Regression: /set_route used to seed route_meters_walked with the
+        // overworld's cumulative idx*floor_cost_m model even for interior
+        // players; run_interior_tick treats that value as leftover
+        // residual distance from the tile it ALREADY re-matched the
+        // player to, so it double-counted and walked `idx` extra tiles
+        // on the very next tick. Reported live as a player standing at
+        // a stone_tunnel portal instantly "flying" ~10 tiles forward
+        // after setting a new waypoint.
+        let mut run = SimulatedRun::for_chaos(); // stone_tunnel loads into every bundle's interiors map
+        let p = run.spawn_player("Tester");
+        {
+            let mut lock = run.state.lock().unwrap();
+            let pl = lock.get_mut(&p).unwrap();
+            pl.location = questlib::interior::Location::Interior { id: "stone_tunnel".into() };
+            pl.map_tile_x = 10;
+            pl.map_tile_y = 1;
+        }
+        assert!(run.is_in_interior(&p, "stone_tunnel"));
+
+        // stone_tunnel's y=1 row is open floor from x=1 to x=20. The
+        // player's true tile (10, 1) sits at index 10 of this route —
+        // the exact shape that triggered the double-count.
+        let route: Vec<(usize, usize)> = (0..=19).map(|x| (x, 1)).collect();
+        run.set_route(&p, &route);
+        run.tick_walking(&p, 1.0, 3.0); // one tick, ~0.83 m — far under one 40 m tile
+
+        let snap = run.snapshot(&p).expect("player");
+        assert_eq!((snap.map_tile_x, snap.map_tile_y), (10, 1),
+            "one tick at walking speed must not overshoot; got {:?}",
+            (snap.map_tile_x, snap.map_tile_y));
+    }
+
+    #[test]
+    fn cross_bundle_boss_victory_completes_in_its_own_catalog() {
+        // Regression: main.rs's real loop calls run_tick_dev once per
+        // adventure bundle every cycle, all sharing ONE shared_combat map.
+        // tick_all used to tick + resolve EVERY session regardless of which
+        // bundle it belonged to, so whichever bundle's call happened to
+        // land the killing blow processed the win against ITS OWN event
+        // catalog — silently dropping gold/items/completion whenever that
+        // wasn't the fight's actual adventure (event_id not found there).
+        // Live symptom: a chaos player beat Hierophant of Shadow twice,
+        // full HP bar to zero, and the boss kept "coming back" because
+        // completion never recorded.
+        let mut run = SimulatedRun::for_chaos();
+        let fq_preset = preset_for(crate::adventure::DEFAULT_ADVENTURE_ID).unwrap();
+        let fq_bundle = crate::adventure::load_bundle(fq_preset).expect("load frost_quest bundle");
+
+        let p = run.spawn_player("Tester");
+        run.force_complete_event(&p, "chaos_intro");
+        run.give_item(&p, "voidlight_lantern");
+        {
+            let mut lock = run.state.lock().unwrap();
+            let pl = lock.get_mut(&p).unwrap();
+            pl.total_distance_m = 50000.0;
+        }
+        run.teleport(&p, 36, 137);
+        run.set_route(&p, &[(36, 137), (36, 136)]);
+
+        // Drive frost_quest's run_tick_dev every cycle too, exactly as
+        // main.rs's `for (adv_id, bundle) in bundles.iter()` would if
+        // frost_quest happens to iterate before chaos on this process.
+        for i in 0..300 {
+            let _ = crate::tick::run_tick_dev(
+                &run.state, &fq_bundle.world, &fq_bundle.events, &run.notifs, &run.combat,
+                &fq_bundle.interiors, &fq_bundle.entity_defs, &fq_bundle.entity_states,
+                &mut run.player_fogs, &mut run.player_last_distance, &mut run.player_boss_wait_notified,
+                run.rng_roll, "frost_quest",
+            );
+            run.tick_walking(&p, 1.0, 15.0); // drives chaos's own run_tick_dev via SimulatedRun
+            let still_fighting = run.combat.lock().unwrap().values().any(|c| c.player_id == p);
+            if !still_fighting && i > 28 { break; }
+        }
+
+        let snap = run.snapshot(&p).unwrap();
+        assert_eq!((snap.map_tile_x, snap.map_tile_y), (36, 136), "must have WON, not fled/lost");
+        assert!(snap.completed_events.contains(&"chaos_hierophant_shadow".to_string()),
+            "win must be recorded even when a different bundle's tick call runs every cycle too");
+        // Walking-distance gold is a small, timing-dependent amount on top
+        // of this — assert the floor rather than an exact total.
+        assert!(snap.gold >= 400, "victory gold (400) must be granted; got {}", snap.gold);
+    }
+
+    #[test]
+    fn second_player_to_win_a_solo_boss_still_gets_rewarded() {
+        // Regression: a non-coop boss is meant to be independently
+        // soloable by multiple players (that's the whole point of the
+        // per-player CombatState session key), but the reward-granting
+        // code used to gate on the SHARED EventInstance's one-shot
+        // Active->Completed transition. Whoever won first flipped it to
+        // Completed; every later winner's transition was then rejected
+        // (event already Completed), silently eating their gold/item/
+        // completion even though their own fight was entirely
+        // legitimate. Live symptom: player A beat a boss fair and square
+        // (equipped the drop, gold landed); player B beat the SAME boss
+        // afterward and got nothing, and it stayed re-engageable for them
+        // forever since they were never personally marked complete.
+        let mut run = SimulatedRun::for_chaos();
+        let alice = run.spawn_player("Alice");
+        let bob = run.spawn_player("Bob");
+        for p in [&alice, &bob] {
+            run.force_complete_event(p, "chaos_intro");
+            run.give_item(p, "voidlight_lantern");
+            let mut lock = run.state.lock().unwrap();
+            lock.get_mut(p).unwrap().total_distance_m = 50000.0;
+        }
+        // Both players spawn at the world centre, which is also the
+        // Survivors' Camp POI — a fresh, un-dismissed NPC dialogue there
+        // (chaos_walkoff_intro) would otherwise flip Active globally and
+        // freeze BOTH players via has_blocking's cross-player leak (a
+        // separate, real bug — has_blocking's Boss/RandomEncounter
+        // exclusion never got extended to other requires_browser kinds).
+        // Not what this test is isolating, so pre-complete it for both,
+        // simulating players who are already well past camp intros.
+        for p in [&alice, &bob] {
+            run.mark_personal_completed(p, "chaos_walkoff_intro");
+        }
+
+        // Alice engages and wins first, in full.
+        run.teleport(&alice, 36, 137);
+        run.set_route(&alice, &[(36, 137), (36, 136)]);
+        for i in 0..300 {
+            run.tick_walking(&alice, 1.0, 15.0);
+            // Force a decisive kill once the fight has genuinely started,
+            // instead of relying on many ticks of tight charge-bar math
+            // (which is sensitive to exact alignment — see the "close
+            // fight" note from investigating this live). This still goes
+            // through the real win path (tick_combat's own HP<=0 check),
+            // just without depending on exact timing to get there.
+            if let Ok(mut lock) = run.combat.lock() {
+                if let Some(c) = lock.values_mut().find(|c| c.player_id == alice) {
+                    c.enemy_hp = 1;
+                }
+            }
+            let still_fighting = run.combat.lock().unwrap().values().any(|c| c.player_id == alice);
+            if !still_fighting && i > 28 { break; }
+        }
+        let alice_snap = run.snapshot(&alice).unwrap();
+        assert_eq!((alice_snap.map_tile_x, alice_snap.map_tile_y), (36, 136), "Alice must have WON");
+        assert!(alice_snap.completed_events.contains(&"chaos_hierophant_shadow".to_string()));
+        assert!(alice_snap.gold >= 400);
+
+        // Bob engages fresh, AFTER the shared EventInstance is already
+        // globally Completed from Alice's win.
+        run.teleport(&bob, 36, 137);
+        run.set_route(&bob, &[(36, 137), (36, 136)]);
+        for i in 0..300 {
+            run.tick_walking(&bob, 1.0, 15.0);
+            if let Ok(mut lock) = run.combat.lock() {
+                if let Some(c) = lock.values_mut().find(|c| c.player_id == bob) {
+                    c.enemy_hp = 1;
+                }
+            }
+            let still_fighting = run.combat.lock().unwrap().values().any(|c| c.player_id == bob);
+            if !still_fighting && i > 28 { break; }
+        }
+        let bob_snap = run.snapshot(&bob).unwrap();
+        assert_eq!((bob_snap.map_tile_x, bob_snap.map_tile_y), (36, 136), "Bob must have WON too");
+        assert!(bob_snap.completed_events.contains(&"chaos_hierophant_shadow".to_string()),
+            "Bob's independent win must be recorded even though Alice already completed this event globally");
+        assert!(bob_snap.gold >= 400, "Bob must get his own victory gold; got {}", bob_snap.gold);
     }
 }
