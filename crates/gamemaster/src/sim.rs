@@ -478,6 +478,34 @@ mod tests {
     }
 
     #[test]
+    fn both_players_spawning_together_each_get_the_intro_queued() {
+        // Two players landing on the exact same tile — the normal case
+        // for co-op, since every chaos player spawns at world centre —
+        // both process their stationary pass in the SAME tick. Only the
+        // first one's Pending→Active transition on chaos_intro succeeds
+        // (Active→Active isn't valid); the naive fix would silently skip
+        // queuing it for the second player entirely, since the old
+        // top-of-loop gate only admitted EventStatus::Pending. Caught
+        // live: SmokeBob never got chaos_intro queued when SmokeAlice's
+        // stationary tick ran first in the same loop.
+        let mut run = SimulatedRun::for_chaos();
+        let alice = run.spawn_player("Alice");
+        let bob = run.spawn_player("Bob");
+        // spawn_player puts both at world centre already; one shared
+        // tick_walking call processes every player's stationary pass in
+        // one run_tick_dev call, exactly reproducing the race.
+        run.tick_walking(&alice, 1.0, 0.0);
+        for (name, pid) in [("Alice", &alice), ("Bob", &bob)] {
+            assert!(
+                run.snapshot(pid).unwrap().pending_display_events
+                    .contains(&"chaos_intro".to_string()),
+                "{} should have chaos_intro queued on their own pending-display list",
+                name
+            );
+        }
+    }
+
+    #[test]
     fn shrine_npc_grants_speed_potion() {
         let mut run = SimulatedRun::for_chaos();
         let p = run.spawn_player("Tester");
@@ -547,6 +575,122 @@ mod tests {
         assert!(
             !run.event_is_active("chaos_castle_frost_locked"),
             "locked variant should NOT fire when player holds the key"
+        );
+    }
+
+    #[test]
+    fn undismissed_dialogue_does_not_block_other_players() {
+        // Regression test for the cross-player has_blocking leak: before
+        // this fix, has_blocking scanned the shared catalog's global
+        // EventStatus::Active, so ANY player's undismissed requires_browser
+        // dialogue froze movement for EVERY player in the bundle. Now each
+        // player reads only their own `pending_display_events` queue.
+        let mut run = SimulatedRun::for_chaos();
+        let alice = run.spawn_player("Alice");
+        let bob = run.spawn_player("Bob");
+        // chaos_walkoff_intro fires on ANY player's first walking step
+        // regardless of location (a DistanceWalked-style trigger, not
+        // tied to the shrine) — pre-clear it for both so it doesn't
+        // masquerade as a leak in the assertions below.
+        for pid in [&alice, &bob] {
+            run.force_complete_event(pid, "chaos_intro");
+            run.force_complete_event(pid, "chaos_walkoff_intro");
+        }
+
+        // Alice walks onto the shrine (POI 18, (69,24)) and triggers the
+        // pilgrim dialogue via the stationary promotion path.
+        run.teleport(&alice, 69, 24);
+        run.tick_walking(&alice, 1.0, 0.0);
+        assert!(
+            run.snapshot(&alice).unwrap().pending_display_events
+                .contains(&"chaos_npc_shrine_pilgrim".to_string()),
+            "triggering the shrine dialogue should queue it on Alice's own pending-display list"
+        );
+
+        // Alice herself stays blocked until she dismisses it.
+        run.set_route(&alice, &[(69, 24), (70, 24), (71, 24)]);
+        let alice_before = run.snapshot(&alice).unwrap().route_meters_walked;
+        run.tick_walking(&alice, 1.0, 3.0);
+        assert_eq!(
+            run.snapshot(&alice).unwrap().route_meters_walked, alice_before,
+            "Alice should stay blocked by her own undismissed dialogue"
+        );
+
+        // Bob, elsewhere on the map and never near the shrine, must NOT be
+        // blocked by Alice's still-open dialogue.
+        run.teleport(&bob, 170, 20);
+        run.set_route(&bob, &[(170, 20), (171, 20)]);
+        let bob_before = run.snapshot(&bob).unwrap().route_meters_walked;
+        run.tick_walking(&bob, 1.0, 3.0);
+        assert!(
+            !run.player_in_combat(&bob),
+            "test fixture hit a world monster at (170,20)/(171,20) — pick different coords, not a real failure"
+        );
+        assert!(
+            run.snapshot(&bob).unwrap().route_meters_walked > bob_before,
+            "Bob must be free to move even though Alice has an active undismissed dialogue"
+        );
+        assert!(
+            run.snapshot(&bob).unwrap().pending_display_events.is_empty(),
+            "Bob never triggered the shrine dialogue — his own queue must stay empty"
+        );
+
+        // Once Alice dismisses everything currently queued (mirrors the
+        // client calling /complete per box, which appends to
+        // completed_events), she's unblocked again. Dismissing the shrine
+        // dialogue chains straight into the next pilgrim-quest step
+        // (chaos_pilgrim_circuit_start) — expected content behavior, not
+        // a bug — so clear whatever is queued at this snapshot rather
+        // than hardcoding a chain length.
+        for id in run.snapshot(&alice).unwrap().pending_display_events.clone() {
+            run.mark_personal_completed(&alice, &id);
+        }
+        run.tick_walking(&alice, 1.0, 3.0);
+        assert!(
+            run.snapshot(&alice).unwrap().route_meters_walked > alice_before,
+            "Alice should resume moving once she's dismissed everything queued"
+        );
+    }
+
+    #[test]
+    fn story_beat_with_requires_browser_blocks_then_resumes_on_dismiss() {
+        // Before this fix, a requires_browser story_beat had NO client-side
+        // completion path at all — event_poll.rs showed it as a passive,
+        // auto-expiring notification and never called /complete, so once
+        // triggered it stayed globally Active forever (permanently
+        // blocking has_blocking's old global scan for every player in the
+        // bundle — this is what stranded players in the Shadow Castle).
+        // This pins the server-side half of the fix: the event lands on
+        // the player's OWN queue via the walking-branch trigger path, and
+        // — once dismissed the same way the client now does for every
+        // browser event (npc_dialogue and story_beat share one code path
+        // client-side now too) — cleanly resolves and unblocks.
+        let mut run = SimulatedRun::for_chaos();
+        let p = run.spawn_player("Tester");
+        run.force_complete_event(&p, "chaos_intro");
+
+        // chaos_beat_vista: story_beat, requires_browser: true, at_tile(60,30).
+        run.teleport(&p, 60, 30);
+        run.tick_walking(&p, 1.0, 3.0);
+        assert!(
+            run.snapshot(&p).unwrap().pending_display_events
+                .contains(&"chaos_beat_vista".to_string()),
+            "story_beat should queue on the pending-display list exactly like npc_dialogue"
+        );
+
+        run.set_route(&p, &[(60, 30), (61, 30), (62, 30)]);
+        let before = run.snapshot(&p).unwrap().route_meters_walked;
+        run.tick_walking(&p, 1.0, 3.0);
+        assert_eq!(
+            run.snapshot(&p).unwrap().route_meters_walked, before,
+            "undismissed story beat should block movement, same as npc_dialogue"
+        );
+
+        run.mark_personal_completed(&p, "chaos_beat_vista");
+        run.tick_walking(&p, 1.0, 3.0);
+        assert!(
+            run.snapshot(&p).unwrap().route_meters_walked > before,
+            "dismissing the story beat should unblock movement — this was permanently stuck before"
         );
     }
 

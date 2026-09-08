@@ -20,6 +20,16 @@ pub struct CachedForge {
     pub npc_name: String,
 }
 
+/// A requires_browser event waiting for (or currently in) the dialogue
+/// box. Built once when the event first appears via `/events/active`
+/// and pushed onto `DialogueState::queue` — never mutated afterward.
+#[derive(Debug, Clone)]
+pub struct QueuedDialogue {
+    pub event_id: String,
+    pub speaker: String,
+    pub lines: Vec<String>,
+}
+
 #[derive(Resource, Default)]
 pub struct EventPollState {
     pub timer: Option<Timer>,
@@ -130,68 +140,62 @@ pub fn poll_active_events(
                     continue;
                 }
 
-                // New active event!
+                // New active event! The server only ever puts a
+                // requires_browser, non-combat event on this player's
+                // list once they've personally triggered it (see
+                // `pending_display_events` server-side) — so anything
+                // reaching this point is real, specific to this player,
+                // and needs to actually be shown and dismissed (which is
+                // what calls /complete and lets the player move again).
+                // A fire-and-forget notification banner can't guarantee
+                // that: it can be missed entirely by someone watching a
+                // treadmill instead of the screen, and never calls
+                // /complete — so everything except combat goes through
+                // the same queued dialogue box instead.
                 match event_type {
                     // Boss and random_encounter are handled by the combat system
                     "boss" | "random_encounter" => {}
                     "npc_dialogue" => {
-                        // Open dialogue box
-                        if !dialogue.active {
-                            let speaker = event.kind.get("speaker")
-                                .and_then(|s| s.as_str())
-                                .or_else(|| event.kind.get("enemy_name").and_then(|s| s.as_str()))
-                                .unwrap_or(&event.name)
-                                .to_string();
-
-                            let lines: Vec<String> = event.kind.get("lines")
-                                .and_then(|l| l.as_array())
-                                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                                .or_else(|| {
-                                    event.kind.get("description")
-                                        .and_then(|d| d.as_str())
-                                        .map(|d| vec![d.to_string()])
-                                })
-                                .unwrap_or_else(|| vec![event.description.clone()]);
-
-                            dialogue.active = true;
-                            dialogue.event_id = event.id.clone();
-                            dialogue.speaker = speaker;
-                            dialogue.lines = lines;
-                            dialogue.current_line = 0;
-                            dialogue.typewriter_index = 0;
-                            dialogue.typewriter_timer = 0.0;
-                        }
-                    }
-                    "story_beat" => {
-                        // Show as notification
+                        let speaker = event.kind.get("speaker")
+                            .and_then(|s| s.as_str())
+                            .or_else(|| event.kind.get("enemy_name").and_then(|s| s.as_str()))
+                            .unwrap_or(&event.name)
+                            .to_string();
                         let lines: Vec<String> = event.kind.get("lines")
                             .and_then(|l| l.as_array())
                             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                            .unwrap_or_default();
-
-                        for line in lines {
-                            notifications.pending.push(NotificationData {
-                                text: line,
-                                duration: 4.0,
-                            });
-                        }
-                    }
-                    "treasure" => {
-                        // Show notification
-                        let desc = event.kind.get("description")
-                            .and_then(|d| d.as_str())
-                            .unwrap_or("Found treasure!");
-                        notifications.pending.push(NotificationData {
-                            text: desc.to_string(),
-                            duration: 3.0,
+                            .or_else(|| {
+                                event.kind.get("description")
+                                    .and_then(|d| d.as_str())
+                                    .map(|d| vec![d.to_string()])
+                            })
+                            .unwrap_or_else(|| vec![event.description.clone()]);
+                        dialogue.queue.push(QueuedDialogue {
+                            event_id: event.id.clone(),
+                            speaker,
+                            lines,
                         });
                     }
-                    // "shop" is handled above, before the known_active check
+                    // shop is handled above, before the known_active check.
+                    // Everything else that can reach the browser this way
+                    // (story_beat, an occasional requires_browser treasure,
+                    // quest, or any future kind) — narrated as the event's
+                    // own name rather than an NPC speaker.
                     _ => {
-                        // Generic notification
-                        notifications.pending.push(NotificationData {
-                            text: format!("{}: {}", event.name, event.description),
-                            duration: 3.0,
+                        let lines: Vec<String> = event.kind.get("lines")
+                            .and_then(|l| l.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                            .filter(|v: &Vec<String>| !v.is_empty())
+                            .or_else(|| {
+                                event.kind.get("description")
+                                    .and_then(|d| d.as_str())
+                                    .map(|d| vec![d.to_string()])
+                            })
+                            .unwrap_or_else(|| vec![event.description.clone()]);
+                        dialogue.queue.push(QueuedDialogue {
+                            event_id: event.id.clone(),
+                            speaker: event.name.clone(),
+                            lines,
                         });
                     }
                 }

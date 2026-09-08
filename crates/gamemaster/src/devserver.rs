@@ -56,6 +56,19 @@ pub struct DevPlayerState {
     /// Events this player has personally completed (for per-player quest triggers).
     #[serde(default)]
     pub completed_events: Vec<String>,
+    /// requires_browser events currently queued for THIS player to see,
+    /// in trigger order. An id here blocks movement (has_blocking) and
+    /// appears in `/events/active` until it also appears in
+    /// `completed_events` — the two lists are checked together, never
+    /// pruned individually. This is the single per-player source of
+    /// truth that replaced scanning the shared catalog's global
+    /// EventStatus::Active for blocking/display purposes: that global
+    /// flag is one flag per event for the whole bundle, so any other
+    /// player's undismissed dialogue used to freeze (has_blocking) and
+    /// even pop open (`/events/active`) on every other player's screen
+    /// too. See the per-player invariant in CLAUDE.md.
+    #[serde(default)]
+    pub pending_display_events: Vec<String>,
     /// Shop event ids the player has discovered — either by visiting or
     /// (Phase B, later) by an NPC-revealed outcome. Populates the shop
     /// markers the client draws over the map when TAB is held.
@@ -1125,20 +1138,24 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         return ("400 Bad Request", r#"{"error":"bad request"}"#.to_string());
     }
 
-    // GET /events/active?player_id=X — active events visible to THIS player.
-    // Events already completed by this player (personally) are excluded, so
-    // one player re-triggering a quest can't leak its dialog onto others.
+    // GET /events/active?player_id=X — events visible to THIS player.
+    // Source of truth is the player's OWN `pending_display_events` queue,
+    // not the shared catalog's global EventStatus::Active — that global
+    // flag is one flag per event for the whole bundle, so reading it
+    // directly here used to hand every player a copy of every OTHER
+    // player's still-open dialogue/story-beat too. See the per-player
+    // invariant in CLAUDE.md.
     if first_line.starts_with("GET /events/active") {
         let player_id = first_line.split('?').nth(1)
             .and_then(|qs| qs.split('&').find(|p| p.starts_with("player_id=")))
             .and_then(|p| p.strip_prefix("player_id="))
             .and_then(|v| v.split_whitespace().next())
             .unwrap_or("");
-        let completed: Vec<String> = if !player_id.is_empty() {
+        let (pending, completed): (Vec<String>, Vec<String>) = if !player_id.is_empty() {
             state.lock().ok()
-                .and_then(|s| s.get(player_id).map(|p| p.completed_events.clone()))
+                .and_then(|s| s.get(player_id).map(|p| (p.pending_display_events.clone(), p.completed_events.clone())))
                 .unwrap_or_default()
-        } else { Vec::new() };
+        } else { (Vec::new(), Vec::new()) };
 
         // Route to the player's adventure bundle's events. Falls back
         // to the default `events` arg (frost_quest) when the player
@@ -1146,11 +1163,12 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
         let bundle = bundle_for_player(player_id);
         let events_ref = bundle.map(|b| &b.events).unwrap_or(events);
         let lock = events_ref.lock().unwrap();
-        let mut result: Vec<_> = lock.active_events().into_iter()
-            .filter(|e| !completed.contains(&e.id))
+        let mut result: Vec<_> = pending.iter()
+            .filter(|id| !completed.contains(*id))
+            .filter_map(|id| lock.get(id))
             .cloned().collect();
-        // Repeatable events (shops, wells, etc.) — permanent POI features
-        // independent of per-player completion, always visible.
+        // Repeatable events (shops, forge, etc.) — permanent POI features
+        // independent of per-player completion/triggering, always visible.
         for event in &lock.events {
             if event.repeatable && event.status == questlib::events::EventStatus::Pending {
                 result.push(event.clone());

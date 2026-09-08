@@ -196,6 +196,14 @@ Diagnostic / recovery:
 - `Not { inner }` inverts a condition (e.g. `at_poi 20 + not has_item warm_cloak` to fire a "missing prereq" notification when the player walks onto a gated POI without the gate item). Field is `inner`, not `condition`, to avoid colliding with the serde tag.
 - `requires_browser: true` events pause map progress until dismissed
 - Auto-complete events (treasure, story) apply outcomes immediately + push notifications
+- Every `requires_browser` event the player triggers (npc_dialogue,
+  story_beat, quest, …) goes through one client-side FIFO dialogue
+  queue (`gameclient::dialogue::DialogueState::queue`) — if a second
+  one triggers while the box is still open for the first, it displays
+  right after instead of being silently dropped. See the per-player
+  invariant section below for why this replaced the old per-kind
+  handling (notification banner for story_beat, dialogue box for
+  npc_dialogue, nothing for anything else).
 - **Climactic-boss scaling overrides.** `EventKind::Boss` accepts optional `hp_per_level` / `atk_per_level` / `def_per_level` fields (default 20 / 2 / 0). They tune how aggressively the fight scales with player level when `scales_with_player: true`. The Frost Lord uses `25 / 3 / 1` so player damage growth doesn't outrun boss HP growth — without `def_per_level > 0`, the player's +3 ATK/level eventually trivializes any final boss. Other bosses keep the defaults via `unwrap_or`, so existing saves and content load unchanged.
 
 ### Per-player event + combat state (INVARIANT — read before touching events)
@@ -208,12 +216,47 @@ multiplayer bugs in this codebase (one player's dialog freezing
 everyone, a boss that won't start because someone else triggered it,
 `event_completed` chains failing for player N+1, …).
 
-Per-player reality lives in three places, none of them the global status:
-- **Completion** — `player.completed_events: Vec<String>`. The blocking
-  check, the walking-branch trigger filter, and the `EventCompleted`
-  trigger all union this with the global completed set
-  (`completed_ids() ∪ player.completed_events`) so a `requires_browser`
-  dialogue another player hasn't seen never gates you.
+Per-player reality lives in four places, none of them the global status:
+- **Display/blocking queue** — `player.pending_display_events: Vec<String>`.
+  When a non-combat `requires_browser` event (npc_dialogue, story_beat,
+  quest, …) triggers for a player, its id is appended here instead of
+  relying on the event's shared global `EventStatus::Active`.
+  `has_blocking` and `GET /events/active` both read ONLY this per-player
+  list (an id "clears" the moment it also appears in that same player's
+  `completed_events`, which is what dismissing the dialogue box does via
+  `POST /events/{id}/complete`) — never the shared catalog. Combat
+  (Boss / RandomEncounter) never enters this queue at all; it's tracked
+  separately via `shared_combat` below. This replaced an earlier design
+  where both endpoints scanned the catalog's global Active flag
+  directly: since that flag is one value shared by the whole bundle,
+  ANY player's undismissed dialogue used to freeze — and even pop open
+  — on EVERY other player's screen too. It's also why a
+  `requires_browser` story beat (which the client only ever showed as a
+  passive, auto-expiring notification and never dismissed via
+  `/complete`) stayed Active forever once triggered, permanently
+  softlocking the first player who walked into it. Both are what
+  stranded players in the Shadow Castle. `promote_pending_triggers`
+  (the stationary-player pass) pushes here too, guarded by
+  `!event.auto_completes()` so kinds that resolve synchronously never
+  get queued for a dismissal that will never come. That function
+  processes every stationary player against the SAME shared catalog
+  within one tick — two players spawning together (the normal case:
+  every chaos player starts at the same world-centre tile) both hit it
+  in the same `run_tick_dev` call. Only the first one's Pending→Active
+  transition succeeds; the queue push must NOT be gated on that
+  transition succeeding, or the second player's own copy is silently
+  skipped rather than delayed (caught live-testing this fix — the
+  status gate at the top of that loop admits Pending/Active/Completed,
+  excluding only Dismissed/Failed, precisely so a second player who
+  hasn't personally completed the event still gets it queued no matter
+  what the global status already is).
+- **Completion** — `player.completed_events: Vec<String>`. The
+  walking-branch trigger filter and the `EventCompleted` trigger union
+  this with the global completed set (`completed_ids() ∪
+  player.completed_events`) so a `requires_browser` dialogue another
+  player hasn't seen never gates you. (The display/blocking queue above
+  does NOT union with the global set — it only ever compares a player's
+  own `pending_display_events` against their own `completed_events`.)
 - **Combat** — `shared_combat`, keyed by a **session key**, not the bare
   event_id. Solo fights key `{event_id}\x1f{player_id}`; co-op fights
   (a `requires_coop` boss with >1 present participant) key the bare
@@ -317,6 +360,22 @@ minimum that makes solo correct without regressing co-op.
 - Game Master advances player along route based on accumulated distance
 - Tile costs: Road 20m, Grass 40m, Sand 50m, Forest 70m, Snow 70m, Swamp 100m, Mountain 120m
 - Character interpolates smoothly between tiles based on speed
+- **"Xm to target" HUD counter** (`hud::update_hud`) counts down
+  meter-by-meter, not per-tile. It subtracts the same per-frame-smooth
+  `InterpolationState::current_meters()` that already drives the
+  character sprite from the route's total walking cost — the sum of
+  every waypoint's server-side tile cost (`WorldGrid::server_tile_cost`,
+  biome/road based) except the last, since the last waypoint is the
+  destination itself and there's no further tile to walk into from it
+  (mirrors `questlib::route::position_along_route`'s own completion
+  point). Previously it summed whole tile costs strictly after the
+  player's current tile with no fractional term, so it only dropped
+  once per server tick, by an entire tile's cost — e.g. 260m held flat
+  then jumped straight to 220m instead of ticking 260…259…258. It also
+  used the client's decoration-aware `movement_cost()` (trees/rocks/
+  etc. add a surcharge the server doesn't know about), which drifted
+  from the real remaining distance on decorated tiles independent of
+  the jump bug.
 
 ### Trust boundary: client submits geometry, server owns distance
 - `/set_route` takes ONLY the route waypoints. The server owns
@@ -614,7 +673,10 @@ natural grant.
 - `GET /players` — all player states
 - `POST /set_route` — `{"player_id":"...","route":"[[x,y],...]"}`
 - `POST /debug_walk` — `{"player_id":"...","speed":3.0}` (simulate walking)
-- `GET /events/active?player_id=X` — events currently visible to this player
+- `GET /events/active?player_id=X` — this player's own queued
+  `requires_browser` events (`pending_display_events`, filtered against
+  their own `completed_events`) plus always-visible repeatable content
+  (shops/forge). Never another player's — see the per-player invariant.
 - `POST /events/{id}/complete` — `{"player_id":"..."}` required; mark event completed
 - `POST /forge_upgrade` — `{"player_id":"...","item_id":"iron_sword"}` — spend
   gold to add +1 to an equipped item's stat. Cost = 500 × (current_level + 1).
@@ -888,32 +950,3 @@ curl -s -X POST $BASE/admin/grant_boon_choice \
   known player_id can poll that player's queue)
 - Delete or revive the excluded `walker` crate (currently dead-on-disk)
 - Shared-goal widgets / team stats in HUD to reinforce co-op
-- **`has_blocking`'s cross-player leak for non-combat events.** The
-  Boss/RandomEncounter exclusion in `has_blocking` (see the per-player
-  invariant section above) never got extended to other `requires_browser`
-  kinds — an npc_dialogue, story_beat, shop, or forge event that goes
-  globally Active because ONE player triggered it (e.g. standing at its
-  POI) currently freezes every OTHER player too, until someone dismisses
-  it. Same root cause as the already-fixed "Daniel can't move because
-  someone else triggered the wolves" bug, just not yet applied past
-  combat kinds. Confirmed live via a two-player sim test. Compounds badly
-  with the still-open story-beat softlock below (a `requires_browser`
-  story beat has no client-side dismissal path at all, so if it's what
-  leaks, it blocks everyone forever, not just briefly).
-- **Story-beat events can't complete themselves.** Every chaos
-  `story_beat` is authored `requires_browser: true` (all ambient beats,
-  all four pilgrim marks, all three distance bounties, and
-  `chaos_starstone_revealed`, which gates the campaign climax) — but
-  `auto_completes()` correctly refuses to auto-complete a requires_browser
-  event server-side (matching `npc_dialogue`'s contract), while the
-  client's story_beat handler only ever pushes a passive one-shot line
-  into the ambient message log — it never calls `/events/{id}/complete`
-  the way the npc_dialogue box does on dismissal. Net effect: any of
-  these events permanently softlocks the first player to trigger it (see
-  the per-player invariant section — `has_blocking` never releases
-  without a completion call that will never come). Proposed fix (agreed,
-  not yet implemented): give the dialogue system a small FIFO queue
-  (multiple simultaneous `requires_browser` events must be shown one at a
-  time, never silently dropped) and route `requires_browser: true` story
-  beats through the same dialogue-box → dismiss → `/complete` flow
-  npc_dialogue already uses correctly, instead of the ambient log.

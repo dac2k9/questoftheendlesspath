@@ -6,7 +6,7 @@ pub mod minimap;
 use bevy::prelude::*;
 
 use crate::states::AppState;
-use crate::terrain::path::DisplayRoute;
+use crate::terrain::path::{DisplayRoute, InterpolationState};
 use crate::terrain::tilemap::MyPlayerState;
 use crate::terrain::world::WorldGrid;
 use crate::{GameFont, GameSession};
@@ -197,6 +197,7 @@ fn spawn_hud(mut commands: Commands, font: Res<GameFont>) {
 fn update_hud(
     state: Res<MyPlayerState>,
     route: Res<DisplayRoute>,
+    interp: Res<InterpolationState>,
     world: Option<Res<WorldGrid>>,
     mut gold_q: Query<&mut Text, With<GoldText>>,
     mut level_q: Query<&mut Text, (With<LevelText>, Without<GoldText>, Without<DistanceText>, Without<SpeedText>, Without<BiomeText>)>,
@@ -227,12 +228,36 @@ fn update_hud(
     if let Ok(mut text) = dist_q.get_single_mut() {
         if !route.waypoints.is_empty() {
             if let Some(world) = &world {
-                let tile_idx = crate::terrain::path::tile_index_from_meters(&route.waypoints, state.route_meters, world);
-                let remaining: u32 = route.waypoints[(tile_idx + 1).min(route.waypoints.len())..]
+                // Total walking cost to complete the route is the sum of
+                // every waypoint's cost EXCEPT the last — the last tile is
+                // the destination itself, so there's no further tile to
+                // walk into from it (mirrors questlib::route::position_along_route,
+                // which marks the route complete the instant meters_walked
+                // reaches this same sum — see its `route_total_cost_matches_sum`
+                // test). Uses `server_tile_cost` (biome/road based), matching
+                // what the server actually consumes for `route_meters_walked` —
+                // the previous `movement_cost()` here also counted client-only
+                // decorative overlay surcharges (trees, rocks, …) the server
+                // doesn't know about, so it drifted from the real remaining
+                // distance on decorated tiles independent of the jump bug below.
+                let last = route.waypoints.len().saturating_sub(1);
+                let total_cost: f64 = route.waypoints[..last]
                     .iter()
-                    .map(|&(x, y)| { let c = world.get(x, y).movement_cost(); if c == u32::MAX { 0 } else { c } })
+                    .map(|&(x, y)| {
+                        let c = world.server_tile_cost(x, y);
+                        if c == u32::MAX { 0.0 } else { c as f64 }
+                    })
                     .sum();
-                **text = format!("{}m to target", remaining);
+                // `interp.current_meters()` is the same per-frame-smooth lerp
+                // already driving the character sprite, so this counts down
+                // continuously as you walk instead of only dropping once per
+                // server tick when `state.route_meters` itself updates, and
+                // — since it's a plain subtraction from the total rather than
+                // a sum of whole tiles strictly ahead of the current one — it
+                // also reflects partial progress into the current tile
+                // instead of jumping by a whole tile's cost at each boundary.
+                let remaining = (total_cost - interp.current_meters()).max(0.0);
+                **text = format!("{}m to target", remaining.round() as u32);
             }
         } else {
             **text = "No route".to_string();

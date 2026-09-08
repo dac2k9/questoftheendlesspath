@@ -18,6 +18,7 @@ impl Plugin for DialoguePlugin {
                 Update,
                 (
                     event_poll::poll_active_events,
+                    advance_dialogue_queue,
                     update_dialogue,
                     update_notifications,
                     handle_dialogue_input,
@@ -48,6 +49,29 @@ pub struct DialogueState {
     pub typewriter_index: usize,
     pub typewriter_timer: f32,
     pub choices: Vec<String>,
+    /// requires_browser events waiting to be shown, oldest first.
+    /// `advance_dialogue_queue` pops one in whenever the box is free, so
+    /// something triggered while another dialogue is still up displays
+    /// right after it instead of being marked "seen" and silently
+    /// dropped (see `event_poll::poll_active_events`).
+    pub queue: Vec<event_poll::QueuedDialogue>,
+}
+
+/// Pop the next queued dialogue into the active slot once the box is
+/// free. This is what makes browser-required events sequence instead of
+/// racing — see the queue field's doc comment.
+fn advance_dialogue_queue(mut state: ResMut<DialogueState>) {
+    if state.active || state.queue.is_empty() {
+        return;
+    }
+    let next = state.queue.remove(0);
+    state.active = true;
+    state.event_id = next.event_id;
+    state.speaker = next.speaker;
+    state.lines = next.lines;
+    state.current_line = 0;
+    state.typewriter_index = 0;
+    state.typewriter_timer = 0.0;
 }
 
 #[derive(Component)]

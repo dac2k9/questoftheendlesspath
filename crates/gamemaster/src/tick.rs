@@ -116,7 +116,7 @@ pub fn run_tick_dev(
             // having to walk first. /start_new_adventure lands a chaos
             // player on the Survivors' Camp (100, 80); chaos_intro must
             // become Active here even though they haven't taken a step.
-            promote_pending_triggers(player, world, &mut events_lock);
+            promote_pending_triggers(player, world, &mut events_lock, state);
             continue;
         }
 
@@ -185,34 +185,24 @@ pub fn run_tick_dev(
             // Same as the !is_walking branch: keep triggers responsive
             // when the bridge hasn't pushed new distance this tick but
             // the player is still on a quest tile.
-            promote_pending_triggers(player, world, &mut events_lock);
+            promote_pending_triggers(player, world, &mut events_lock, state);
             continue;
         }
 
-        // Blocking event check — only block if there's a requires_browser event
-        // that THIS player hasn't personally completed. Otherwise one player's
-        // dialog would freeze everyone else on the map.
-        //
-        // Combat-kind events (Boss / RandomEncounter) are EXCLUDED from this
-        // global Active scan because combat is already tracked per-player via
-        // `shared_combat`. A wolves encounter triggered by player A would
-        // otherwise block player B even though only A is in the actual fight —
-        // exactly the "Daniel can't move because someone else triggered the
-        // wolves" bug we hit on the live server.
-        let has_blocking = events_lock.active_events().iter()
-            .any(|e| {
-                if !e.requires_browser { return false; }
-                if player.completed_events.contains(&e.id) { return false; }
-                // Skip combat events — `player_in_combat` handles those
-                // per-player just below.
-                if matches!(e.kind,
-                    questlib::events::kind::EventKind::Boss { .. }
-                    | questlib::events::kind::EventKind::RandomEncounter { .. })
-                {
-                    return false;
-                }
-                true
-            })
+        // Blocking event check — reads ONLY this player's own
+        // `pending_display_events` queue, never the shared catalog's
+        // global EventStatus::Active. An id lands there when a
+        // non-combat, requires-browser event triggers for THIS player
+        // specifically (see the trigger-processing loop below and
+        // `promote_pending_triggers`), and clears itself the moment it
+        // also appears in `completed_events` (dismissed client-side).
+        // Combat (Boss / RandomEncounter) never enters this queue at
+        // all — it's tracked per-player via `shared_combat` instead.
+        // Reading a per-player list by construction rules out the
+        // "Daniel can't move because someone else triggered the
+        // wolves" class of bug — there's no shared flag left to leak.
+        let has_blocking = player.pending_display_events.iter()
+            .any(|id| !player.completed_events.contains(id))
             || server_combat::player_in_combat(shared_combat, player_id);
 
         // Parse route
@@ -736,9 +726,7 @@ pub fn run_tick_dev(
                         event.force_status(EventStatus::Dismissed);
                         info!("  Combat dismissed (no route): {}", event.name);
                     }
-                }
-
-                if event.auto_completes() {
+                } else if event.auto_completes() {
                     if event.transition(EventStatus::Completed).is_ok() {
                         info!("  Auto-completed: {}", event.name);
                         let Some(fog) = player_fogs.get_mut(player_id) else { continue };
@@ -752,6 +740,26 @@ pub fn run_tick_dev(
                                         crate::push_notif(&mut notifs, &player_id, text.clone());
                                     }
                                 }
+                            }
+                        }
+                    }
+                } else {
+                    // NpcDialogue / Quest / StoryBeat(requires_browser) /
+                    // etc — queue for THIS player's own display list
+                    // instead of relying on the shared global Active
+                    // flag. `has_blocking` above and `/events/active`
+                    // both read only this per-player list now, so
+                    // another player's undismissed dialogue can never
+                    // freeze or leak onto this one. And because it's a
+                    // real per-player queue (not "skip if a box is
+                    // already open"), a second event triggered while
+                    // one is still showing displays right after it
+                    // instead of being marked seen and silently
+                    // dropped — see the client-side dialogue queue.
+                    if let Ok(mut lock) = state.lock() {
+                        if let Some(p) = lock.get_mut(player_id) {
+                            if !p.pending_display_events.contains(event_id) {
+                                p.pending_display_events.push(event_id.clone());
                             }
                         }
                     }
@@ -1056,6 +1064,7 @@ fn promote_pending_triggers(
     player: &DevPlayerState,
     world: &WorldMap,
     events_lock: &mut EventCatalog,
+    state: &SharedState,
 ) {
     let tile_x = player.map_tile_x as usize;
     let tile_y = player.map_tile_y as usize;
@@ -1097,7 +1106,20 @@ fn promote_pending_triggers(
         rng_roll: 1.0,
     };
     for event in events_lock.events.iter_mut() {
-        if event.status != EventStatus::Pending { continue; }
+        // Pending / Active / Completed are all fair game — the global
+        // status is content-authoring bookkeeping only (per the
+        // invariant above `promote_pending_triggers`'s doc comment),
+        // NOT a signal that "someone else has this open right now"
+        // (that's `pending_display_events`, checked per-player below).
+        // Excluding Active here was the actual bug behind a real live
+        // gap: two players landing on the same trigger tile in the same
+        // tick both run this loop against the SAME shared catalog —
+        // whichever is processed first flips Pending→Active, and an
+        // Active-excluding gate then skipped the SECOND player's own
+        // queue entry entirely, not just delayed it. Only Dismissed /
+        // Failed are excluded (defensive — no non-combat kind reaches
+        // those today; combat kinds are filtered out just below anyway).
+        if matches!(event.status, EventStatus::Dismissed | EventStatus::Failed) { continue; }
         if event.repeatable { continue; }
         // CaveEntrance + combat events (Boss / RandomEncounter) MUST be
         // handled in the walking branch — it owns enter_interior / torch
@@ -1125,6 +1147,25 @@ fn promote_pending_triggers(
                     "[{}] stationary-trigger: {} ({})",
                     player.name, event.name, event.id
                 );
+            }
+            // Queue for THIS player regardless of whether their call was
+            // the one that performed the transition above — two players
+            // on the same trigger tile in the same tick must each still
+            // get their own copy queued, even though only the first
+            // one's Pending→Active transition succeeds (a second,
+            // already-Active event correctly fails `transition()`, but
+            // that's a global bookkeeping flip, not "did I personally
+            // see this"). Same per-player queue as the walking branch
+            // (see the comment there) — auto-completing kinds skip it
+            // since they resolve without ever needing browser display.
+            if !event.auto_completes() {
+                if let Ok(mut lock) = state.lock() {
+                    if let Some(p) = lock.get_mut(&player.id) {
+                        if !p.pending_display_events.contains(&event.id) {
+                            p.pending_display_events.push(event.id.clone());
+                        }
+                    }
+                }
             }
         }
     }
