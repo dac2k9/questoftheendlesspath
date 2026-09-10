@@ -376,6 +376,24 @@ minimum that makes solo correct without regressing co-op.
   etc. add a surcharge the server doesn't know about), which drifted
   from the real remaining distance on decorated tiles independent of
   the jump bug.
+- **`InterpolationState` only restarts its lerp clock on a genuinely new
+  window from the server** (`apply_server_state`, `tilemap.rs`) —
+  comparing incoming `(route_meters_walked, interp_meters_target,
+  interp_duration_secs)` against what's already loaded before
+  overwriting `elapsed = 0.0`. The Walker feed delivers real distance in
+  its own batches (roughly every ~1 m walked or 2 s, whichever comes
+  first), decoupled from the server's fixed 1 s tick; on a tick where
+  nothing new has arrived yet, that triple is bit-for-bit identical to
+  last poll (the server still projects `speed × 1s` from the last known
+  speed regardless). Resetting `elapsed` unconditionally on every poll —
+  the old behavior — yanked the animation back down to `start_meters`
+  and restarted the climb toward the SAME target it had almost already
+  reached, on every poll where fresh Walker data hadn't landed yet. That
+  sawtooth ate a large fraction of real walked distance visually (both
+  the character sprite and the "Xm to target" counter above, since both
+  read `current_meters()`) — reported live as needing 5-6 real steps to
+  see 1 m of visible progress. Leaving an unchanged window alone lets
+  the existing lerp finish and hold at the target instead.
 
 ### Trust boundary: client submits geometry, server owns distance
 - `/set_route` takes ONLY the route waypoints. The server owns

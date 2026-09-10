@@ -949,10 +949,30 @@ fn apply_server_state(
         let target = me.interp_meters_target.unwrap_or(server_meters);
         let duration = me.interp_duration_secs.unwrap_or(0.0);
         state.route_meters = server_meters;
-        interp.start_meters = server_meters;
-        interp.target_meters = target;
-        interp.duration = duration;
-        interp.elapsed = 0.0;
+        // Only restart the lerp clock when the server actually sent a
+        // different window to animate toward. The walker feed delivers
+        // real distance in its own batches (roughly every ~1m walked or
+        // 2s, whichever comes first) — decoupled from the server's fixed
+        // 1s tick. On a tick where nothing new has arrived yet,
+        // route_meters_walked/target/duration are bit-for-bit identical
+        // to last poll (the tick still projects `speed * 1s` from the
+        // last known speed either way). Resetting `elapsed` unconditionally
+        // here used to yank the animation back down to `start_meters` and
+        // restart the climb toward the SAME target it had almost already
+        // reached, every poll where fresh walker data hadn't landed —
+        // visually discarding a big chunk of real progress (reported:
+        // ~5-6 real steps for 1m of visible movement). Leaving an
+        // unchanged window alone lets the existing lerp finish and hold
+        // at the target instead of sawtoothing.
+        if interp.start_meters != server_meters
+            || interp.target_meters != target
+            || interp.duration != duration
+        {
+            interp.start_meters = server_meters;
+            interp.target_meters = target;
+            interp.duration = duration;
+            interp.elapsed = 0.0;
+        }
     }
 
 
