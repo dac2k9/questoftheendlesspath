@@ -232,7 +232,15 @@ pub fn find_path_with_items(
                 }
             }
 
-            let move_cost = terrain.movement_cost();
+            // Plan against the SERVER's cost, the one that actually
+            // gets billed. Routing on the client's `movement_cost()`
+            // meant A* optimised a different game than the player
+            // walked — it priced mountains at 80 instead of 120 and the
+            // painted POI approaches at 20 regardless of biome, so the
+            // "shortest" path it returned often wasn't. Water is already
+            // filtered by `is_passable()` above, so the u32::MAX arm is
+            // unreachable here.
+            let move_cost = world.server_tile_cost(nx, ny);
             let new_cost = cost.saturating_add(move_cost);
 
             if new_cost < dist[idx(nx, ny)] {

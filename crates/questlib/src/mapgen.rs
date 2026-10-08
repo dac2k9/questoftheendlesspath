@@ -256,8 +256,22 @@ impl WorldMap {
 
     /// Check if a road passes through this tile.
     pub fn has_road_at(&self, x: usize, y: usize) -> bool {
-        // POI center tiles count as roads (they are settlements/buildings)
-        if self.poi_at(x, y).is_some() {
+        // A POI and the eight tiles around it all count as road —
+        // settlements have approaches. The client already paints that
+        // whole 3×3 block as Road ground (`WorldGrid::from_seed_with_dims`),
+        // so anything narrower makes the map lie: a tile drawn as road,
+        // reported as "Road 20m" on hover, but billed at the underlying
+        // biome — up to 120 m per tile in a mountain region.
+        //
+        // Deliberately a query rule rather than extra entries in
+        // `roads`: `place_chests` and `place_monsters` both take
+        // `&roads` as a generation input, so growing that list would
+        // shift every chest and monster index — and those indices are
+        // exactly what live saves persist (`chest_{idx}` in
+        // `opened_chests`, `monster_{idx}` in `defeated_monsters`).
+        // Re-indexing them would re-lock opened chests and revive
+        // killed monsters on every existing save.
+        if self.pois.iter().any(|p| p.x.abs_diff(x) <= 1 && p.y.abs_diff(y) <= 1) {
             return true;
         }
         self.roads
@@ -830,6 +844,48 @@ impl SeededRng {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn poi_ring_counts_as_road() {
+        // The client paints the whole 3×3 block around a POI as Road
+        // ground, so those tiles must price as road too — otherwise the
+        // map shows a road, the hover reads "Road 20m", and the server
+        // bills the underlying biome (120 m/tile in mountains). Live
+        // report: "I walk on road, but its mountain region and the tile
+        // counts as 100m even if the road says 20m."
+        let map = WorldMap::generate(42);
+        let poi = map.pois.first().expect("map has at least one POI");
+        let (px, py) = (poi.x, poi.y);
+
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                let (x, y) = ((px as i32 + dx) as usize, (py as i32 + dy) as usize);
+                assert!(
+                    map.has_road_at(x, y),
+                    "POI ring tile ({x},{y}) around POI ({px},{py}) should count as road"
+                );
+                assert_eq!(
+                    crate::route::tile_cost(map.biome_at(x, y), map.has_road_at(x, y)),
+                    20,
+                    "POI ring tile ({x},{y}) should cost the road rate"
+                );
+            }
+        }
+
+        // ...and it must NOT bleed further out: cost is per-tile, a POI
+        // doesn't radiate cheap traversal across the map.
+        let far = (px + 2, py + 2);
+        if far.0 < MAP_W && far.1 < MAP_H && map.poi_at(far.0, far.1).is_none() {
+            let is_actual_road = map.roads.iter()
+                .any(|r| r.path.iter().any(|&(rx, ry)| (rx, ry) == far));
+            if !is_actual_road {
+                assert!(
+                    !map.has_road_at(far.0, far.1),
+                    "road-ness must not extend beyond the POI's own 3×3 block"
+                );
+            }
+        }
+    }
 
     #[test]
     fn generate_deterministic() {

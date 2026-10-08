@@ -251,8 +251,8 @@ fn update_music(
         }
     }
 
-    // Determine desired context
-    let desired_context = determine_context(&state, &player, &world, &combat, &cycle);
+    // Determine desired context (plus any contexts pooled with it)
+    let (desired_context, also_contexts) = determine_context(&state, &player, &world, &combat, &cycle);
     let speed = player.as_ref().map(|p| p.speed_kmh).unwrap_or(0.0);
 
     // Track how long we've been in this context; force a re-roll every
@@ -264,18 +264,25 @@ fn update_music(
     if desired_context == music.current_context {
         music.context_elapsed += dt;
     } else {
+        // Don't reset context_elapsed on a *blocked* switch below — that
+        // would waste the reroll and wait another full window. But DO
+        // adopt the new context here, even when the track doesn't end up
+        // changing. This used to be assigned only inside the switch
+        // branch, which left `current_context` stale whenever a context
+        // change kept the same track — pinning `context_elapsed` at 0
+        // and silently disabling the reroll entirely. That's rare today
+        // but becomes the common case once contexts pool, since a pooled
+        // track stays valid across the 2.5-minute day/night flip.
         music.context_elapsed = 0.0;
+        music.current_context = desired_context.clone();
     }
-    // Don't reset context_elapsed here — if the switch below is blocked
-    // by switch_cooldown, we'd waste the reroll and wait another full
-    // window. Reset only inside the branch that actually changes tracks.
     let force_reroll = music.context_elapsed >= CONTEXT_REROLL_SECONDS;
 
     // Find best track for this context + speed. Always pass current
     // track id — it's used for no-repeat filtering. `stability` toggles
     // whether we also KEEP current if it's still valid for the context.
     let desired_track = pick_track(
-        &catalog, &desired_context, speed,
+        &catalog, &desired_context, &also_contexts, speed,
         music.current_track.as_deref(),
         /* stability = */ !force_reroll,
     );
@@ -304,7 +311,6 @@ fn update_music(
                 music.fade_progress = 0.0;
                 music.target_volume = track.volume;
                 music.current_track = Some(track.id.clone());
-                music.current_context = desired_context;
                 music.switch_cooldown = SWITCH_COOLDOWN;
                 // Reset the variety timer only on an actual switch —
                 // otherwise a blocked reroll (cooldown or same-track
@@ -453,15 +459,25 @@ fn update_volume_display(
     });
 }
 
+/// Returns the primary music context plus any ADDITIONAL contexts whose
+/// tracks should join the same selection pool.
+///
+/// Chaos is why this isn't a single value. Its authored set holds only
+/// two day and one night overworld track, and the chaos branch below
+/// returns before the biome match — so a chaos player could only ever
+/// hear three tracks on an entire walk while 17 biome tracks sat
+/// unreachable, and every night half of the 5-minute day/night cycle
+/// played the same single night file. Chaos contexts now ADD to the
+/// biome pool instead of replacing it.
 fn determine_context(
     app_state: &State<AppState>,
     player: &Option<Res<MyPlayerState>>,
     world: &Option<Res<WorldGrid>>,
     combat: &Option<Res<crate::combat::CombatUiState>>,
     cycle: &Option<Res<crate::daynight::DayNightCycle>>,
-) -> MusicContext {
+) -> (MusicContext, Vec<MusicContext>) {
     if **app_state == AppState::Title {
-        return MusicContext::Title;
+        return (MusicContext::Title, Vec::new());
     }
 
     // Combat overrides everything. In chaos, boss combats get
@@ -472,49 +488,67 @@ fn determine_context(
             let difficulty = combat.state.as_ref().map(|s| s.difficulty).unwrap_or(0);
             let in_chaos = player.as_ref().map(|p| p.adventure_id == "chaos").unwrap_or(false);
             if difficulty >= 6 {
-                return if in_chaos { MusicContext::ChaosBoss } else { MusicContext::Boss };
+                // Chaos authored exactly one boss track — back it with
+                // the generic boss pair so a long fight isn't one loop.
+                return if in_chaos {
+                    (MusicContext::ChaosBoss, vec![MusicContext::Boss])
+                } else {
+                    (MusicContext::Boss, Vec::new())
+                };
             }
-            return MusicContext::Combat;
+            return (MusicContext::Combat, Vec::new());
         }
     }
 
-    let Some(player) = player else { return MusicContext::Silent };
+    let Some(player) = player else { return (MusicContext::Silent, Vec::new()) };
 
     // Inside an interior? Distinct context — don't inherit the overworld
     // biome's track just because the cave mouth happens to sit in a forest.
     if player.location.is_some() {
-        return MusicContext::Interior;
+        return (MusicContext::Interior, Vec::new());
     }
 
-    let Some(world) = world else { return MusicContext::Silent };
+    let Some(world) = world else { return (MusicContext::Silent, Vec::new()) };
 
     // Chaos adventure has its own atmosphere — split day vs. night
     // since the chaos audio set authored both. `is_day()` is the day
     // half of the cycle; outside chaos the day/night split is purely
     // visual (no separate music yet).
     let is_night = cycle.as_ref().map(|c| !c.is_day()).unwrap_or(false);
+    let biome_ctx = biome_context(world, player.tile_x, player.tile_y);
+
     if player.adventure_id == "chaos" {
         let at_camp = world.map.poi_at(player.tile_x as usize, player.tile_y as usize)
             .map(|p| matches!(p.poi_type, questlib::mapgen::PoiType::RefugeeCamp | questlib::mapgen::PoiType::WizardsSpire))
             .unwrap_or(false);
         return match (at_camp, is_night) {
-            (true,  false) => MusicContext::ChaosCamp,
-            (true,  true)  => MusicContext::ChaosCampNight,
-            (false, false) => MusicContext::ChaosOverworld,
-            (false, true)  => MusicContext::ChaosOverworldNight,
+            // The camp has three of its own tracks — enough on its own,
+            // and it's a place you stand still in rather than walk through.
+            (true,  false) => (MusicContext::ChaosCamp, Vec::new()),
+            (true,  true)  => (MusicContext::ChaosCampNight, vec![MusicContext::ChaosCamp]),
+            (false, false) => (MusicContext::ChaosOverworld, vec![biome_ctx]),
+            // Night overworld is the worst-starved context in the game
+            // (one file), so it pools the chaos day tracks AND the biome.
+            (false, true)  => (
+                MusicContext::ChaosOverworldNight,
+                vec![MusicContext::ChaosOverworld, biome_ctx],
+            ),
         };
     }
 
     // Check if at a village/town POI
     if let Some(poi) = world.map.poi_at(player.tile_x as usize, player.tile_y as usize) {
         if matches!(poi.poi_type, questlib::mapgen::PoiType::Town | questlib::mapgen::PoiType::Village) {
-            return MusicContext::Village;
+            return (MusicContext::Village, Vec::new());
         }
     }
 
-    // Biome-based
-    let biome = world.map.biome_at(player.tile_x as usize, player.tile_y as usize);
-    match biome {
+    (biome_ctx, Vec::new())
+}
+
+/// Biome under the player's current tile, as a music context.
+fn biome_context(world: &WorldGrid, tile_x: i32, tile_y: i32) -> MusicContext {
+    match world.map.biome_at(tile_x as usize, tile_y as usize) {
         questlib::mapgen::Biome::Grassland | questlib::mapgen::Biome::Desert => MusicContext::Grassland,
         questlib::mapgen::Biome::Forest | questlib::mapgen::Biome::DenseForest => MusicContext::Forest,
         questlib::mapgen::Biome::Mountain | questlib::mapgen::Biome::Snow => MusicContext::Mountain,
@@ -526,6 +560,7 @@ fn determine_context(
 fn pick_track<'a>(
     catalog: &'a MusicCatalog,
     context: &MusicContext,
+    also: &[MusicContext],
     speed: f32,
     current_track: Option<&str>,
     stability: bool,
@@ -533,14 +568,32 @@ fn pick_track<'a>(
     let context_str = context.as_str();
     if context_str.is_empty() { return None; }
 
+    // Pool the primary context with any additive ones (see
+    // `determine_context`). Everything below treats the pool as one flat
+    // candidate list — there's no weighting toward the primary, which is
+    // the point: a context holding a single file shouldn't dominate.
+    let mut wanted: Vec<&str> = Vec::new();
+    for c in std::iter::once(context).chain(also.iter()) {
+        let mut s = c.as_str();
+        if s.is_empty() { continue; }
+        // A context with no authored tracks (currently Mountain) would
+        // contribute nothing and silently shrink the pool — in chaos
+        // that left mountain/snow tiles back down to the 2 chaos tracks.
+        // Hand it the same grassland stand-in the empty rescue below uses.
+        if !catalog.tracks.iter().any(|t| t.context == s) {
+            s = "grassland";
+        }
+        if !wanted.contains(&s) { wanted.push(s); }
+    }
+
     let mut candidates: Vec<&TrackDef> = catalog.tracks.iter()
-        .filter(|t| t.context == context_str)
+        .filter(|t| wanted.iter().any(|w| t.context == *w))
         .collect();
     // Fallback: contexts without their own tracks (currently Mountain)
     // borrow from grassland so music doesn't go silent when the player
     // walks into those biomes. Drop these lines as soon as mountain-
     // specific tracks get added to tracks.json.
-    if candidates.is_empty() && context_str != "grassland" {
+    if candidates.is_empty() && !wanted.contains(&"grassland") {
         candidates = catalog.tracks.iter()
             .filter(|t| t.context == "grassland")
             .collect();

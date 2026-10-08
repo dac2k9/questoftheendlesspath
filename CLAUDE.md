@@ -342,6 +342,19 @@ minimum that makes solo correct without regressing co-op.
   not adjacent. (`pois_near(x, y, radius)` is the radius-based variant,
   used for the trigger context's `nearby_poi_ids`.)
 - POI tiles are set to Road ground (cheap traversal)
+- **A POI and the 8 tiles around it all count as road** —
+  `has_road_at` returns true for the whole 3×3 block, so they cost the
+  20 m road rate regardless of the biome underneath. This matches what
+  the client already draws (`WorldGrid::from_seed_with_dims` paints that
+  block as Road ground); before, only the exact centre tile counted, so
+  the ring was drawn as road, reported as "Road 20m" on hover, and
+  billed at the underlying biome — up to 120 m/tile in mountains.
+  Note this is a **query rule, not extra entries in `map.roads`**:
+  `place_chests` and `place_monsters` take `&roads` as a generation
+  input, so growing that list would shift every chest and monster index,
+  and those indices are what saves persist (`chest_{idx}`,
+  `monster_{idx}`) — re-indexing would re-lock opened chests and revive
+  killed monsters. Road-ness does not extend past that 3×3 block.
 - Player must deliberately click on/near POI to walk there — no auto-snapping
 - **Visual markers on the map:** POI types with a custom PNG in
   `crates/gameclient/assets/poi/` render an illustrated landmark
@@ -359,6 +372,19 @@ minimum that makes solo correct without regressing co-op.
 - Walker sends distance deltas every 2s
 - Game Master advances player along route based on accumulated distance
 - Tile costs: Road 20m, Grass 40m, Sand 50m, Forest 70m, Snow 70m, Swamp 100m, Mountain 120m
+- **One cost model, and it's the server's.** `questlib::route::tile_cost(biome, has_road)`
+  is the only pricing that counts, and the client reads it via
+  `WorldGrid::server_tile_cost`. Everything the player sees or plans
+  against uses it: the "Xm to target" counter, the TAB hover readout,
+  and A* pathfinding. The client also has its own decoration-aware
+  `Terrain::movement_cost()` (overlay surcharges: trees +30, rocks +40,
+  and a Stone ground of 80 standing in for Mountain) — it disagreed with
+  the server on mountain (80 vs 120), dense forest (70 vs 90), untreed
+  forest tiles (40 vs 70) and POI approaches, so using it for the
+  tooltip meant the map quoted one price and the server charged another,
+  and using it for A* meant routes were optimised against a game the
+  player wasn't walking. It is now only reachable through
+  `Terrain::is_passable()`; treat it as rendering trivia, not pricing.
 - Character interpolates smoothly between tiles based on speed
 - **"Xm to target" HUD counter** (`hud::update_hud`) counts down
   meter-by-meter, not per-tile. It subtracts the same per-frame-smooth
@@ -653,6 +679,56 @@ natural grant.
   water / fBm-detailed biomes. Current Phase 1 overlay is the cheap
   prototype to see if slope-based lighting fits the pixel-art style
   before we commit to the shader effort.
+
+### Music
+
+32 MP3 tracks in `crates/gameclient/assets/music/`, declared in
+`tracks.json` (id / file / context / recommended_kmh / volume / loop) and
+played through two crossfading HTML audio elements in
+`gameclient::music`. Master volume and mute are `+` / `-` / `M` or the
+HUD button; browser autoplay policy means nothing plays until the player
+activates audio once.
+
+**Contexts are additive, not exclusive.** `determine_context` returns a
+primary context *plus a list of contexts pooled with it*, and
+`pick_track` selects uniformly across the union. This matters because
+the chaos adventure authored only 2 day and 1 night overworld track:
+the chaos branch returns before the biome match, so when contexts were
+exclusive a chaos player could only ever hear **3 tracks on an entire
+walk** while 17 biome tracks sat unreachable — and since the day/night
+cycle is 5 minutes (2.5 day / 2.5 night), *every* night half played the
+same single file. Chaos contexts now pool with the underlying biome:
+
+| Context | Pools with | Why |
+| --- | --- | --- |
+| `chaos_overworld` | current biome | 2 → 6-9 tracks |
+| `chaos_overworld_night` | `chaos_overworld` + biome | 1 → 7-10; worst-starved context in the game |
+| `chaos_camp_night` | `chaos_camp` | 1 → 4 |
+| `chaos_boss` | `boss` | 1 → 3, so a long fight isn't one loop |
+| `chaos_camp` | — | 3 of its own, and you stand still there |
+
+A pooled context that has no authored tracks of its own (currently
+`mountain`) contributes the `grassland` stand-in rather than
+contributing nothing — otherwise the pool silently shrinks on those
+tiles. `village_calm` stays frost_quest-only by design; chaos
+settlements have their own camp tracks.
+
+**Variety comes from three mechanisms**, all in `update_music`: a 45 s
+forced re-roll, loop-end detection (the active channel's `currentTime`
+dropping means the track wrapped), and no-repeat filtering against the
+current track. `speed` is only a *soft* preference — tracks within
+±2.5 km/h of `recommended_kmh` are preferred, but the pool widens to
+the whole context if that band would leave fewer than 3 options.
+
+`current_context` is adopted the moment the context changes, **not**
+only when a track switch actually happens. Assigning it inside the
+switch branch left it stale whenever a context change kept the same
+track, which pinned `context_elapsed` at 0 and silently disabled the
+re-roll. That's the common case once contexts pool, since a pooled
+track stays valid across the day/night flip.
+
+Known gap: `bonus_track.mp3` is on disk but absent from `tracks.json`,
+so it never plays anywhere.
 
 ### Sound effects
 - 8-bit square-wave blips synthesized on-the-fly in `crates/gameclient/src/sfx.rs`.

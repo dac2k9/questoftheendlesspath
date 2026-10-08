@@ -48,8 +48,15 @@ pub struct Terrain {
 
 impl Terrain {
     pub fn movement_cost(&self) -> u32 {
+        // Bridges short-circuit before the water check below, or a
+        // bridge over water would inherit Water's impassable cost.
+        // Priced as a road. This early return used to say 100 while the
+        // arm in the match below said 20 — the match arm is unreachable,
+        // so 100 silently won. Both now read 20; the arm stays only
+        // because the match has to be exhaustive. (Nothing assigns
+        // Overlay::Bridge today, so this is inert either way.)
         if let Some(Overlay::Bridge) = self.overlay {
-            return 100;
+            return 20;
         }
         let base = self.ground.movement_cost();
         if base == u32::MAX { return u32::MAX; }
@@ -58,7 +65,7 @@ impl Terrain {
             Some(Overlay::Rock) => base + 40,
             Some(Overlay::Village) => 30,
             Some(Overlay::Wheat) => base + 10,
-            Some(Overlay::Bridge) => 20,
+            Some(Overlay::Bridge) => 20, // unreachable — see early return above
             Some(Overlay::Chest) => base, // no extra cost
             Some(Overlay::CaveEntrance) => base, // walkable, same as the underlying road
             None => base,
