@@ -18,27 +18,51 @@ pub enum Facing {
     Right,
 }
 
-/// Base multiplier — adjust this to scale all tile costs.
-/// Lower = faster movement across the map.
-const COST_SCALE: u32 = 1;
+/// Meters to cross one tile on a road. Every tile costs at least this;
+/// terrain only ever makes a tile harder, and boons are the only thing
+/// that bring it back below.
+pub const TILE_BASE_M: u32 = 20;
 
-/// Movement cost in meters to traverse a tile, based on biome.
+/// How hard a tile is to cross, as a percent of `TILE_BASE_M`
+/// (100 = no extra effort). `None` = impassable. A road overrides
+/// whatever biome it is built on.
+fn effort_pct(biome: Biome, has_road: bool) -> Option<u32> {
+    if has_road {
+        return Some(100);
+    }
+    match biome {
+        Biome::Grassland => Some(125),
+        Biome::Desert | Biome::Forest => Some(150),
+        Biome::Snow => Some(175),
+        Biome::DenseForest => Some(200),
+        Biome::Swamp => Some(250),
+        Biome::Mountain => Some(300),
+        Biome::Water | Biome::DeepWater => None,
+    }
+}
+
+/// Movement cost in meters to traverse a tile: the base tile times its
+/// terrain modifier. `u32::MAX` = impassable.
 pub fn tile_cost(biome: Biome, has_road: bool) -> u32 {
-    let base = if has_road {
-        20
-    } else {
-        match biome {
-            Biome::Grassland => 40,
-            Biome::Forest => 70,
-            Biome::DenseForest => 90,
-            Biome::Mountain => 120,
-            Biome::Desert => 50,
-            Biome::Snow => 70,
-            Biome::Swamp => 100,
-            Biome::Water | Biome::DeepWater => return u32::MAX,
-        }
-    };
-    base * COST_SCALE
+    effort_pct(biome, has_road).map_or(u32::MAX, |pct| TILE_BASE_M * pct / 100)
+}
+
+/// One-line tile description for the TAB tooltip, e.g. `Forest x1.5 = 30m`.
+/// Names the biome that is actually priced, so the label can't disagree
+/// with the cost.
+pub fn describe_tile(biome: Biome, has_road: bool) -> String {
+    if has_road {
+        return format!("Road {TILE_BASE_M}m");
+    }
+    match effort_pct(biome, false) {
+        Some(pct) => format!(
+            "{} x{} = {}m",
+            biome.display_name(),
+            pct as f32 / 100.0,
+            TILE_BASE_M * pct / 100
+        ),
+        None => format!("{} impassable", biome.display_name()),
+    }
 }
 
 /// Given a route and total meters walked, find the current tile index and position.
@@ -166,21 +190,45 @@ mod tests {
     }
 
     #[test]
-    fn cost_ordering() {
-        // Road < Grassland < Desert < Forest/Snow < DenseForest < Swamp < Mountain
-        let road = tile_cost(Biome::Grassland, true);
-        let grass = tile_cost(Biome::Grassland, false);
-        let desert = tile_cost(Biome::Desert, false);
-        let forest = tile_cost(Biome::Forest, false);
-        let dense = tile_cost(Biome::DenseForest, false);
-        let swamp = tile_cost(Biome::Swamp, false);
-        let mountain = tile_cost(Biome::Mountain, false);
-        assert!(road < grass);
-        assert!(grass < desert);
-        assert!(desert < forest);
-        assert!(forest <= dense);
-        assert!(dense < mountain);
-        assert!(swamp > forest);
+    fn cost_is_base_times_terrain_modifier() {
+        // The approved table: a 20 m base tile times a per-terrain modifier.
+        // Change a number here only on purpose — it re-prices the whole game.
+        let table = [
+            (Biome::Grassland, true, 20),  // road ×1
+            (Biome::Mountain, true, 20),   // a road overrides its biome
+            (Biome::Grassland, false, 25), // ×1.25
+            (Biome::Desert, false, 30),    // ×1.5
+            (Biome::Forest, false, 30),    // ×1.5
+            (Biome::Snow, false, 35),      // ×1.75
+            (Biome::DenseForest, false, 40), // ×2
+            (Biome::Swamp, false, 50),     // ×2.5
+            (Biome::Mountain, false, 60),  // ×3
+        ];
+        for (biome, road, expect) in table {
+            assert_eq!(tile_cost(biome, road), expect, "{biome:?} road={road}");
+        }
+    }
+
+    #[test]
+    fn nothing_is_cheaper_than_the_base_tile() {
+        // Only boons go below the base — the table itself never does.
+        for biome in [Biome::Grassland, Biome::Forest, Biome::DenseForest, Biome::Mountain, Biome::Desert, Biome::Snow, Biome::Swamp] {
+            assert!(tile_cost(biome, false) >= TILE_BASE_M, "{biome:?} is cheaper than the base tile");
+        }
+    }
+
+    #[test]
+    fn describe_tile_matches_the_price() {
+        assert_eq!(describe_tile(Biome::Forest, false), "Forest x1.5 = 30m");
+        assert_eq!(describe_tile(Biome::Grassland, false), "Grassland x1.25 = 25m");
+        assert_eq!(describe_tile(Biome::DenseForest, false), "Dense Forest x2 = 40m");
+        assert_eq!(describe_tile(Biome::Mountain, true), "Road 20m");
+        assert_eq!(describe_tile(Biome::DeepWater, false), "Deep Water impassable");
+        // The label's number is the number the server bills.
+        for biome in [Biome::Grassland, Biome::Forest, Biome::DenseForest, Biome::Mountain, Biome::Desert, Biome::Snow, Biome::Swamp] {
+            let label = describe_tile(biome, false);
+            assert!(label.ends_with(&format!("= {}m", tile_cost(biome, false))), "{label}");
+        }
     }
 
     // -- position_along_route tests --

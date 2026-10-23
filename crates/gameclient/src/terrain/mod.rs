@@ -47,78 +47,17 @@ pub struct Terrain {
 }
 
 impl Terrain {
-    pub fn movement_cost(&self) -> u32 {
-        // Bridges short-circuit before the water check below, or a
-        // bridge over water would inherit Water's impassable cost.
-        // Priced as a road. This early return used to say 100 while the
-        // arm in the match below said 20 — the match arm is unreachable,
-        // so 100 silently won. Both now read 20; the arm stays only
-        // because the match has to be exhaustive. (Nothing assigns
-        // Overlay::Bridge today, so this is inert either way.)
-        if let Some(Overlay::Bridge) = self.overlay {
-            return 20;
-        }
-        let base = self.ground.movement_cost();
-        if base == u32::MAX { return u32::MAX; }
-        match self.overlay {
-            Some(Overlay::Tree | Overlay::PineTree) => base + 30,
-            Some(Overlay::Rock) => base + 40,
-            Some(Overlay::Village) => 30,
-            Some(Overlay::Wheat) => base + 10,
-            Some(Overlay::Bridge) => 20, // unreachable — see early return above
-            Some(Overlay::Chest) => base, // no extra cost
-            Some(Overlay::CaveEntrance) => base, // walkable, same as the underlying road
-            None => base,
-        }
-    }
-
     pub fn is_passable(&self) -> bool {
         if self.overlay == Some(Overlay::Bridge) { return true; }
         self.ground.is_passable()
     }
-
-    pub fn name(&self) -> &'static str {
-        match self.overlay {
-            Some(Overlay::Tree) => "Forest",
-            Some(Overlay::PineTree) => "Pine Forest",
-            Some(Overlay::Rock) => "Rocky",
-            Some(Overlay::Village) => "Village",
-            Some(Overlay::Bridge) => "Bridge",
-            Some(Overlay::Wheat) => "Wheat Field",
-            Some(Overlay::Chest) => "Chest",
-            Some(Overlay::CaveEntrance) => "Cave",
-            None => self.ground.name(),
-        }
-    }
 }
 
 impl Ground {
-    pub fn movement_cost(self) -> u32 {
-        match self {
-            Ground::Road => 20,
-            Ground::Grass => 40,
-            Ground::Sand => 50,
-            Ground::Snow => 70,
-            Ground::Stone => 80,
-            Ground::Swamp => 100,
-            Ground::Water => u32::MAX,
-        }
-    }
-
+    /// Walkability only — what a tile COSTS is the server's call
+    /// (`questlib::route::tile_cost`, read via `WorldGrid::server_tile_cost`).
     pub fn is_passable(self) -> bool {
-        self.movement_cost() < u32::MAX
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Ground::Grass => "Grass",
-            Ground::Road => "Road",
-            Ground::Water => "Water",
-            Ground::Sand => "Sand",
-            Ground::Stone => "Stone",
-            Ground::Snow => "Snow",
-            Ground::Swamp => "Swamp",
-        }
+        self != Ground::Water
     }
 
     /// Tile index in the MiniWorld atlas (16 cols per row).

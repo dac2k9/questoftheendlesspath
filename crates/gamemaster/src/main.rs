@@ -46,7 +46,7 @@ pub fn item_catalog() -> &'static questlib::items::ItemCatalog {
 
 /// Current save-file schema version. Bump whenever a breaking change to the
 /// on-disk representation happens, and extend `migrate_save` to handle it.
-const SAVE_VERSION: u32 = 1;
+const SAVE_VERSION: u32 = 2;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SaveData {
@@ -66,19 +66,24 @@ struct SaveData {
 
 fn default_save_version() -> u32 { 1 }
 
-/// Migrate a loaded SaveData to the current SAVE_VERSION in place. No-op
-/// today — first real break in the schema will add its migration arm here.
+/// Migrate a loaded SaveData to the current SAVE_VERSION in place.
 fn migrate_save(save: &mut SaveData) {
     let from = save.version;
     if from == SAVE_VERSION { return; }
     info!("Migrating save from version {} to {}", from, SAVE_VERSION);
-    // Example shape for future migrations:
-    //   while save.version < SAVE_VERSION {
-    //       match save.version {
-    //           1 => { /* rewrite v1 → v2 */ save.version = 2; }
-    //           _ => break,
-    //       }
-    //   }
+    // v1 → v2: tiles were repriced (20 m base × terrain modifier). A saved
+    // `route_meters_walked` is a distance measured against the OLD price
+    // list, so on the new one it would drop a mid-route player several
+    // tiles further along — skipping whatever POI they were about to step
+    // on. Everyone stops where they are and re-plans instead.
+    if from < 2 {
+        for p in &mut save.players {
+            p.planned_route.clear();
+            p.route_meters_walked = 0.0;
+            p.interp_meters_target = 0.0;
+            p.interp_duration_secs = 0.0;
+        }
+    }
     save.version = SAVE_VERSION;
 }
 
@@ -618,3 +623,45 @@ fn save_state(
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn walking_player() -> DevPlayerState {
+        DevPlayerState {
+            id: "p".into(),
+            planned_route: "[[1,1],[2,1],[3,1]]".into(),
+            route_meters_walked: 37.5,
+            interp_meters_target: 50.0,
+            interp_duration_secs: 1.0,
+            ..Default::default()
+        }
+    }
+
+    fn save_with(version: u32, p: DevPlayerState) -> SaveData {
+        SaveData { version, players: vec![p], events: Default::default(), mobile_entities: HashMap::new() }
+    }
+
+    #[test]
+    fn v1_save_loses_its_in_flight_route() {
+        // v1 meters were measured against the pre-repricing tile costs.
+        let mut save = save_with(1, walking_player());
+        migrate_save(&mut save);
+        assert_eq!(save.version, SAVE_VERSION);
+        let p = &save.players[0];
+        assert!(p.planned_route.is_empty());
+        assert_eq!(p.route_meters_walked, 0.0);
+        assert_eq!(p.interp_meters_target, 0.0);
+        assert_eq!(p.interp_duration_secs, 0.0);
+    }
+
+    #[test]
+    fn current_save_keeps_its_route() {
+        let mut save = save_with(SAVE_VERSION, walking_player());
+        migrate_save(&mut save);
+        let p = &save.players[0];
+        assert_eq!(p.planned_route, "[[1,1],[2,1],[3,1]]");
+        assert_eq!(p.route_meters_walked, 37.5);
+    }
+}

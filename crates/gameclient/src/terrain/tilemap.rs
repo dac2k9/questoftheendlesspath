@@ -1187,19 +1187,16 @@ fn handle_map_click(
     if let Ok((mut text, mut transform)) = info_q.get_single_mut() {
         if keys.pressed(KeyCode::Tab) {
             if fog.is_revealed(tx, ty) || debug.fog_disabled {
-                // Quote the SERVER's cost, not the client's
-                // decoration-aware `movement_cost()`. The two disagree
-                // (mountain 80 vs 120, dense forest 70 vs 90, POI
-                // approaches 20 vs full biome), and the server is the
-                // one that actually bills your walking — so the tooltip
-                // has to read from the same model as the "m to target"
-                // counter or it just misinforms.
-                let cost = if terrain.is_passable() {
-                    format!("{}m", world.server_tile_cost(tx, ty))
-                } else {
-                    "impassable".into()
-                };
-                *text = Text2d::new(format!("{} {}", terrain.name(), cost));
+                // Name and price both come from the server's model
+                // (biome + road), the same one behind the "m to target"
+                // counter — so the label, e.g. "Forest x1.5 = 30m", can't
+                // disagree with what walking there actually bills. The
+                // client's own ground/overlay names can: a forest tile with
+                // no tree on it is drawn as plain grass.
+                *text = Text2d::new(questlib::route::describe_tile(
+                    world.map.biome_at(tx, ty),
+                    world.map.has_road_at(tx, ty),
+                ));
             } else { *text = Text2d::new("???"); }
             let p = WorldGrid::tile_to_world(tx, ty);
             transform.translation = Vec3::new(p.x, p.y + 16.0, 10.0);

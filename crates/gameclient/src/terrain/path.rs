@@ -233,13 +233,11 @@ pub fn find_path_with_items(
             }
 
             // Plan against the SERVER's cost, the one that actually
-            // gets billed. Routing on the client's `movement_cost()`
-            // meant A* optimised a different game than the player
-            // walked — it priced mountains at 80 instead of 120 and the
-            // painted POI approaches at 20 regardless of biome, so the
-            // "shortest" path it returned often wasn't. Water is already
-            // filtered by `is_passable()` above, so the u32::MAX arm is
-            // unreachable here.
+            // gets billed. (The client used to keep its own price list;
+            // A* optimised a different game than the player walked, so
+            // the "shortest" path it returned often wasn't.) Water is
+            // already filtered by `is_passable()` above, so the u32::MAX
+            // arm is unreachable here.
             let move_cost = world.server_tile_cost(nx, ny);
             let new_cost = cost.saturating_add(move_cost);
 
@@ -268,14 +266,14 @@ fn neighbors(x: usize, y: usize) -> [(usize, usize); 4] {
 }
 
 fn heuristic(a: (usize, usize), b: (usize, usize)) -> u32 {
-    // Manhattan distance times the cheapest per-tile cost (Road = 20 m).
-    // Must be an admissible lower bound — never overestimate — or A*
-    // degenerates toward greedy best-first and returns "fewer tiles" paths
-    // instead of cheapest-meters paths. Previously 100 (5× overestimate),
-    // which made the pathfinder ignore tile-cost differences.
+    // Manhattan distance times the cheapest per-tile cost (the base tile,
+    // a road). Must be an admissible lower bound — never overestimate — or
+    // A* degenerates toward greedy best-first and returns "fewer tiles"
+    // paths instead of cheapest-meters paths. Previously 100 (5×
+    // overestimate), which made the pathfinder ignore tile-cost differences.
     let dx = (a.0 as i32 - b.0 as i32).unsigned_abs();
     let dy = (a.1 as i32 - b.1 as i32).unsigned_abs();
-    (dx + dy) * 20
+    (dx + dy) * questlib::route::TILE_BASE_M
 }
 
 #[derive(Eq, PartialEq)]

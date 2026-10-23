@@ -1189,6 +1189,254 @@
       "requires_browser": true
     },
     {
+      "id": "chaos_npc_coast_netmender",
+      "name": "The Net-Mender",
+      "description": "A man on the pier mends a net with nothing in it. Grey flakes settle on his shoulders.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Net-mender Dorr",
+        "lines": [
+          "Forty years I've mended nets on this coast. This summer they come up empty — and grey. That's ash on the water, walker, not salt.",
+          "It drifts down from the north. The Castle of Flame has been burning since the sky changed, and the smoke leans over the whole coast road.",
+          "Follow the road north and the ash starts falling like snow. That's when you're close. Take this for what comes after."
+        ],
+        "choices": []
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 4 },
+      "outcomes": [
+        { "effect": "gold", "amount": 45 },
+        { "effect": "item", "name": "health_potion" },
+        { "effect": "reveal_fog", "x": 170, "y": 36, "radius": 8 },
+        { "effect": "notification", "text": "Dorr presses a potion on you and points north. The Castle of Flame is marked on your map." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_storm_bellringer",
+      "name": "The Bellringer",
+      "description": "A woman hangs from a bell-rope, counting under her breath. Far to the south, the cliffs flicker.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Bellringer Tamsin",
+        "lines": [
+          "One stroke of the bell for every bolt that falls. Last night I lost count at forty, and the cliffs were still lit.",
+          "That's the Castle of Storm, south and a little east. The lightning falls on whoever climbs the bare rock — and nowhere else, which is the cruel part.",
+          "A man on the west road makes charms that turn the bolts. Go to him before you climb, not after. Nobody comes down to ring a bell for you."
+        ],
+        "choices": []
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 5 },
+      "outcomes": [
+        { "effect": "gold", "amount": 40 },
+        { "effect": "item", "name": "health_potion" },
+        { "effect": "notification", "text": "Bellringer Tamsin sends you to the charm-maker on the west road before the climb." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_spire_herbwife",
+      "name": "The Herbwife",
+      "description": "An old woman sorts bundles of drying herbs on her porch, one eye on the hill where a lamp burns in daylight.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Herbwife Odda",
+        "lines": [
+          "You see that lamp on the hill? Hael's. It burns at noon. He's been bending starlight into keys since the sky changed, and he forgets to eat.",
+          "Past his spire the cold starts. The Castle of Frost is a hard walk north-west, and the Queen inside it was the first of the four to wake.",
+          "Willow-bark and honey — it's all I have. Pack warm, and if you see Hael, tell him Odda says to eat."
+        ],
+        "choices": []
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 7 },
+      "outcomes": [
+        { "effect": "gold", "amount": 30 },
+        { "effect": "item", "name": "health_potion" },
+        { "effect": "notification", "text": "Herbwife Odda gives you a willow-bark tonic. \"Tell Hael to eat.\"" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_widow_lamp",
+      "name": "The Lamp in the Window",
+      "description": "A lone cabin with a lamp lit in broad daylight. A woman watches the south road from the doorway.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Widow Hesk",
+        "lines": [
+          "I keep the lamp lit day and night. The corrupted wolves won't cross lamplight — I don't know why, and I've stopped asking.",
+          "My husband went south to see what was lighting the sky over the storm cliffs. That was before the first frost. The lamp is for him, too.",
+          "Take a torch from the pile. If you meet a man in a crooked hat, tell him the lamp is lit."
+        ],
+        "choices": []
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 15 },
+      "outcomes": [
+        { "effect": "gold", "amount": 25 },
+        { "effect": "item", "name": "torch" },
+        { "effect": "notification", "text": "Widow Hesk gives you a torch. \"Tell him the lamp is lit.\"" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_struck_survivor",
+      "name": "The Struck Man",
+      "description": "An old man with white hair and a calm, listening face sits on his porch, watching the weather like a neighbour.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Old Pell",
+        "lines": [
+          "Struck once, at forty, and lived. The folk at the camp say it's not possible. I say they weren't there.",
+          "Since then I feel it coming — pennies on the tongue, the hair rising on my arms. When your arms prickle, get off the high ground. Don't argue with it.",
+          "Haste draught, from before the sky changed. If you're going to run from lightning, run well."
+        ],
+        "choices": []
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 16 },
+      "outcomes": [
+        { "effect": "gold", "amount": 35 },
+        { "effect": "item", "name": "haste_draught" },
+        { "effect": "notification", "text": "Old Pell hands you a haste draught. \"Run well.\"" }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_shore_salvager",
+      "name": "The Salvager",
+      "description": "A cabin built from ship's timbers. Coils of rope hang drying on the porch, and the tide-line is strewn with wreckage.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Salvager Brann",
+        "lines": [
+          "The south coast gives up a little more every tide. Hulls, rope, once a whole piano. No one left to play it.",
+          "West along the shore sits the Castle of Shadow, wrapped in its shroud. On bad mornings the mist reaches this far and my lamp burns blue.",
+          "The hermit at the South Gate has a lantern that burns inward. It cuts that mist. Go and see him — and take this rope, the shore paths are steep."
+        ],
+        "choices": []
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 17 },
+      "outcomes": [
+        { "effect": "gold", "amount": 30 },
+        { "effect": "item", "name": "rope" },
+        { "effect": "notification", "text": "Salvager Brann gives you a coil of rope and points you to the hermit at the South Gate." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_npc_frost_watch",
+      "name": "The Frost Watch",
+      "description": "Three tents and a banked fire on a bleak ridge. A lookout sits facing west and never turns around.",
+      "kind": {
+        "type": "npc_dialogue",
+        "speaker": "Sergeant Halvar",
+        "lines": [
+          "Frost Watch, such as we are. Four of us left, forty days on this ridge, watching a gate that doesn't open.",
+          "Nothing goes in. Nothing comes out but cold. The Queen was the first of the four to wake, and she hasn't raised her voice once. That's what worries me.",
+          "A key shaped like a splinter of starlight is what opens it. The hedge-wizard at the old spire makes them. Come back down alive — we'd like to stop watching."
+        ],
+        "choices": []
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 21 },
+      "outcomes": [
+        { "effect": "gold", "amount": 50 },
+        { "effect": "item", "name": "health_potion" },
+        { "effect": "item", "name": "torch" },
+        { "effect": "reveal_fog", "x": 28, "y": 24, "radius": 8 },
+        { "effect": "notification", "text": "Sergeant Halvar shares rations and marks the Castle of Frost on your map." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_beat_cave_cairns",
+      "name": "The Counting Cairns",
+      "description": "A cave mouth that breathes cold. Someone stacked stones inside, one for every day.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The cave mouth breathes out cold, slow and steady, like a sleeper. Scratches climb both walls, always at the height of a hand.",
+          "Further in, someone has built cairns — each taller than the last, as if counting days. The last cairn is unfinished.",
+          "Behind it, a satchel wedged into the rock. Whoever left it meant to come back."
+        ]
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 13 },
+      "outcomes": [
+        { "effect": "gold", "amount": 60 },
+        { "effect": "item", "name": "torch" },
+        { "effect": "notification", "text": "A satchel in the cave: +60 gold, +Torch." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_beat_broken_garrison",
+      "name": "The Broken Garrison",
+      "description": "A forest dungeon with its iron door bent outward off one hinge.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "Whatever this place was built for, it was built to keep something in. The iron door hangs from one hinge, bent outward.",
+          "Claw-marks cover the inside of the frame. Old ones low down. Newer ones higher up.",
+          "In the guardroom, a locked chest the thing never bothered with. The lock gives to a boot-heel."
+        ]
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 10 },
+      "outcomes": [
+        { "effect": "gold", "amount": 110 },
+        { "effect": "item", "name": "speed_potion" },
+        { "effect": "notification", "text": "The garrison chest: +110 gold, +Speed Potion." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_beat_warm_stair",
+      "name": "The Warm Stair",
+      "description": "A dungeon stair whose stones are warm to the touch, drifted with ash.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "The stairs down are warm. Not hot — warm, like a hand that has been holding yours.",
+          "Ash lies in drifts along the walls, and in the ash, footprints. They go down. None come back up.",
+          "At the bottom, a cracked strongbox, hot to the touch. Inside: coin that has been through a fire and come out the brighter for it."
+        ]
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 11 },
+      "outcomes": [
+        { "effect": "gold", "amount": 120 },
+        { "effect": "item", "name": "health_potion" },
+        { "effect": "notification", "text": "The warm stair's strongbox: +120 gold, +Health Potion." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
+      "id": "chaos_beat_pebble_shrine",
+      "name": "The Pebble Shrine",
+      "description": "A small, older shrine among the trees. Hundreds of river-pebbles are stacked in threes.",
+      "kind": {
+        "type": "story_beat",
+        "lines": [
+          "A smaller shrine than the pilgrims' one in the north, and older. River-pebbles stacked in threes — a hundred stacks, maybe more.",
+          "You add a pebble of your own. The stack doesn't fall. The stone beneath it is warm, the way a shoulder is warm.",
+          "In the offering bowl, coin and a vial that earlier pilgrims left. The shrine seems to want them used. Take them, and go on."
+        ]
+      },
+      "trigger": { "condition": "at_poi", "poi_id": 19 },
+      "outcomes": [
+        { "effect": "gold", "amount": 35 },
+        { "effect": "item", "name": "health_potion" },
+        { "effect": "notification", "text": "You leave a pebble at the shrine. +35 gold, +Health Potion from the offering bowl." }
+      ],
+      "status": "pending",
+      "requires_browser": true
+    },
+    {
       "id": "chaos_cache_1",
       "name": "Hidden Coin Pouch",
       "description": "A leather pouch half-buried at the base of a split tree.",

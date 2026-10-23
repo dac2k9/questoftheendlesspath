@@ -184,12 +184,13 @@ pub struct InteriorMap {
     #[serde(default)]
     pub monsters: Vec<InteriorMonster>,
     /// Flat floor-tile movement cost in meters. Consistent across the map
-    /// — caves don't have roads.
+    /// — caves don't have roads or terrain modifiers, so the default is
+    /// the plain 20 m base tile.
     #[serde(default = "default_tile_cost")]
     pub floor_cost_m: u32,
 }
 
-fn default_tile_cost() -> u32 { 40 }
+fn default_tile_cost() -> u32 { crate::route::TILE_BASE_M }
 
 impl InteriorMap {
     pub fn tile_at(&self, x: usize, y: usize) -> Option<InteriorTile> {

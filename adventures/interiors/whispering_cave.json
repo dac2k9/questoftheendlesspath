@@ -610,7 +610,7 @@
       }
     }
   ],
-  "floor_cost_m": 40,
+  "floor_cost_m": 20,
   "monsters": [
     {
       "x": 13,

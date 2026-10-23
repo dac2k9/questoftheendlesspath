@@ -348,13 +348,30 @@ minimum that makes solo correct without regressing co-op.
   the client already draws (`WorldGrid::from_seed_with_dims` paints that
   block as Road ground); before, only the exact centre tile counted, so
   the ring was drawn as road, reported as "Road 20m" on hover, and
-  billed at the underlying biome — up to 120 m/tile in mountains.
+  billed at the underlying biome — a mountain tile at 3× the road rate.
   Note this is a **query rule, not extra entries in `map.roads`**:
   `place_chests` and `place_monsters` take `&roads` as a generation
   input, so growing that list would shift every chest and monster index,
   and those indices are what saves persist (`chest_{idx}`,
   `monster_{idx}`) — re-indexing would re-lock opened chests and revive
   killed monsters. Road-ness does not extend past that 3×3 block.
+- **No POI is a silent destination.** Walking all the way to a village,
+  shrine or cabin and having nothing happen reads as a bug, so every POI
+  of every registered adventure has at least one event that fires on
+  arrival (an `at_poi`, or an `at_tile` on its exact tile) — pinned by
+  `sim::no_poi_is_a_silent_destination`. The chaos map grew 4× in area
+  but its procedural POI count didn't (23 procedural + 10 authored) and
+  the authored events only reached 22 of the 33; the other 11 (villages
+  4/5/7, cabins 15–17, dungeons 10–11, cave 13, shrine 19, camp 21) now
+  have one. House style: a place with people gets an `npc_dialogue`
+  (named speaker, three lines, a small gold + consumable gift, and a
+  pointer onward — a direction toward the next castle or gate, sometimes
+  a `reveal_fog` on it); a place without gets a `requires_browser`
+  `story_beat` with a small cache. Reward item ids must exist in
+  `items.json` (`event_item_rewards_exist_in_the_item_catalog`) — an
+  unknown id doesn't fail loudly, the gift just never arrives. A new
+  seed or bigger map that adds POIs needs events before it ships; the
+  test names the ones missing.
 - Player must deliberately click on/near POI to walk there — no auto-snapping
 - **Visual markers on the map:** POI types with a custom PNG in
   `crates/gameclient/assets/poi/` render an illustrated landmark
@@ -371,20 +388,49 @@ minimum that makes solo correct without regressing co-op.
 - Player clicks tiles to plan route (A* pathfinding overworld, BFS interior)
 - Walker sends distance deltas every 2s
 - Game Master advances player along route based on accumulated distance
-- Tile costs: Road 20m, Grass 40m, Sand 50m, Forest 70m, Snow 70m, Swamp 100m, Mountain 120m
+- **Tile pricing: a 20 m base tile × a terrain modifier.** Every tile
+  costs at least `questlib::route::TILE_BASE_M` (20 m); terrain only
+  ever makes it harder, and only boons bring it back below. A road
+  (including the 3×3 around a POI) overrides the biome under it.
+
+  | Terrain | Modifier | Cost |
+  | --- | --- | --- |
+  | Road | ×1 | 20 m |
+  | Grassland | ×1.25 | 25 m |
+  | Desert, Forest | ×1.5 | 30 m |
+  | Snow | ×1.75 | 35 m |
+  | Dense forest | ×2 | 40 m |
+  | Swamp | ×2.5 | 50 m |
+  | Mountain | ×3 | 60 m |
+  | Water | — | impassable |
+
+  The table lives in `route::effort_pct` (percent of the base);
+  `tile_cost` = base × percent, and the `cost_is_base_times_terrain_modifier`
+  test pins every number. It replaced a flat per-biome list (grass 40,
+  forest 70, dense 90, mountain 120, …). On the chaos map that moves the
+  average off-road tile from ~74 m (~67 s at 4 km/h) to ~35 m (~32 s),
+  so roughly twice as many tiles — and so chests, monsters and POIs —
+  pass per km walked. Interiors have no terrain modifiers: each one is
+  a flat `floor_cost_m`, defaulting to the base 20 m (all three
+  authored interiors use 20).
+  **Boons come off these numbers**, since they scale walking speed on
+  the tile you stand on: Roadwise on a road is 15 m, Frostproof on snow
+  is 17.5 m — under the road rate, on purpose ("only boons go below the
+  floor"). The `Boons` section lists the multipliers.
 - **One cost model, and it's the server's.** `questlib::route::tile_cost(biome, has_road)`
   is the only pricing that counts, and the client reads it via
   `WorldGrid::server_tile_cost`. Everything the player sees or plans
-  against uses it: the "Xm to target" counter, the TAB hover readout,
-  and A* pathfinding. The client also has its own decoration-aware
-  `Terrain::movement_cost()` (overlay surcharges: trees +30, rocks +40,
-  and a Stone ground of 80 standing in for Mountain) — it disagreed with
-  the server on mountain (80 vs 120), dense forest (70 vs 90), untreed
-  forest tiles (40 vs 70) and POI approaches, so using it for the
-  tooltip meant the map quoted one price and the server charged another,
-  and using it for A* meant routes were optimised against a game the
-  player wasn't walking. It is now only reachable through
-  `Terrain::is_passable()`; treat it as rendering trivia, not pricing.
+  against uses it: the "Xm to target" counter, the TAB hover readout
+  (`route::describe_tile`, e.g. `Forest x1.5 = 30m` — it names the
+  *priced biome*, not the client's ground/overlay, so a forest tile with
+  no tree drawn on it can't read "Grass"), and A* pathfinding. The
+  client used to carry a second, decoration-aware price list
+  (`Terrain::movement_cost()`: trees +30, rocks +40, Stone = 80). It
+  disagreed with the server on mountain, dense forest, untreed forest
+  and POI approaches, so the map quoted one price while the server
+  charged another and A* optimised a game the player wasn't walking.
+  It is deleted; `Terrain::is_passable()` (walkability only) is what's
+  left of it. Don't add a client-side price back.
 - Character interpolates smoothly between tiles based on speed
 - **"Xm to target" HUD counter** (`hud::update_hud`) counts down
   meter-by-meter, not per-tile. It subtracts the same per-frame-smooth
@@ -398,10 +444,10 @@ minimum that makes solo correct without regressing co-op.
   player's current tile with no fractional term, so it only dropped
   once per server tick, by an entire tile's cost — e.g. 260m held flat
   then jumped straight to 220m instead of ticking 260…259…258. It also
-  used the client's decoration-aware `movement_cost()` (trees/rocks/
-  etc. add a surcharge the server doesn't know about), which drifted
-  from the real remaining distance on decorated tiles independent of
-  the jump bug.
+  used the client's own (since deleted) decoration-aware
+  `movement_cost()` (trees/rocks/etc. added a surcharge the server
+  doesn't know about), which drifted from the real remaining distance
+  on decorated tiles independent of the jump bug.
 - **`InterpolationState` only restarts its lerp clock on a genuinely new
   window from the server** (`apply_server_state`, `tilemap.rs`) —
   comparing incoming `(route_meters_walked, interp_meters_target,
@@ -755,7 +801,7 @@ so it never plays anywhere.
 - **Right click drag** — pan camera
 - **Scroll wheel** — zoom (smooth, 500ms easeout)
 - **ESC** — clear planned route
-- **TAB (hold)** — show your name tag, other players' name tags, tile info on hover, POI labels
+- **TAB (hold)** — show your name tag, other players' name tags, tile info on hover (terrain, modifier, cost — e.g. `Forest x1.5 = 30m`), POI labels
 - **I** — toggle inventory panel (right side)
 - **J** — toggle journal panel ("story so far" of completed events)
 - **X** — dismiss notification banner
@@ -1027,7 +1073,12 @@ curl -s -X POST $BASE/admin/grant_boon_choice \
 
 - `dev_state.json` — auto-saved every 30s by Game Master, and on SIGTERM
 - Contains: player positions, gold, inventory, fog, per-event status
-- Versioned (`SaveData.version`); `migrate_save` handles older versions
+- Versioned (`SaveData.version`, currently 2); `migrate_save` handles older versions.
+  **v1 → v2** (tile repricing) clears every player's `planned_route` and
+  `route_meters_walked` once on first load: a saved route distance was
+  measured against the old price list, and on the new one it would drop
+  a mid-route player several tiles further along — skipping whatever POI
+  they were about to step on. They stop where they are and re-plan.
 - Item ids that disappear from the catalog are pruned from inventory/equipment on load
 - Event definitions are re-read fresh from `EVENTS_PATH` every startup — only per-event status is carried over, so content updates (shops, triggers, outcomes) don't require wiping the save
 - Delete to reset locally: `rm dev_state.json`

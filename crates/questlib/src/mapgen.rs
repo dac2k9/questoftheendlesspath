@@ -850,7 +850,7 @@ mod tests {
         // The client paints the whole 3×3 block around a POI as Road
         // ground, so those tiles must price as road too — otherwise the
         // map shows a road, the hover reads "Road 20m", and the server
-        // bills the underlying biome (120 m/tile in mountains). Live
+        // bills the underlying biome (3× the road rate in mountains). Live
         // report: "I walk on road, but its mountain region and the tile
         // counts as 100m even if the road says 20m."
         let map = WorldMap::generate(42);
@@ -866,7 +866,7 @@ mod tests {
                 );
                 assert_eq!(
                     crate::route::tile_cost(map.biome_at(x, y), map.has_road_at(x, y)),
-                    20,
+                    crate::route::TILE_BASE_M,
                     "POI ring tile ({x},{y}) should cost the road rate"
                 );
             }

@@ -740,7 +740,7 @@ fn handle_request(request: &str, state: &SharedState, events: &SharedEvents, not
                 if let Some(player) = lock.get_mut(&req.player_id) {
                     let current = (player.map_tile_x as usize, player.map_tile_y as usize);
                     let interior_per_tile: Option<f64> = player.location.interior_id()
-                        .map(|id| interiors_ref.get(id).map(|i| i.floor_cost_m).unwrap_or(40) as f64);
+                        .map(|id| interiors_ref.get(id).map(|i| i.floor_cost_m).unwrap_or(questlib::route::TILE_BASE_M) as f64);
                     let old_parsed = questlib::route::parse_route_json(&player.planned_route)
                         .unwrap_or_default();
                     let new_meters = seed_route_meters(

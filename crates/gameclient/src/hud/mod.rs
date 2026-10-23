@@ -235,11 +235,7 @@ fn update_hud(
                 // which marks the route complete the instant meters_walked
                 // reaches this same sum — see its `route_total_cost_matches_sum`
                 // test). Uses `server_tile_cost` (biome/road based), matching
-                // what the server actually consumes for `route_meters_walked` —
-                // the previous `movement_cost()` here also counted client-only
-                // decorative overlay surcharges (trees, rocks, …) the server
-                // doesn't know about, so it drifted from the real remaining
-                // distance on decorated tiles independent of the jump bug below.
+                // what the server actually consumes for `route_meters_walked`.
                 let last = route.waypoints.len().saturating_sub(1);
                 let total_cost: f64 = route.waypoints[..last]
                     .iter()

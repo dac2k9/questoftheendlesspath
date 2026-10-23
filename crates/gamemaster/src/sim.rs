@@ -169,7 +169,7 @@ impl SimulatedRun {
         if let Some(p) = lock.get_mut(pid) {
             let current = (p.map_tile_x as usize, p.map_tile_y as usize);
             let interior_per_tile: Option<f64> = p.location.interior_id()
-                .map(|id| self.bundle.interiors.get(id).map(|i| i.floor_cost_m).unwrap_or(40) as f64);
+                .map(|id| self.bundle.interiors.get(id).map(|i| i.floor_cost_m).unwrap_or(questlib::route::TILE_BASE_M) as f64);
             let old_parsed = questlib::route::parse_route_json(&p.planned_route).unwrap_or_default();
             p.route_meters_walked = crate::devserver::seed_route_meters(
                 &self.bundle.world, interior_per_tile, current, &old_parsed, route,
@@ -1272,5 +1272,104 @@ mod tests {
         assert!(bob_snap.completed_events.contains(&"chaos_hierophant_shadow".to_string()),
             "Bob's independent win must be recorded even though Alice already completed this event globally");
         assert!(bob_snap.gold >= 400, "Bob must get his own victory gold; got {}", bob_snap.gold);
+    }
+
+    /// True if `cond` can fire when a player arrives on `poi`: an `at_poi`
+    /// on it, or an `at_tile` on its exact tile — bare, or inside `all` /
+    /// `any`. (`not` can't be an arrival.)
+    fn fires_on_arrival(
+        cond: &questlib::events::TriggerCondition,
+        poi: &questlib::mapgen::PointOfInterest,
+    ) -> bool {
+        use questlib::events::TriggerCondition as T;
+        match cond {
+            T::AtPoi { poi_id } => *poi_id == poi.id,
+            T::AtTile { x, y } => (*x, *y) == (poi.x, poi.y),
+            T::All { conditions } | T::Any { conditions } => {
+                conditions.iter().any(|c| fires_on_arrival(c, poi))
+            }
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn no_poi_is_a_silent_destination() {
+        // Walking all the way to a village or shrine and having nothing at
+        // all happen reads as a bug ("no event or text or shop"). The chaos
+        // map grew 4× in area but its procedural POI count didn't, and the
+        // authored events only reached 22 of its 33 POIs — 11 destinations
+        // that did nothing. Every POI of every registered adventure must
+        // have at least one event that fires on arrival.
+        ensure_workspace_cwd();
+        for preset in adventure::presets() {
+            let adventure_id = preset.id.clone();
+            let bundle = adventure::load_bundle(preset).expect("load bundle");
+            let events = bundle.events.lock().unwrap();
+            let silent: Vec<String> = bundle.world.pois.iter()
+                .filter(|poi| !events.events.iter().any(|e| fires_on_arrival(&e.trigger, poi)))
+                .map(|poi| format!("{:?} #{} at ({},{})", poi.poi_type, poi.id, poi.x, poi.y))
+                .collect();
+            assert!(silent.is_empty(), "{adventure_id}: POIs with no arrival event: {silent:?}");
+        }
+    }
+
+    #[test]
+    fn formerly_silent_pois_greet_the_player() {
+        // The 11 chaos POIs that used to do nothing, and the event that now
+        // greets a fresh player standing on each. One player per POI, all
+        // ticked together (the stationary pass handles every player per
+        // run_tick_dev call).
+        const GREETINGS: [(usize, &str); 11] = [
+            (4, "chaos_npc_coast_netmender"),
+            (5, "chaos_npc_storm_bellringer"),
+            (7, "chaos_npc_spire_herbwife"),
+            (10, "chaos_beat_broken_garrison"),
+            (11, "chaos_beat_warm_stair"),
+            (13, "chaos_beat_cave_cairns"),
+            (15, "chaos_npc_widow_lamp"),
+            (16, "chaos_npc_struck_survivor"),
+            (17, "chaos_npc_shore_salvager"),
+            (19, "chaos_beat_pebble_shrine"),
+            (21, "chaos_npc_frost_watch"),
+        ];
+        let mut run = SimulatedRun::for_chaos();
+        let mut players = Vec::new();
+        for (poi_id, event_id) in GREETINGS {
+            let poi = run.bundle.world.pois.iter().find(|p| p.id == poi_id).expect("poi exists");
+            let (x, y) = (poi.x as i32, poi.y as i32);
+            let pid = run.spawn_player(&format!("poi{poi_id}"));
+            run.teleport(&pid, x, y);
+            players.push((poi_id, event_id, pid));
+        }
+        run.tick_walking(&players[0].2, 1.0, 0.0);
+        for (poi_id, event_id, pid) in &players {
+            assert!(
+                run.snapshot(pid).unwrap().pending_display_events.contains(&event_id.to_string()),
+                "standing on POI {poi_id} should queue {event_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn event_item_rewards_exist_in_the_item_catalog() {
+        // An unknown item id in an outcome doesn't fail loudly — the gift
+        // just never arrives (and a saved one is pruned on load). Catch
+        // typos here instead.
+        ensure_workspace_cwd();
+        for preset in adventure::presets() {
+            let adventure_id = preset.id.clone();
+            let bundle = adventure::load_bundle(preset).expect("load bundle");
+            let events = bundle.events.lock().unwrap();
+            for e in &events.events {
+                for o in &e.outcomes {
+                    if let questlib::events::EventOutcome::Item { name } = o {
+                        assert!(
+                            crate::item_catalog().get(name).is_some(),
+                            "{adventure_id}/{}: reward item {name:?} is not in items.json", e.id
+                        );
+                    }
+                }
+            }
+        }
     }
 }
